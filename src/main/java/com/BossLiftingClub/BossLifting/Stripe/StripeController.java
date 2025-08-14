@@ -964,54 +964,65 @@ public class StripeController {
                 MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
                 helper.setTo(email);
                 helper.setFrom(NEW_CONTACT_EMAIL);
-                helper.setSubject("You're Invited: CLT x KKB Open Gym Social Event – Aug 16th");
+                helper.setSubject("Don’t Miss This! – CLT Lifting Club x Kingdom Kickbacks Social Event");
                 String htmlContent = """
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <style>
-                        body { font-family: Arial, sans-serif; color: #333; }
-                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                        .header { background-color: #f8f8f8; padding: 10px; text-align: center; }
-                        .content { padding: 20px; }
-                        .footer { font-size: 12px; color: #777; text-align: center; }
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <div class="header">
-                            <h2>CLT Lifting Club</h2>
-                        </div>
-                        <div class="content">
-                            <p>Hey CLT Family,</p>
-                            <p>CLT Lifting Club is teaming up with Kingdom KickBacks for an epic Open Gym Social day focused on movement, connection, and building a close community. We'd love to see you there!</p>
-                            <p>Why You Need to Be Here:</p>
-                            <ul>
-                                <li>Smash your workout during Open Gym</li>
-                                <li>Fuel up with fresh coffee + local food truck eats</li>
-                                <li>DJ spinning high-energy tracks to keep the vibe right</li>
-                                <li>Cold plunge & sauna recovery zone</li>
-                                <li>Meet other members and build real community</li>
-                                <li>Bring your friends — FREE</li>
-                            </ul>
-                            <p>Details:</p>
-                            <p>When: Saturday, August 16th | 10 AM – 1 PM</p>
-                            <p>Where: CLT Lifting Club, 3100 South Boulevard, Charlotte, NC 28203</p>
-                            <p>One Click to Join the Tribe:</p>
-                            <p>Let us know you're coming! <a href="https://www.evite.com/signup-sheet/6025706806444032/?utm_campaign=send_sharable_link&utm_source=evitelink&utm_medium=sharable_invite">RSVP NOW</a></p>
-                            <p>Bonus: On August 16th post a workout or event hype pic using #CLTLiftingClub and tag @CLTLiftingClub for a chance to win a free CLT tee</p>
-                            <p>Let’s make August 16th a day of strength, connection, and unforgettable memories!</p>
-                            <p>Stay elite,<br>The CLT Lifting Club Team</p>
-                        </div>
-                        <div class="footer">
-                            <p>CLT Lifting Club | %s</p>
-                        </div>
-                    </div>
-                </body>
-                </html>
-                """.formatted(NEW_CONTACT_EMAIL);
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #f8f8f8; padding: 10px; text-align: center; }
+        .content { padding: 20px; }
+        .footer { font-size: 12px; color: #777; text-align: center; }
+        a.button {
+            display: inline-block;
+            padding: 10px 15px;
+            background-color: #007BFF;
+            color: white !important;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        a.button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>CLT Lifting Club</h2>
+        </div>
+        <div class="content">
+            <p>CLT Lifting Club is teaming up with Kingdom Kickbacks for an epic Open Gym Social — a day packed with fitness, connections, and memories you won’t want to miss.</p>
+            <p><strong>Here’s what’s going down:</strong></p>
+            <ul>
+                <li>Food Truck: Smart Eats</li>
+                <li>Coffee Cart: Breezeway Coffee</li>
+                <li>Cold Plunge: Plunge House</li>
+                <li>Saunas to recover and recharge</li>
+                <li>Live DJ for the perfect workout vibe</li>
+                <li>Full Gym Access + fun fitness challenges</li>
+                <li><strong>FREE for you and your friends</strong></li>
+            </ul>
+            <p><strong>Date:</strong> Saturday, August 16th | 10 AM – 1 PM</p>
+            <p><strong>Location:</strong> CLT Lifting Club, 3100 South Boulevard, Charlotte, NC 28203</p>
+            <p><strong>Bonus:</strong> Post a workout or event hype photo/video on August 16th using #CLTLiftingClub and tag @CLTLiftingClub for your chance to win a free CLT tee.</p>
+            <p><a href="https://www.evite.com/signup-sheet/6025706806444032/?utm_campaign=send_sharable_link&utm_source=evitelink&utm_medium=sharable_invite" class="button">RSVP NOW</a> to let us know you’re coming, walk-ins are still welcome!</p>
+            <p>Let’s make this the best South End community event of the summer.</p>
+            <p>See you there,<br>The CLT Lifting Club Team</p>
+        </div>
+        <div class="footer">
+            <p>CLT Lifting Club | %s</p>
+        </div>
+    </div>
+</body>
+</html>
+""".formatted(NEW_CONTACT_EMAIL);
                 helper.setText(htmlContent, true);
                 mailSender.send(mimeMessage);
+
 
                 successes.add("User ID " + user.getId() + ": Email sent to " + email);
             } catch (StripeException e) {
