@@ -1,6 +1,7 @@
 package com.BossLiftingClub.BossLifting.User;
 
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
+import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
 import com.BossLiftingClub.BossLifting.User.UserTitles.UserTitles;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -81,6 +82,9 @@ public class User {
     @JoinColumn(name = "referred_by_id")
     private User referredBy;
 
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
+    private Set<SignInLog> signInLogs = new HashSet<>();
 
     @OneToMany(mappedBy = "referredBy", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<User> referredMembers = new HashSet<>();
@@ -260,6 +264,38 @@ public class User {
 
     public void setChildren(Set<User> children) {
         this.children = children;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public Boolean getInGoodStanding() {
+        return isInGoodStanding;
+    }
+
+    public void setInGoodStanding(Boolean inGoodStanding) {
+        isInGoodStanding = inGoodStanding;
+    }
+
+    public void setOver18(boolean over18) {
+        isOver18 = over18;
+    }
+
+    public String getLockedInRate() {
+        return lockedInRate;
+    }
+
+    public void setChildrenDto(Set<UserDTO> childrenDto) {
+        this.childrenDto = childrenDto;
+    }
+
+    public Set<SignInLog> getSignInLogs() {
+        return signInLogs;
+    }
+
+    public void setSignInLogs(Set<SignInLog> signInLogs) {
+        this.signInLogs = signInLogs;
     }
 
 }

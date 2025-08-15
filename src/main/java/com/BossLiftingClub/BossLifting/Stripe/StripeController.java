@@ -593,7 +593,7 @@ public class StripeController {
             helper.setTo(toEmail);
             helper.setSubject(subject);
             helper.setText(htmlContent, true);
-            helper.setFrom("contact@cltliftingclub.com");
+            helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
 
             mailSender.send(message);
 
@@ -664,7 +664,7 @@ public class StripeController {
             helper.setTo(toEmail);
             helper.setSubject("Test the CLT Lifting Club App for Play Store Launch – Join Now!");
             helper.setText(htmlContent, true);
-            helper.setFrom("contact@cltliftingclub.com");
+            helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
 
             mailSender.send(message);
 
@@ -811,7 +811,7 @@ public class StripeController {
             helper.setTo(newCusEmail);
             helper.setSubject(subject);
             helper.setText(htmlContent, true);
-            helper.setFrom("contact@cltliftingclub.com");
+            helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
 
             mailSender.send(message);
 
@@ -901,7 +901,7 @@ public class StripeController {
         MimeMessage message = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message, true);
 
-        helper.setFrom("contact@cltliftingclub.com");
+        helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
         helper.setTo(toEmail);
         helper.setSubject("Sorry to See You Go - Why’d You Leave?");
 
@@ -963,7 +963,7 @@ public class StripeController {
                 MimeMessage mimeMessage = mailSender.createMimeMessage();
                 MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
                 helper.setTo(email);
-                helper.setFrom(NEW_CONTACT_EMAIL);
+                helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
                 helper.setSubject("Don’t Miss This! – CLT Lifting Club x Kingdom Kickbacks Social Event");
                 String htmlContent = """
 <!DOCTYPE html>
