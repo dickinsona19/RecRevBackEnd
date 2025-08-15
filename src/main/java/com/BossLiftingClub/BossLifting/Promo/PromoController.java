@@ -30,7 +30,7 @@ public class PromoController {
     @Autowired
     private PromoService promoService;
 
-    private static final String RECIPIENT_EMAIL = "contact@gmail.com";
+    private static final String RECIPIENT_EMAIL = "contact@cltliftingclub.com";
     private static final int QR_CODE_WIDTH = 200;
     private static final int QR_CODE_HEIGHT = 200;
 
