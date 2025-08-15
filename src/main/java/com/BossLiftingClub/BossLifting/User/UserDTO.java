@@ -54,10 +54,11 @@ public class UserDTO {
         this.childrenDto = user.getChildrenDto();
         this.referredById = user.getReferredBy() != null ? user.getReferredBy().getId() : null;
         this.membership = user.getMembership();
-        this.signInLogs = user.getSignInLogs()!= null ?user.getSignInLogs()
-                .stream()
-                .map(SignInLogDto::new)
-                .collect(Collectors.toSet()) : null;
+        if (user.getSignInLogs() != null) {
+            this.signInLogs = user.getSignInLogs().stream()
+                    .map(SignInLogDto::new)
+                    .collect(Collectors.toSet());
+        }
     }
 
     public Long getId() {
