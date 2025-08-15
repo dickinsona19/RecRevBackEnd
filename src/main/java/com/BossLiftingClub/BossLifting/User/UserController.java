@@ -171,7 +171,7 @@ public class UserController {
 
         MimeMessage mimeMessage = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-        helper.setTo("anndreuis@gmail.com");
+        helper.setTo("will@cltliftingclub.com");
         helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
         helper.setSubject("HI WILL, THIS IS AN AUTOMATED MESSAGE STATING THAT SOMEONE HAS SCANNED IN");
         String htmlContent = """
