@@ -24,4 +24,5 @@ public interface UserService {
     boolean updateReferralCode(String referralCode, String newReferralCode);
     User updateUserOver18(long userId);
     UserDTO addChildToParent(Long parentId, User user);
+    UserDTO processBarcodeScan(String barcode) throws Exception;
 }

@@ -147,74 +147,8 @@ public class UserController {
 
     @GetMapping("/barcode/{barcode}")
     public ResponseEntity<UserDTO> getUserByBarcode(@PathVariable String barcode) throws Exception {
-        // Find user by barcode
-        Optional<User> userOptional = userService.getUserByBarcodeToken(barcode);
-        if (userOptional.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        User user = userOptional.get();
-
-        // Save a sign-in log
-        SignInLog log = new SignInLog();
-        log.setUser(user);
-        log.setSignInTime(LocalDateTime.now());
-        signInLogRepository.save(log);
-
-        // Send notification email
-        MimeMessage mimeMessage = mailSender.createMimeMessage();
-        MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-        helper.setTo("will@cltliftingclub.com");
-        helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
-        helper.setSubject("HI WILL, THIS IS AN AUTOMATED MESSAGE STATING THAT SOMEONE HAS SCANNED IN");
-        String htmlContent = """
-<!DOCTYPE html>
-<html>
-<head>
-    <style>
-        body { font-family: Arial, sans-serif; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: #f8f8f8; padding: 10px; text-align: center; }
-        .content { padding: 20px; }
-        .footer { font-size: 12px; color: #777; text-align: center; }
-        a.button {
-            display: inline-block;
-            padding: 10px 15px;
-            background-color: #007BFF;
-            color: white !important;
-            text-decoration: none;
-            border-radius: 5px;
-            font-weight: bold;
-        }
-        a.button:hover {
-            background-color: #0056b3;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h2>CLT Lifting Club</h2>
-        </div>
-        <div class="content">
-            <p><strong>HI WILL JUST WANTED TO LET YOU KNOW THAT SOMEONE SCANNED IN AT CLT LIFTING CLUB!!! HAVE A BEAUTIFUL DAY!</strong></p>
-        </div>
-        <div class="footer">
-            <p>CLT Lifting Club | %s</p>
-        </div>
-    </div>
-</body>
-</html>
-""".formatted("contact@cltliftingclub.com");
-        helper.setText(htmlContent, true);
-        mailSender.send(mimeMessage);
-
-        // Reload user with sign-in logs initialized
-        User userWithLogs = userRepository.findByIdWithSignInLogs(user.getId())
-                .orElseThrow(() -> new Exception("User not found"));
-
-        // Build DTO from fully initialized entity
-        UserDTO userDTO = new UserDTO(userWithLogs);
-        return ResponseEntity.ok(userDTO);
+        UserDTO dto = userService.processBarcodeScan(barcode);
+        return ResponseEntity.ok(dto);
     }
 
 
