@@ -21,4 +21,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Modifying
     int updateReferralCode(@Param("currentReferralCode") String currentReferralCode,
                            @Param("newReferralCode") String newReferralCode);
+
+
+    @Query("SELECT u FROM User u LEFT JOIN FETCH u.signInLogs WHERE u.id = :id")
+    Optional<User> findByIdWithSignInLogs(@Param("id") Long id);
 }

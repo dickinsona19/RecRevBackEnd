@@ -8,6 +8,7 @@ import com.stripe.model.billingportal.Session;
 
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
+import org.checkerframework.checker.units.qual.A;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -34,6 +35,8 @@ public class UserController {
     @Autowired
     private JavaMailSender mailSender;
 
+    @Autowired
+    private UserRepository userRepository;
     @Autowired
     private SignInLogRepository signInLogRepository;
     @Autowired
@@ -142,33 +145,22 @@ public class UserController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    @PutMapping("/password/{id}")
-    public ResponseEntity<User> updateUserPassword(@PathVariable Long id, @RequestBody User userDetails) {
-        return userService.findById(id)
-                .map(user -> {
-                    user.setPassword(userDetails.getPassword());
-                    try {
-                        return ResponseEntity.ok(userService.save(user));
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                })
-                .orElse(ResponseEntity.notFound().build());
-    }
-
     @GetMapping("/barcode/{barcode}")
-    public ResponseEntity<UserDTO> getUserByBarcode(@PathVariable String barcode) throws MessagingException, MessagingException {
-
+    public ResponseEntity<UserDTO> getUserByBarcode(@PathVariable String barcode) throws Exception {
+        // Find user by barcode
         Optional<User> userOptional = userService.getUserByBarcodeToken(barcode);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        User user = userOptional.get();
 
-        userOptional.ifPresent(user -> {
-            SignInLog log = new SignInLog();
-            log.setUser(user);
-            log.setSignInTime(LocalDateTime.now());
-            signInLogRepository.save(log);
-        });
+        // Save a sign-in log
+        SignInLog log = new SignInLog();
+        log.setUser(user);
+        log.setSignInTime(LocalDateTime.now());
+        signInLogRepository.save(log);
 
-
+        // Send notification email
         MimeMessage mimeMessage = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
         helper.setTo("will@cltliftingclub.com");
@@ -204,9 +196,7 @@ public class UserController {
             <h2>CLT Lifting Club</h2>
         </div>
         <div class="content">
-         
-            <p><strong>HI WILL JUST WANTED TO LET YOU KNOW THAT SOMEONE SCANNED IN AT CLTLIFTING CLUB!!! HAVE A BEAUTIFUL DAY!</strong></p>
-           
+            <p><strong>HI WILL JUST WANTED TO LET YOU KNOW THAT SOMEONE SCANNED IN AT CLT LIFTING CLUB!!! HAVE A BEAUTIFUL DAY!</strong></p>
         </div>
         <div class="footer">
             <p>CLT Lifting Club | %s</p>
@@ -218,10 +208,13 @@ public class UserController {
         helper.setText(htmlContent, true);
         mailSender.send(mimeMessage);
 
-        return userService.getUserByBarcodeToken(barcode)
-                .map(UserDTO::new)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        // Reload user with sign-in logs initialized
+        User userWithLogs = userRepository.findByIdWithSignInLogs(user.getId())
+                .orElseThrow(() -> new Exception("User not found"));
+
+        // Build DTO from fully initialized entity
+        UserDTO userDTO = new UserDTO(userWithLogs);
+        return ResponseEntity.ok(userDTO);
     }
 
 
