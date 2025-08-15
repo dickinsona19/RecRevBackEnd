@@ -1,8 +1,14 @@
 package com.BossLiftingClub.BossLifting.User;
 
 
+import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
+import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLogRepository;
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,7 +26,10 @@ public class UserServiceImpl implements UserService {
     private final SecureRandom random = new SecureRandom();
     private static final String CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private final PasswordEncoder passwordEncoder;
-
+    @Autowired
+    private SignInLogRepository signInLogRepository;
+    @Autowired
+    private JavaMailSender mailSender;
     @Autowired
     public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
@@ -238,5 +247,63 @@ public class UserServiceImpl implements UserService {
         return users.stream()
                 .map(UserDTO::new)
                 .collect(Collectors.toList());
+    }
+
+
+
+    @Transactional
+    public UserDTO processBarcodeScan(String barcode) throws Exception {
+        User user = getUserByBarcodeToken(barcode)
+                .orElseThrow(() -> new Exception("User not found"));
+
+        // Save sign-in log
+        SignInLog log = new SignInLog();
+        log.setUser(user);
+        log.setSignInTime(LocalDateTime.now());
+        signInLogRepository.save(log);
+
+        // Send email (can stay inside transaction unless mail failures should not rollback)
+        sendScanNotification();
+
+        // Load user with sign-in logs initialized
+        User userWithLogs = userRepository.findByIdWithSignInLogs(user.getId())
+                .orElseThrow(() -> new Exception("User not found after saving log"));
+
+        return new UserDTO(userWithLogs);
+    }
+
+    private void sendScanNotification() throws MessagingException {
+        MimeMessage mimeMessage = mailSender.createMimeMessage();
+        MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
+        helper.setTo("will@cltliftingclub.com");
+        helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
+        helper.setSubject("HI WILL, THIS IS AN AUTOMATED MESSAGE STATING THAT SOMEONE HAS SCANNED IN");
+        String htmlContent = """ 
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #f8f8f8; padding: 10px; text-align: center; }
+        .content { padding: 20px; }
+        .footer { font-size: 12px; color: #777; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header"><h2>CLT Lifting Club</h2></div>
+        <div class="content">
+            <p><strong>HI WILL JUST WANTED TO LET YOU KNOW THAT SOMEONE SCANNED IN AT CLT LIFTING CLUB!!! HAVE A BEAUTIFUL DAY!</strong></p>
+        </div>
+        <div class="footer">
+            <p>CLT Lifting Club | %s</p>
+        </div>
+    </div>
+</body>
+</html>
+""".formatted("contact@cltliftingclub.com");
+        helper.setText(htmlContent, true);
+        mailSender.send(mimeMessage);
     }
 }
