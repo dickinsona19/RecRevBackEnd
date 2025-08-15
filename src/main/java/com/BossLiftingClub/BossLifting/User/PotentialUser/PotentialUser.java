@@ -235,7 +235,7 @@ class PotentialUserController {
                     throw new RuntimeException(e);
                 }
                 helper.setTo(email);
-                helper.setFrom(NEW_CONTACT_EMAIL);
+                helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
                 helper.setSubject("Don’t Miss This! – CLT Lifting Club x Kingdom Kickbacks Social Event");
                 String htmlContent = """
     <!DOCTYPE html>

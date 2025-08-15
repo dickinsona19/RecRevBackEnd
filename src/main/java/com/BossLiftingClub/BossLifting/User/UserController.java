@@ -1,16 +1,24 @@
 package com.BossLiftingClub.BossLifting.User;
 
 import com.BossLiftingClub.BossLifting.User.PasswordAuth.JwtUtil;
+import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
+import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLogRepository;
 import com.stripe.model.Customer;
 import com.stripe.model.billingportal.Session;
+
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +30,12 @@ public class UserController {
     private final BarcodeService barcodeService;
     private final UserService userService;
     private final FirebaseService firebaseService;
+
+    @Autowired
+    private JavaMailSender mailSender;
+
+    @Autowired
+    private SignInLogRepository signInLogRepository;
     @Autowired
     public UserController(UserService userService, BarcodeService barcodeService, FirebaseService firebaseService) {
         this.userService = userService;
@@ -143,7 +157,67 @@ public class UserController {
     }
 
     @GetMapping("/barcode/{barcode}")
-    public ResponseEntity<UserDTO> getUserByBarcode(@PathVariable String barcode) {
+    public ResponseEntity<UserDTO> getUserByBarcode(@PathVariable String barcode) throws MessagingException, MessagingException {
+
+        Optional<User> userOptional = userService.getUserByBarcodeToken(barcode);
+
+        userOptional.ifPresent(user -> {
+            SignInLog log = new SignInLog();
+            log.setUser(user);
+            log.setSignInTime(LocalDateTime.now());
+            signInLogRepository.save(log);
+        });
+
+
+        MimeMessage mimeMessage = mailSender.createMimeMessage();
+        MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
+        helper.setTo("anndreuis@gmail.com");
+        helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
+        helper.setSubject("HI WILL, THIS IS AN AUTOMATED MESSAGE STATING THAT SOMEONE HAS SCANNED IN");
+        String htmlContent = """
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #f8f8f8; padding: 10px; text-align: center; }
+        .content { padding: 20px; }
+        .footer { font-size: 12px; color: #777; text-align: center; }
+        a.button {
+            display: inline-block;
+            padding: 10px 15px;
+            background-color: #007BFF;
+            color: white !important;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        a.button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>CLT Lifting Club</h2>
+        </div>
+        <div class="content">
+         
+            <p><strong>HI WILL JUST WANTED TO LET YOU KNOW THAT SOMEONE SCANNED IN AT CLTLIFTING CLUB!!! HAVE A BEAUTIFUL DAY!</strong></p>
+           
+        </div>
+        <div class="footer">
+            <p>CLT Lifting Club | %s</p>
+        </div>
+    </div>
+</body>
+</html>
+""".formatted("contact@cltliftingclub.com");
+        helper.setText(htmlContent, true);
+        mailSender.send(mimeMessage);
+
         return userService.getUserByBarcodeToken(barcode)
                 .map(UserDTO::new)
                 .map(ResponseEntity::ok)

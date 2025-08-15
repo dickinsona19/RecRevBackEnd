@@ -2,6 +2,9 @@ package com.BossLiftingClub.BossLifting.User;
 
 import java.time.LocalDateTime;
 import java.util.Set;
+import java.util.stream.Collectors;
+
+import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLogDto;
 import com.BossLiftingClub.BossLifting.User.UserTitles.UserTitles;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 
@@ -27,7 +30,7 @@ public class UserDTO {
     private Set<UserDTO> childrenDto;
     private Long referredById;
     private Membership membership;
-
+    private Set<SignInLogDto> signInLogs;
     public UserDTO() {}
 
     public UserDTO(User user) {
@@ -51,6 +54,10 @@ public class UserDTO {
         this.childrenDto = user.getChildrenDto();
         this.referredById = user.getReferredBy() != null ? user.getReferredBy().getId() : null;
         this.membership = user.getMembership();
+        this.signInLogs = user.getSignInLogs()
+                .stream()
+                .map(SignInLogDto::new)
+                .collect(Collectors.toSet());
     }
 
     public Long getId() {
@@ -75,6 +82,13 @@ public class UserDTO {
 
     public void setLastName(String lastName) {
         this.lastName = lastName;
+    }
+
+    public Set<SignInLogDto> getSignInLogs() {
+        return signInLogs;
+    }
+    public void setSignInLogs(Set<SignInLogDto> signInLogs) {
+        this.signInLogs = signInLogs;
     }
 
     public String getPhoneNumber() {
