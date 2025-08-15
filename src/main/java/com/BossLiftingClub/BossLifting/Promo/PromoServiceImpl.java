@@ -6,6 +6,7 @@ import com.BossLiftingClub.BossLifting.User.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -34,6 +35,7 @@ public class PromoServiceImpl implements PromoService {
         );
     }
 
+    @Transactional(readOnly = true)
     @Override
     public List<PromoDTO> findAll() {
         return promoRepository.findAllWithUsers().stream()
