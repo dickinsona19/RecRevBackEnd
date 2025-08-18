@@ -95,6 +95,11 @@ public class UserController {
     public List<User> getAllUsers() {
         return userService.findAll();
     }
+
+    @GetMapping("/basic")
+    public List<UserDTOBasic> getAllUsersDTOBasic() {
+        return userService.getAllUserDTOBasics();
+    }
     //Delete User given Phone Number
     @DeleteMapping("/delete-user")
     public ResponseEntity<Map<String, Object>> deleteUser(@RequestBody Map<String, String> request) {
