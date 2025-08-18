@@ -29,18 +29,19 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
 
     @Query("""
-       SELECT new com.BossLiftingClub.BossLifting.User.UserDTOBasic(
-           u.id,
-           u.firstName,
-           u.lastName,
-           u.isInGoodStanding,
-           u.isOver18,
-           u.signatureData,
-           u.profilePictureUrl,
-           u.membership
-       )
-       FROM User u
-    """)
+    SELECT new com.BossLiftingClub.BossLifting.User.UserDTOBasic(
+        u.id,
+        u.firstName,
+        u.lastName,
+        u.isInGoodStanding,
+        u.isOver18,
+        u.signatureData,
+        u.profilePictureUrl,
+        u.membership
+    )
+    FROM User u
+    LEFT JOIN u.membership m
+""")
     List<UserDTOBasic> findAllUserDTOBasic();
 }
 
