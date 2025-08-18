@@ -25,4 +25,5 @@ public interface UserService {
     User updateUserOver18(long userId);
     UserDTO addChildToParent(Long parentId, User user);
     UserDTO processBarcodeScan(String barcode) throws Exception;
+    List<UserDTOBasic> getAllUserDTOBasics();
 }
