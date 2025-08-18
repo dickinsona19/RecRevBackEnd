@@ -118,8 +118,9 @@ public class UserController {
 
     // Get a single user by id
     @GetMapping("/{id}")
-    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+    public ResponseEntity<UserDTO> getUserById(@PathVariable Long id) {
         return userService.findById(id)
+                .map(user -> new UserDTO(user))
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
