@@ -1,6 +1,7 @@
 package com.BossLiftingClub.BossLifting.User;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -31,6 +32,7 @@ public class UserDTO {
     private Long referredById;
     private Membership membership;
     private Set<SignInLogDto> signInLogs;
+    private List<String> clubTags;
     public UserDTO() {}
 
     public UserDTO(User user) {
@@ -59,6 +61,7 @@ public class UserDTO {
                     .map(SignInLogDto::new)
                     .collect(Collectors.toSet());
         }
+        this.clubTags = user.getClubTags();
     }
 
     public Long getId() {
@@ -226,5 +229,33 @@ public class UserDTO {
 
     public void setMembership(Membership membership) {
         this.membership = membership;
+    }
+
+    public Boolean getInGoodStanding() {
+        return isInGoodStanding;
+    }
+
+    public void setInGoodStanding(Boolean inGoodStanding) {
+        isInGoodStanding = inGoodStanding;
+    }
+
+    public Boolean getOver18() {
+        return isOver18;
+    }
+
+    public void setOver18(Boolean over18) {
+        isOver18 = over18;
+    }
+
+    public String getLockedInRate() {
+        return lockedInRate;
+    }
+
+    public List<String> getClubTags() {
+        return clubTags;
+    }
+
+    public void setClubTags(List<String> clubTags) {
+        this.clubTags = clubTags;
     }
 }

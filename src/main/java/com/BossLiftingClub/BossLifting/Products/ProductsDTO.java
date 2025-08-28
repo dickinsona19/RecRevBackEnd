@@ -1,36 +1,34 @@
 package com.BossLiftingClub.BossLifting.Products;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 
-import com.BossLiftingClub.BossLifting.Club.Club;
-import com.fasterxml.jackson.annotation.JsonBackReference;
-import jakarta.persistence.*;
-
-@Entity
-@Table(name = "products")
-public class Products {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class ProductsDTO {
     private Long id;
-
-    @Column
     private String name;
-
-    @Column
     private String definition;
-
-    @Column
     private Double price;
-
-    @Column(name = "image_url")
     private String imageUrl;
-
-    @Column
     private String category;
-
-    @Column(name = "stripe_product_id")
     private String stripeProductId;
-
-    @Column(name = "club_tag")
     private String clubTag;
+
+    // Static mapper to convert from entity to DTO
+    public static ProductsDTO fromEntity(Products product) {
+        ProductsDTO dto = new ProductsDTO();
+        dto.setId(product.getId());
+        dto.setName(product.getName());
+        dto.setDefinition(product.getDefinition());
+        dto.setPrice(product.getPrice());
+        dto.setImageUrl(product.getImageUrl());
+        dto.setCategory(product.getCategory());
+        dto.setStripeProductId(product.getStripeProductId());
+        dto.setClubTag(product.getClubTag());
+        return dto;
+    }
 
 
     public Long getId() {

@@ -1,16 +1,21 @@
 package com.BossLiftingClub.BossLifting.Products;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/products")
 public class ProductController {
 
     private final ProductService productService;
+
+    @Autowired
+    private ProductRepository productRepository;
 
     public ProductController(ProductService productService) {
         this.productService = productService;
@@ -43,5 +48,14 @@ public class ProductController {
             @RequestParam(defaultValue = "1") int quantity
     ) {
         return productService.createInvoiceForUser(productId, stripeCustomerId, quantity);
+    }
+
+
+    @GetMapping("/by-club-tag/{clubTag}")
+    public List<ProductsDTO> getProductsByClubTag(@PathVariable String clubTag) {
+        List<Products> products = productRepository.findByClubTag(clubTag);
+        return products.stream()
+                .map(ProductsDTO::fromEntity)
+                .collect(Collectors.toList());
     }
 }

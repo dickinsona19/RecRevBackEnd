@@ -96,9 +96,9 @@ public class UserController {
         return userService.findAll();
     }
 
-    @GetMapping("/basic")
-    public List<UserDTOBasic> getAllUsersDTOBasic() {
-        return userService.getAllUserDTOBasics();
+    @GetMapping("/basic/{clubTag}")
+    public List<UserDTOBasic> getAllUsersDTOBasic(@PathVariable String clubTag) {
+        return userService.getAllUserDTOBasics(clubTag);
     }
     //Delete User given Phone Number
     @DeleteMapping("/delete-user")

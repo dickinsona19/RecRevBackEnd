@@ -93,7 +93,7 @@ public class UserServiceImpl implements UserService {
         return userRepository.findAll();
     }
     @Override
-    public List<UserDTOBasic> getAllUserDTOBasics(){return userRepository.findAllUserDTOBasic();};
+    public List<UserDTOBasic> getAllUserDTOBasics(String cluTag){return userRepository.findAllUserDTOBasicByClubTag(cluTag);};
     @Override
     public Optional<User> findById(Long id) {
         return userRepository.findById(id);

@@ -222,7 +222,7 @@ public class StripeController {
         user.setIsInGoodStanding(false);
         UserTitles foundingUserTitle = userTitlesRepository.findByTitle(metadata.get("userTitle"))
                 .orElseThrow(() -> new RuntimeException("Founding user title not found in database"));
-        Membership membership = membershipRepository.findByName(metadata.get("membership"))
+        Membership membership = membershipRepository.findByTitle(metadata.get("membership"))
                 .orElseThrow(() -> new RuntimeException("Membership not found in database"));
         user.setMembership(membership);
         user.setUserTitles(foundingUserTitle);
@@ -255,7 +255,7 @@ public class StripeController {
             // Step 2: Fetch the "founding_user" title and membership from the database
             UserTitles foundingUserTitle = userTitlesRepository.findByTitle("Founding User")
                     .orElseThrow(() -> new RuntimeException("Founding user title not found in database"));
-            Membership membership = membershipRepository.findByName(userRequest.getMembershipName())
+            Membership membership = membershipRepository.findByTitle(userRequest.getMembershipName())
                     .orElseThrow(() -> new RuntimeException("Membership not found in database"));
 
             // Step 3: Create Stripe customer (we'll clean up in webhook if no payment info)
@@ -272,7 +272,7 @@ public class StripeController {
             metadata.put("phoneNumber", userRequest.getPhoneNumber());
             metadata.put("password", userRequest.getPassword()); // Consider hashing if sensitive
             metadata.put("userTitle", foundingUserTitle.getTitle());
-            metadata.put("membership", membership.getName());
+            metadata.put("membership", membership.getTitle());
             metadata.put("lockedInRate",userRequest.getLockedInRate());
             if (userRequest.getReferralId() != null) {
                 String referredId = userRequest.getReferralId().toString();

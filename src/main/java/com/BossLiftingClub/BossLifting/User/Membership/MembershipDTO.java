@@ -1,34 +1,17 @@
 package com.BossLiftingClub.BossLifting.User.Membership;
 
-import com.BossLiftingClub.BossLifting.Club.Club;
 
-import com.fasterxml.jackson.annotation.JsonBackReference;
-import jakarta.persistence.*;
-import lombok.*;
 
-@Entity
-@Table(name = "membership")
+import lombok.Data;
+
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
-public class Membership {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+public class MembershipDTO {
     private Long id;
-
-    @Column
     private String title;
-
-    @Column
     private String price;
-
-    @Column(name = "charge_interval")
     private String chargeInterval;
+    private String clubTag;
 
-    @ManyToOne
-    @JoinColumn(name = "club_tag", referencedColumnName = "club_tag")
-    @JsonBackReference
-    private Club club;
 
     public Long getId() {
         return id;
@@ -63,11 +46,23 @@ public class Membership {
     }
 
 
-    public Club getClub() {
-        return club;
+    public static MembershipDTO toMembershipDTO(Membership membership) {
+        MembershipDTO dto = new MembershipDTO();
+        dto.setId(membership.getId());
+        dto.setTitle(membership.getTitle());
+        dto.setPrice(membership.getPrice());
+        dto.setChargeInterval(membership.getChargeInterval());
+        dto.setClubTag(membership.getClub() != null ? membership.getClub().getClubTag() : null);
+        return dto;
     }
 
-    public void setClub(Club clubTag) {
-        this.club = clubTag;
+
+
+    public String getClubTag() {
+        return clubTag;
+    }
+
+    public void setClubTag(String clubTag) {
+        this.clubTag = clubTag;
     }
 }

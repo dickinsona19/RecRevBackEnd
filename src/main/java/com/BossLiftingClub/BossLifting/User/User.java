@@ -1,5 +1,6 @@
 package com.BossLiftingClub.BossLifting.User;
 
+import com.BossLiftingClub.BossLifting.Club.Club;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
 import com.BossLiftingClub.BossLifting.User.UserTitles.UserTitles;
@@ -9,8 +10,7 @@ import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Entity
@@ -67,6 +67,7 @@ public class User {
     @Column(name = "referral_code",  unique = true)
     private String referralCode;
 
+
     @ManyToOne
     @JoinColumn(name = "parent_id")
     @JsonIgnore
@@ -81,6 +82,16 @@ public class User {
     @ManyToOne
     @JoinColumn(name = "referred_by_id")
     private User referredBy;
+
+
+    @ManyToMany
+    @JoinTable(
+            name = "user_clubs",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "club_id")
+    )
+    @JsonIgnore
+    private List<Club> clubs = new ArrayList<>();
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
@@ -139,8 +150,11 @@ public class User {
         this.userStripeMemberId = userStripeMemberId;
         this.userTitles = userTitles;
     }
-
-    // Getters and setters
+    public List<String> getClubTags() {
+        return clubs.stream()
+                .map(club -> club.getClubTag() != null ? club.getClubTag() : "CLT_0001")
+                .collect(Collectors.toList());
+    }
 
     public Long getId() {
         return id;
@@ -298,4 +312,11 @@ public class User {
         this.signInLogs = signInLogs;
     }
 
+    public List<Club> getClubs() {
+        return clubs;
+    }
+
+    public void setClubs(List<Club> clubs) {
+        this.clubs = clubs;
+    }
 }
