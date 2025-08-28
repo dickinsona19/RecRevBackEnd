@@ -272,5 +272,13 @@ public class UserServiceImpl implements UserService {
         return new UserDTO(userWithLogs);
     }
 
-
+    @Override
+    @Transactional
+    public User updateUserPassword(Long id, String newPassword) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("User not found with ID: " + id));
+        String encodedPassword = passwordEncoder.encode(newPassword);
+        user.setPassword(encodedPassword);
+        return userRepository.save(user);
+    }
 }
