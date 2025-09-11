@@ -25,6 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.web.bind.annotation.*;
@@ -66,6 +67,48 @@ public class StripeController {
         this.promoService = promoService;
     }
 
+    public void sendOnboardingEmail(String customerId) throws StripeException, MessagingException {
+        // Fetch customer details from Stripe
+        Customer customer = Customer.retrieve(customerId);
+        String email = customer.getEmail();
+        String name = customer.getName() != null ? customer.getName() : "Member"; // Fallback to "Member" if name is null
+
+        // Split name into first and last name (if possible)
+        String firstName = name;
+        String lastName = "";
+        if (name != null && name.contains(" ")) {
+            String[] nameParts = name.split(" ", 2);
+            firstName = nameParts[0];
+            lastName = nameParts.length > 1 ? nameParts[1] : "";
+        }
+
+        // Validate email
+        if (email == null || email.isEmpty()) {
+            System.err.println("No email found for customer ID: " + customerId);
+            throw new IllegalArgumentException("No email found for customer ID: " + customerId);
+        }
+
+        String subject = "Welcome to CLT Lifting Club!";
+        String message = String.format(
+                "Hey %s %s,\n\n" +
+                        "Welcome to the CLT Lifting Club! 💪\n\n" +
+                        "You're all set to start tracking your progress and hitting your goals.\n\n" +
+                        "👉 Download the app here: https://apps.apple.com/us/app/clt-lifting-club/id6744620860\n\n" +
+                        "Log in using your phone number and password you signed up with.\n\n" +
+                        "Let’s get stronger together!\n\n" +
+                        "- The CLT Lifting Club Team",
+                firstName, lastName
+        );
+
+        SimpleMailMessage emailMessage = new SimpleMailMessage();
+        emailMessage.setTo(email);
+        emailMessage.setSubject(subject);
+        emailMessage.setText(message);
+
+        mailSender.send(emailMessage);
+        System.out.println("Onboarding email sent to: " + email);
+    }
+
     @PostMapping("/webhook")
     public ResponseEntity<String> handleWebhook(
             @RequestBody String payload,
@@ -105,6 +148,7 @@ public class StripeController {
 
                         // Create subscriptions
                         createSubscriptions(customerId, paymentMethodId, user.isLockedInRate(), session.getMetadata().get("promoToken"));
+                        sendOnboardingEmail(customerId);
                     } else {
                         // No payment method provided, delete the Stripe customer
                         System.out.println("No payment method attached in setup intent: " + setupIntentId);
