@@ -36,7 +36,12 @@ CREATE TABLE users (
 );
 
 
-
+CREATE TABLE sign_in_logs (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT, -- Use SERIAL for PostgreSQL
+    user_id BIGINT NOT NULL,
+    sign_in_time TIMESTAMP NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
 
 -- Insert 4 different membership plans
 INSERT INTO membership (name, price, charge_interval) VALUES
@@ -60,3 +65,14 @@ VALUES ('Alice', 'Smith', 'AlicePass321', '9876543210', FALSE, '12345', 1, 2, '1
 INSERT INTO users (first_name, last_name, password, phone_number, is_in_good_standing, entry_qrcode_token, user_title_id, membership_id, referral_code, referred_by_id)
 VALUES ('Bob', 'Brown', 'BobSecure456', '4567891230', TRUE, '11111', 1, 3, 'asfv335dsf',
         (SELECT id FROM users WHERE referral_code = '1243ff2ds23'));
+
+
+        INSERT INTO sign_in_logs (user_id, sign_in_time) VALUES
+        (1, '2025-01-20 08:30:00'), -- John Doe
+        (1, '2025-01-21 09:00:00'), -- John Doe
+        (2, '2025-01-20 09:15:00'), -- Jane Smith
+        (2, '2025-01-22 17:30:00'), -- Jane Smith
+        (3, '2025-01-20 12:00:00'), -- Alex Johnson
+        (3, '2025-01-21 18:45:00'), -- Alex Johnson
+        (3, '2025-01-20 07:45:00'), -- Emily Davis
+        (3, '2025-01-23 14:20:00'); -- Emily Davis

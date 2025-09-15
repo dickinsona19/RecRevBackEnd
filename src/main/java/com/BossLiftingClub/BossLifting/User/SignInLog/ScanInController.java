@@ -11,7 +11,6 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/scan-ins")
-@CrossOrigin(origins = "*") // Adjust for production
 public class ScanInController {
 
     @Autowired
