@@ -2,6 +2,7 @@ package com.BossLiftingClub.BossLifting.User.SignInLog;
 
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLogRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,17 +13,16 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/scan-ins")
 public class ScanInController {
+    private final SignInLogRepository signInLogRepository;
 
-    @Autowired
-    private SignInLogRepository signInLogRepository;
+    public ScanInController(SignInLogRepository signInLogRepository) {
+        this.signInLogRepository = signInLogRepository;
+    }
 
     @GetMapping
-    public List<ScanInDto> getScanIns(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate) {
-        List<SignInLog> logs = signInLogRepository.findAllWithFilters(startDate, endDate);
-        return logs.stream()
-                .map(ScanInDto::new)
-                .collect(Collectors.toList());
+    public List<SignInLogProjection> getScanIns(
+            @RequestParam(required = false) LocalDateTime start,
+            @RequestParam(required = false) LocalDateTime end) {
+        return signInLogRepository.findAllWithFilters(start, end);
     }
 }
