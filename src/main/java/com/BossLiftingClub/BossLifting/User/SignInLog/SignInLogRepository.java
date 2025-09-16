@@ -16,6 +16,9 @@ public interface SignInLogRepository extends JpaRepository<SignInLog, Long> {
     @Query("SELECT u FROM User u LEFT JOIN FETCH u.signInLogs WHERE u.id = :id")
     Optional<User> findByIdWithSignInLogs(@Param("id") Long id);
 
-    @Query("SELECT s FROM SignInLog s JOIN FETCH s.user u WHERE (:startDate IS NULL OR s.signInTime >= :startDate) AND (:endDate IS NULL OR s.signInTime <= :endDate)")
-    List<SignInLog> findAllWithFilters(@Param("startDate") LocalDateTime startDate, @Param("endDate") LocalDateTime endDate);
+    @Query(value = "SELECT sil.* FROM sign_in_logs sil JOIN users u ON u.id = sil.user_id " +
+            "WHERE (:start IS NULL OR sil.sign_in_time >= CAST(:start AS timestamp)) " +
+            "AND (:end IS NULL OR sil.sign_in_time <= CAST(:end AS timestamp))",
+            nativeQuery = true)
+    List<SignInLog> findAllWithFilters(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 }
