@@ -26,4 +26,5 @@ public interface UserService {
     UserDTO addChildToParent(Long parentId, User user);
     UserDTO processBarcodeScan(String barcode) throws Exception;
     List<UserDTOBasic> getAllUserDTOBasics(String clubTag);
+    User updateUserPassword(Long id, String newPassword);
 }

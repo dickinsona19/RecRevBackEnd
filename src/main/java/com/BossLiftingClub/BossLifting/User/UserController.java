@@ -290,6 +290,22 @@ public class UserController {
     }
 
 
+    @PutMapping("/password/{id}")
+    public ResponseEntity<Map<String, String>> updateUserPassword(@PathVariable Long id, @RequestBody Map<String, String> requestBody) {
+        try {
+            String newPassword = requestBody.get("password");
+            if (newPassword == null || newPassword.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Password is required and cannot be empty"));
+            }
+
+            User updatedUser = userService.updateUserPassword(id, newPassword);
+            return ResponseEntity.ok(Map.of("message", "Password updated successfully for user ID: " + id));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "Failed to update password: " + e.getMessage()));
+        }
+    }
 
 }
 

@@ -6,8 +6,8 @@ import com.stripe.Stripe;
 import com.stripe.model.*;
 import com.stripe.param.SubscriptionListParams;
 import com.stripe.param.InvoiceListParams;
+import com.stripe.param.RefundListParams;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -47,7 +47,6 @@ public class AnalyticsController {
         map.put("october", "10");
         map.put("november", "11");
         map.put("december", "12");
-        // Add abbreviations if needed
         map.put("jan", "01");
         map.put("feb", "02");
         map.put("mar", "03");
@@ -61,8 +60,6 @@ public class AnalyticsController {
         map.put("dec", "12");
         return Collections.unmodifiableMap(map);
     }
-
-
 
     @Autowired
     private final UserRepository userRepository;
@@ -78,7 +75,6 @@ public class AnalyticsController {
         this.analyticsCacheRepository = analyticsCacheRepository;
         this.objectMapper = objectMapper;
     }
-
 
     @GetMapping
     @Transactional
@@ -194,14 +190,58 @@ public class AnalyticsController {
                 }
             }
 
-            // Fetch all paid invoices once
-            InvoiceListParams allInvoicesParams = InvoiceListParams.builder()
+            // Fetch all paid invoices
+            InvoiceListParams paidInvoicesParams = InvoiceListParams.builder()
                     .setStatus(InvoiceListParams.Status.PAID)
                     .build();
             List<Invoice> allPaidInvoices = new ArrayList<>();
-            for (Invoice invoice : Invoice.list(allInvoicesParams).autoPagingIterable()) {
+            for (Invoice invoice : Invoice.list(paidInvoicesParams).autoPagingIterable()) {
                 if (ourCustomers.contains(invoice.getCustomer())) {
                     allPaidInvoices.add(invoice);
+                }
+            }
+
+            // Fetch failed invoices (OPEN status)
+            InvoiceListParams openInvoicesParams = InvoiceListParams.builder()
+                    .setStatus(InvoiceListParams.Status.OPEN)
+                    .build();
+            List<Invoice> openInvoices = new ArrayList<>();
+            for (Invoice invoice : Invoice.list(openInvoicesParams).autoPagingIterable()) {
+                if (ourCustomers.contains(invoice.getCustomer())) {
+                    openInvoices.add(invoice);
+                }
+            }
+
+            // Fetch failed invoices (UNCOLLECTIBLE status)
+            InvoiceListParams uncollectibleInvoicesParams = InvoiceListParams.builder()
+                    .setStatus(InvoiceListParams.Status.UNCOLLECTIBLE)
+                    .build();
+            List<Invoice> uncollectibleInvoices = new ArrayList<>();
+            for (Invoice invoice : Invoice.list(uncollectibleInvoicesParams).autoPagingIterable()) {
+                if (ourCustomers.contains(invoice.getCustomer())) {
+                    uncollectibleInvoices.add(invoice);
+                }
+            }
+
+            // Combine failed invoices
+            List<Invoice> allFailedInvoices = new ArrayList<>();
+            allFailedInvoices.addAll(openInvoices);
+            allFailedInvoices.addAll(uncollectibleInvoices);
+
+            // Fetch all refunds
+            RefundListParams refundParams = RefundListParams.builder().build();
+            List<Refund> allRefunds = new ArrayList<>();
+            for (Refund refund : Refund.list(refundParams).autoPagingIterable()) {
+                // Get customer ID from the associated Charge
+                if (refund.getCharge() != null) {
+                    try {
+                        Charge charge = Charge.retrieve(refund.getCharge());
+                        if (charge.getCustomer() != null && ourCustomers.contains(charge.getCustomer())) {
+                            allRefunds.add(refund);
+                        }
+                    } catch (Exception e) {
+                        logger.warn("Error retrieving charge for refund {}: {}", refund.getId(), e.getMessage());
+                    }
                 }
             }
 
@@ -271,6 +311,9 @@ public class AnalyticsController {
             Set<String> allPayingCustomers = new HashSet<>();
             for (Invoice invoice : allPaidInvoices) {
                 String customer = invoice.getCustomer();
+                boolean isRefunded = allRefunds.stream().anyMatch(refund ->
+                        refund.getCharge() != null && refund.getCharge().equals(invoice.getCharge()));
+                if (isRefunded) continue;
                 for (InvoiceLineItem line : invoice.getLines().getData()) {
                     String priceId = line.getPrice() != null ? line.getPrice().getId() : null;
                     if (priceId == null) continue;
@@ -300,10 +343,10 @@ public class AnalyticsController {
             }
 
             // Calculate actual revenue for selected month
-            double actualRevenueSelected = calculateRevenueForPeriod(allPaidInvoices, startSelectedEpoch, endSelectedEpoch, userType, priceIds, skipMaintenance, maintenanceId);
+            double actualRevenueSelected = calculateRevenueForPeriod(allPaidInvoices, startSelectedEpoch, endSelectedEpoch, userType, priceIds, skipMaintenance, maintenanceId, allRefunds);
 
             // Calculate actual revenue for previous month
-            double actualRevenuePrevious = calculateRevenueForPeriod(allPaidInvoices, startPreviousEpoch, endPreviousEpoch, userType, priceIds, skipMaintenance, maintenanceId);
+            double actualRevenuePrevious = calculateRevenueForPeriod(allPaidInvoices, startPreviousEpoch, endPreviousEpoch, userType, priceIds, skipMaintenance, maintenanceId, allRefunds);
 
             // Calculate projected revenue (only for current month)
             double projectedRevenue = 0;
@@ -322,7 +365,7 @@ public class AnalyticsController {
                 LocalDate mEnd = histMonth.plusMonths(1).minusDays(1);
                 long mStartEpoch = mStart.atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
                 long mEndEpoch = mEnd.atTime(23, 59, 59).atZone(ZoneId.systemDefault()).toEpochSecond();
-                double rev = calculateRevenueForPeriod(allPaidInvoices, mStartEpoch, mEndEpoch, userType, priceIds, skipMaintenance, maintenanceId);
+                double rev = calculateRevenueForPeriod(allPaidInvoices, mStartEpoch, mEndEpoch, userType, priceIds, skipMaintenance, maintenanceId, allRefunds);
                 historicalLabels[i] = histMonth.format(DateTimeFormatter.ofPattern("MMM yyyy"));
                 historicalActual[i] = rev;
                 historicalProjected[i] = 0.0;
@@ -332,6 +375,48 @@ public class AnalyticsController {
                 historicalProjected[numHistoricalMonths - 1] = projectedRevenue;
             }
 
+            // Calculate failed and refunded payments for selected month
+            int failedPaymentCount = 0;
+            double failedPaymentAmount = 0.0;
+            for (Invoice invoice : allFailedInvoices) {
+                if (invoice.getCreated() >= startSelectedEpoch && invoice.getCreated() <= endSelectedEpoch) {
+                    for (InvoiceLineItem line : invoice.getLines().getData()) {
+                        String priceId = line.getPrice() != null ? line.getPrice().getId() : null;
+                        if (priceId == null) continue;
+                        if (skipMaintenance && priceId.equals(maintenanceId)) continue;
+                        String subType = getTypeFromPriceId(priceIds, priceId);
+                        if (matchesUserType(userType, subType)) {
+                            failedPaymentCount++;
+                            failedPaymentAmount += line.getAmount() / 100.0;
+                        }
+                    }
+                }
+            }
+
+            int refundedPaymentCount = 0;
+            double refundedPaymentAmount = 0.0;
+            for (Refund refund : allRefunds) {
+                if (refund.getCreated() >= startSelectedEpoch && refund.getCreated() <= endSelectedEpoch) {
+                    String chargeId = refund.getCharge();
+                    Invoice invoice = allPaidInvoices.stream()
+                            .filter(inv -> chargeId != null && chargeId.equals(inv.getCharge()))
+                            .findFirst()
+                            .orElse(null);
+                    if (invoice != null) {
+                        for (InvoiceLineItem line : invoice.getLines().getData()) {
+                            String priceId = line.getPrice() != null ? line.getPrice().getId() : null;
+                            if (priceId == null) continue;
+                            if (skipMaintenance && priceId.equals(maintenanceId)) continue;
+                            String subType = getTypeFromPriceId(priceIds, priceId);
+                            if (matchesUserType(userType, subType)) {
+                                refundedPaymentCount++;
+                                refundedPaymentAmount += refund.getAmount() / 100.0;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Calculate churn, new subs, active count, MRR for selected month
             int activeAtStart = 0;
             int numberCanceled = 0;
@@ -339,22 +424,17 @@ public class AnalyticsController {
             int userCount = 0; // Active at end of month
             double mrr = 0.0;
             for (Subscription sub : filteredSubscriptions) {
-                // Active at start
                 if (sub.getStartDate() <= startSelectedEpoch && (sub.getCanceledAt() == null || sub.getCanceledAt() > startSelectedEpoch)) {
                     activeAtStart++;
                 }
-                // Canceled in month
                 if (sub.getCanceledAt() != null && sub.getCanceledAt() >= startSelectedEpoch && sub.getCanceledAt() <= endSelectedEpoch) {
                     numberCanceled++;
                 }
-                // New in month
                 if (sub.getStartDate() >= startSelectedEpoch && sub.getStartDate() <= endSelectedEpoch) {
                     newSubscriptions++;
                 }
-                // Active at end
                 if (sub.getStartDate() <= endSelectedEpoch && (sub.getCanceledAt() == null || sub.getCanceledAt() > endSelectedEpoch)) {
                     userCount++;
-                    // Calculate MRR contribution
                     for (SubscriptionItem item : sub.getItems().getData()) {
                         String priceId = item.getPrice() != null ? item.getPrice().getId() : null;
                         if (priceId == null) continue;
@@ -381,7 +461,7 @@ public class AnalyticsController {
                         String subType = getTypeFromPriceId(priceIds, priceId);
                         if (matchesUserType(userType, subType)) {
                             activeCountsPerType.put(subType, activeCountsPerType.getOrDefault(subType, 0) + 1);
-                            break; // Assume one type per sub
+                            break;
                         }
                     }
                 }
@@ -419,6 +499,10 @@ public class AnalyticsController {
             response.setMrr(mrr);
             response.setTotalLifetimeRevenue(totalLifetimeRevenue);
             response.setAverageLTV(averageLTV);
+            response.setFailedPaymentCount(failedPaymentCount);
+            response.setFailedPaymentAmount(failedPaymentAmount);
+            response.setRefundedPaymentCount(refundedPaymentCount);
+            response.setRefundedPaymentAmount(refundedPaymentAmount);
 
             logger.info("Analytics processed successfully for userType={}, month={}, includeMaintenance={}", userType, month, includeMaintenance);
 
@@ -442,10 +526,13 @@ public class AnalyticsController {
         return userType.equals("all") || userType.equals(subType) || (userType.equals("misc") && subType.equals("misc"));
     }
 
-    private double calculateRevenueForPeriod(List<Invoice> allPaidInvoices, long startEpoch, long endEpoch, String userType, Map<String, String> priceIds, boolean skipMaintenance, String maintenanceId) {
+    private double calculateRevenueForPeriod(List<Invoice> allPaidInvoices, long startEpoch, long endEpoch, String userType, Map<String, String> priceIds, boolean skipMaintenance, String maintenanceId, List<Refund> allRefunds) {
         double revenue = 0;
         for (Invoice invoice : allPaidInvoices) {
             if (invoice.getCreated() < startEpoch || invoice.getCreated() > endEpoch) continue;
+            boolean isRefunded = allRefunds.stream().anyMatch(refund ->
+                    refund.getCharge() != null && refund.getCharge().equals(invoice.getCharge()));
+            if (isRefunded) continue;
             for (InvoiceLineItem line : invoice.getLines().getData()) {
                 String priceId = line.getPrice() != null ? line.getPrice().getId() : null;
                 if (priceId == null) continue;
@@ -493,8 +580,11 @@ public class AnalyticsController {
         private double mrr;
         private double totalLifetimeRevenue;
         private double averageLTV;
+        private int failedPaymentCount;
+        private double failedPaymentAmount;
+        private int refundedPaymentCount;
+        private double refundedPaymentAmount;
 
-        // Getters and Setters
         public double getTotalRevenue() { return totalRevenue; }
         public void setTotalRevenue(double totalRevenue) { this.totalRevenue = totalRevenue; }
         public int getUserCount() { return userCount; }
@@ -519,6 +609,14 @@ public class AnalyticsController {
         public void setTotalLifetimeRevenue(double totalLifetimeRevenue) { this.totalLifetimeRevenue = totalLifetimeRevenue; }
         public double getAverageLTV() { return averageLTV; }
         public void setAverageLTV(double averageLTV) { this.averageLTV = averageLTV; }
+        public int getFailedPaymentCount() { return failedPaymentCount; }
+        public void setFailedPaymentCount(int failedPaymentCount) { this.failedPaymentCount = failedPaymentCount; }
+        public double getFailedPaymentAmount() { return failedPaymentAmount; }
+        public void setFailedPaymentAmount(double failedPaymentAmount) { this.failedPaymentAmount = failedPaymentAmount; }
+        public int getRefundedPaymentCount() { return refundedPaymentCount; }
+        public void setRefundedPaymentCount(int refundedPaymentCount) { this.refundedPaymentCount = refundedPaymentCount; }
+        public double getRefundedPaymentAmount() { return refundedPaymentAmount; }
+        public void setRefundedPaymentAmount(double refundedPaymentAmount) { this.refundedPaymentAmount = refundedPaymentAmount; }
     }
 
     public static class MonthlyComparison {
