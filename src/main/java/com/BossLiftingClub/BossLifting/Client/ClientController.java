@@ -1,12 +1,19 @@
 package com.BossLiftingClub.BossLifting.Client;
 
 
+import com.BossLiftingClub.BossLifting.Client.Requests.ClientSignUpRequest;
+import com.stripe.exception.StripeException;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/clients")
@@ -67,4 +74,29 @@ public class ClientController {
     public ClientDTO getClient(@PathVariable Integer id) {
         return clientService.getClientWithClubs(id);
     }
+
+    @PostMapping("/signup")
+    public ResponseEntity<?> signupClient(@Valid @RequestBody ClientSignUpRequest request, BindingResult result) {
+        if (result.hasErrors()) {
+            Map<String, String> errors = result.getFieldErrors().stream()
+                    .collect(Collectors.toMap(
+                            fieldError -> fieldError.getField(),
+                            fieldError -> fieldError.getDefaultMessage()
+                    ));
+            return ResponseEntity.badRequest().body(errors);
+        }
+        try {
+            String onboardingUrl = clientService.onboardClient(
+                    request.getEmail(),
+                    request.getCountry(),
+                    request.getBusinessType(),
+                    request.getPassword()
+            );
+            return ResponseEntity.ok().body("{\"url\": \"" + onboardingUrl + "\"}");
+        } catch (StripeException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("{\"error\": \"Error: " + e.getMessage() + "\"}");
+        }
+    }
+
 }

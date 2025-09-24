@@ -1,5 +1,7 @@
 package com.BossLiftingClub.BossLifting.User;
 
+import com.BossLiftingClub.BossLifting.User.ClubUser.UserCreateDTO;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -27,4 +29,5 @@ public interface UserService {
     UserDTO processBarcodeScan(String barcode) throws Exception;
     List<UserDTOBasic> getAllUserDTOBasics(String clubTag);
     User updateUserPassword(Long id, String newPassword);
+    User handleNewClub(UserCreateDTO userDTO) throws Exception;
 }

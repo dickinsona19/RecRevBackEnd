@@ -147,7 +147,7 @@ public class StripeController {
                         System.out.println("User created with ID: " + user.getId() + " for customer: " + customerId);
 
                         // Create subscriptions
-                        createSubscriptions(customerId, paymentMethodId, user.isLockedInRate(), session.getMetadata().get("promoToken"));
+                        createSubscriptions(customerId, paymentMethodId, user.getLockedInRate(), session.getMetadata().get("promoToken"));
                         sendOnboardingEmail(customerId);
                     } else {
                         // No payment method provided, delete the Stripe customer
@@ -266,9 +266,9 @@ public class StripeController {
         user.setIsInGoodStanding(false);
         UserTitles foundingUserTitle = userTitlesRepository.findByTitle(metadata.get("userTitle"))
                 .orElseThrow(() -> new RuntimeException("Founding user title not found in database"));
-        Membership membership = membershipRepository.findByTitle(metadata.get("membership"))
-                .orElseThrow(() -> new RuntimeException("Membership not found in database"));
-        user.setMembership(membership);
+//        Membership membership = membershipRepository.findByTitle(metadata.get("membership"))
+//                .orElseThrow(() -> new RuntimeException("Membership not found in database"));
+//        user.setMembership(membership);
         user.setUserTitles(foundingUserTitle);
         user.setUserStripeMemberId(customerId);
         System.out.println("userLog: " + user);
@@ -299,8 +299,8 @@ public class StripeController {
             // Step 2: Fetch the "founding_user" title and membership from the database
             UserTitles foundingUserTitle = userTitlesRepository.findByTitle("Founding User")
                     .orElseThrow(() -> new RuntimeException("Founding user title not found in database"));
-            Membership membership = membershipRepository.findByTitle(userRequest.getMembershipName())
-                    .orElseThrow(() -> new RuntimeException("Membership not found in database"));
+//            Membership membership = membershipRepository.findByTitle(userRequest.getMembershipName())
+//                    .orElseThrow(() -> new RuntimeException("Membership not found in database"));
 
             // Step 3: Create Stripe customer (we'll clean up in webhook if no payment info)
             String customerId = stripeService.createCustomer(
@@ -316,7 +316,7 @@ public class StripeController {
             metadata.put("phoneNumber", userRequest.getPhoneNumber());
             metadata.put("password", userRequest.getPassword()); // Consider hashing if sensitive
             metadata.put("userTitle", foundingUserTitle.getTitle());
-            metadata.put("membership", membership.getTitle());
+//            metadata.put("membership", membership.getTitle());
             metadata.put("lockedInRate",userRequest.getLockedInRate());
             if (userRequest.getReferralId() != null) {
                 String referredId = userRequest.getReferralId().toString();

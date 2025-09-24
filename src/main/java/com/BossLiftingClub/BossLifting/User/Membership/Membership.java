@@ -25,10 +25,14 @@ public class Membership {
     @Column(name = "charge_interval")
     private String chargeInterval;
 
-    @ManyToOne
-    @JoinColumn(name = "club_tag", referencedColumnName = "club_tag")
-    @JsonBackReference
-    private Club club;
+    @Column(name = "club_tag")
+    private String clubTag;
+
+    @Column
+    private String stripePriceId;
+
+    @Column(columnDefinition = "BOOLEAN DEFAULT FALSE")
+    private boolean archived = false;
 
     public Long getId() {
         return id;
@@ -62,12 +66,27 @@ public class Membership {
         this.chargeInterval = chargeInterval;
     }
 
-
-    public Club getClub() {
-        return club;
+    public String getClubTag() {
+        return clubTag;
     }
 
-    public void setClub(Club clubTag) {
-        this.club = clubTag;
+    public void setClubTag(String clubTag) {
+        this.clubTag = clubTag;
+    }
+
+    public boolean isArchived() {
+        return archived;
+    }
+
+    public void setArchived(boolean archived) {
+        this.archived = archived;
+    }
+
+    public String getStripePriceId() {
+        return stripePriceId;
+    }
+
+    public void setStripePriceId(String stripePriceId) {
+        this.stripePriceId = stripePriceId;
     }
 }

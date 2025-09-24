@@ -30,7 +30,7 @@ CREATE TABLE user_titles (
        status VARCHAR(50),
        created_at DATETIME NOT NULL,
        user_id INTEGER,
-       club_tag VARCHAR(100) UNIQUE,
+       club_tag VARCHAR(100),
        client_id INTEGER NOT NULL,
        staff_id INTEGER,
        FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
@@ -41,8 +41,7 @@ CREATE TABLE membership (
     title VARCHAR(255) NOT NULL,
     price VARCHAR(50) NOT NULL,
     charge_interval VARCHAR(50) NOT NULL,
-    club_tag VARCHAR(100) NOT NULL,
-    FOREIGN KEY (club_tag) REFERENCES clubs(club_tag) ON DELETE CASCADE
+    club_tag VARCHAR(100) NOT NULL
 );
 
 -- Modified users table with membership_id foreign key
@@ -51,7 +50,7 @@ CREATE TABLE users (
     first_name VARCHAR(255) NOT NULL,
     last_name VARCHAR(255) NOT NULL,
     password VARCHAR(255) NOT NULL,
-    phone_number VARCHAR(50) NOT NULL,
+    phone_number VARCHAR(50),
     is_in_good_standing BOOLEAN NOT NULL DEFAULT FALSE,
     created_at DATETIME NOT NULL,
     entry_qrcode_token VARCHAR(255) NOT NULL,
@@ -106,7 +105,7 @@ INSERT INTO user_titles (title) VALUES
 ('Guest');
 
 INSERT INTO clients (email, password, created_at, status, stripe_account_id) VALUES
-('anndreuis@gmail.com', 'admin123', '2025-08-19 11:00:00', 'ACTIVE', 'acct_1J9Y2zK3L4M5N6O7'),
+('anndreuis@gmail.com', 'admin123', '2025-08-19 11:00:00', 'ACTIVE', 'acct_1SAhtKLfLLcJtrGn'),
 ('jane.smith@example.com', 'hashed_password_456', '2025-08-18 09:30:00', 'INACTIVE', 'acct_2K8X1yJ2M3N4P5Q6'),
 ('bob.jones@example.com', 'hashed_password_789', '2025-08-17 14:15:00', 'ACTIVE', NULL);
 
@@ -154,4 +153,4 @@ INSERT INTO products (name, definition, price, image_url, category, stripe_produ
 ('Protein Shake', 'High-protein shake for post-workout recovery', 5.99, 'https://example.com/products/protein_shake.png', 'Supplement', 'prod_001', 'JFC001'),
 ('Yoga Mat', 'Non-slip yoga mat for studio use', 29.99, 'https://example.com/products/yoga_mat.png', 'Equipment', 'prod_002', 'JFC001'),
 ('Weightlifting Belt', 'Supportive belt for heavy lifts', 39.99, NULL, 'Equipment', 'prod_003', 'JFC001'),
-('Energy Drink', 'Sugar-free energy drink', 3.99, 'https://example.com/products/energy_drink.png', 'Supplement', 'prod_004', 'JFC001');
+('Energy Drink', 'Sugar-free energy drink', 3.99, 'https://example.com/products/energy_drink.png', 'Supplement', 'prod_004', 'JFC002');

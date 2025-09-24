@@ -3,18 +3,11 @@ package com.BossLiftingClub.BossLifting.Club;
 
 import com.BossLiftingClub.BossLifting.Client.Client;
 import com.BossLiftingClub.BossLifting.Club.Staff.Staff;
-import com.BossLiftingClub.BossLifting.Products.Products;
-import com.BossLiftingClub.BossLifting.User.Membership.Membership;
-import com.BossLiftingClub.BossLifting.User.User;
 import com.fasterxml.jackson.annotation.JsonBackReference;
-import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
 
 @Entity
 @Table(name = "clubs")
@@ -24,7 +17,7 @@ import java.util.Set;
 public class Club {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id;
+    private Long id;
 
     @Column
     private String title;
@@ -50,20 +43,11 @@ public class Club {
     @JoinColumn(name = "staff_id")
     private Staff staff;
 
-    @OneToMany
-    @JoinColumn(name = "club_tag", referencedColumnName = "club_tag")
-    @JsonManagedReference
-    private Set<Membership> memberships;
-
-    @ManyToMany(mappedBy = "clubs")
-    @JsonManagedReference
-    private List<User> users = new ArrayList<>();
-
-    public Integer getId() {
+    public Long getId() {
         return id;
     }
 
-    public void setId(Integer id) {
+    public void setId(Long id) {
         this.id = id;
     }
 
@@ -123,12 +107,5 @@ public class Club {
         this.staff = staff;
     }
 
-    public Set<Membership> getMemberships() {
-        return memberships;
-    }
-
-    public void setMemberships(Set<Membership> memberships) {
-        this.memberships = memberships;
-    }
 
 }

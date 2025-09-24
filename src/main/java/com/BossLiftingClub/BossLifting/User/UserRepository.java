@@ -15,20 +15,19 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByPhoneNumber(String phoneNumber);
     Optional<User> findByUserStripeMemberId(String stripeCustomerId);
     User findByReferralCode(String referralCode);
+    Optional<User> findByEmail(String email);
     boolean existsByReferralCode(String referralCode);
-    @Query("SELECT u FROM User u LEFT JOIN FETCH u.userTitles LEFT JOIN FETCH u.membership m LEFT JOIN FETCH m.club")
+
+    @Query("SELECT u FROM User u LEFT JOIN FETCH u.userTitles")
     List<User> findAll();
 
-    // In UserRepository
     @Query("UPDATE User u SET u.referralCode = :newReferralCode WHERE u.referralCode = :currentReferralCode")
     @Modifying
     int updateReferralCode(@Param("currentReferralCode") String currentReferralCode,
                            @Param("newReferralCode") String newReferralCode);
 
-
     @Query("SELECT u FROM User u LEFT JOIN FETCH u.signInLogs WHERE u.id = :id")
     Optional<User> findByIdWithSignInLogs(@Param("id") Long id);
-
 
     @Query("""
         SELECT new com.BossLiftingClub.BossLifting.User.UserDTOBasic(
@@ -43,9 +42,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
         )
         FROM User u
         LEFT JOIN u.membership m
-        JOIN u.clubs c
+        JOIN u.userClubs uc
+        JOIN uc.club c
         WHERE c.clubTag = :clubTag
     """)
     List<UserDTOBasic> findAllUserDTOBasicByClubTag(@Param("clubTag") String clubTag);
 }
-

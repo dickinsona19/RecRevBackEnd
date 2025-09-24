@@ -1,6 +1,7 @@
 package com.BossLiftingClub.BossLifting.User;
 
 import com.BossLiftingClub.BossLifting.Club.Club;
+import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
 import com.BossLiftingClub.BossLifting.User.UserTitles.UserTitles;
@@ -30,7 +31,10 @@ public class User {
     @Column(name = "password", nullable = false)
     private String password;
 
-    @Column(name = "phone_number", unique = true, nullable = false)
+    @Column(name = "email")
+    private String email;
+
+    @Column(name = "phone_number", unique = true)
     private String phoneNumber;
 
     @Column(name = "is_in_good_standing", nullable = false)
@@ -51,7 +55,8 @@ public class User {
 
     @Column(name = "isOver18", nullable = false, columnDefinition = "boolean default false")
     @JsonIgnore
-    private boolean isOver18 =false;
+    private boolean isOver18 = false;
+
     @Column(name = "lockedInRate")
     private String lockedInRate;
 
@@ -61,12 +66,11 @@ public class User {
     @Column(name = "waiver_signed_date")
     private LocalDateTime waiverSignedDate;
 
-    @Column(name="profile_picture_url")
+    @Column(name = "profile_picture_url")
     private String profilePictureUrl;
 
-    @Column(name = "referral_code",  unique = true)
+    @Column(name = "referral_code", unique = true)
     private String referralCode;
-
 
     @ManyToOne
     @JoinColumn(name = "parent_id")
@@ -76,6 +80,7 @@ public class User {
     @OneToMany(mappedBy = "parent", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private Set<User> children = new HashSet<>();
+
     @Transient
     private Set<UserDTO> childrenDto;
 
@@ -83,15 +88,9 @@ public class User {
     @JoinColumn(name = "referred_by_id")
     private User referredBy;
 
-
-    @ManyToMany
-    @JoinTable(
-            name = "user_clubs",
-            joinColumns = @JoinColumn(name = "user_id"),
-            inverseJoinColumns = @JoinColumn(name = "club_id")
-    )
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
-    private List<Club> clubs = new ArrayList<>();
+    private List<UserClub> userClubs = new ArrayList<>();
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
@@ -99,6 +98,7 @@ public class User {
 
     @OneToMany(mappedBy = "referredBy", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<User> referredMembers = new HashSet<>();
+
     @Transient
     private Set<ReferredUserDto> referredMembersDto;
 
@@ -128,7 +128,6 @@ public class User {
         return referredMembersDto;
     }
 
-
     @ManyToOne
     @JoinColumn(name = "membership_id")
     private Membership membership;
@@ -150,20 +149,23 @@ public class User {
         this.userStripeMemberId = userStripeMemberId;
         this.userTitles = userTitles;
     }
+
     public List<String> getClubTags() {
-        return clubs.stream()
-                .map(club -> club.getClubTag() != null ? club.getClubTag() : "CLT_0001")
+        return userClubs.stream()
+                .map(userClub -> userClub.getClub().getClubTag() != null ? userClub.getClub().getClubTag() : "CLT_0001")
                 .collect(Collectors.toList());
     }
 
     public Long getId() {
         return id;
     }
+
     // No setter for id since it’s auto-generated
 
     public String getFirstName() {
         return firstName;
     }
+
     public void setFirstName(String firstName) {
         this.firstName = firstName;
     }
@@ -171,6 +173,7 @@ public class User {
     public String getLastName() {
         return lastName;
     }
+
     public void setLastName(String lastName) {
         this.lastName = lastName;
     }
@@ -178,6 +181,7 @@ public class User {
     public String getPassword() {
         return password;
     }
+
     public void setPassword(String password) {
         this.password = password;
     }
@@ -185,6 +189,7 @@ public class User {
     public String getPhoneNumber() {
         return phoneNumber;
     }
+
     public void setPhoneNumber(String phoneNumber) {
         this.phoneNumber = phoneNumber;
     }
@@ -192,6 +197,7 @@ public class User {
     public Boolean getIsInGoodStanding() {
         return isInGoodStanding;
     }
+
     public void setIsInGoodStanding(Boolean inGoodStanding) {
         this.isInGoodStanding = inGoodStanding;
     }
@@ -199,16 +205,23 @@ public class User {
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
+
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
     }
 
-    public String getEntryQrcodeToken() { return entryQrcodeToken; }
-    public void setEntryQrcodeToken(String entryQrcodeToken) { this.entryQrcodeToken = entryQrcodeToken; }
+    public String getEntryQrcodeToken() {
+        return entryQrcodeToken;
+    }
+
+    public void setEntryQrcodeToken(String entryQrcodeToken) {
+        this.entryQrcodeToken = entryQrcodeToken;
+    }
 
     public String getUserStripeMemberId() {
         return userStripeMemberId;
     }
+
     public void setUserStripeMemberId(String userStripeMemberId) {
         this.userStripeMemberId = userStripeMemberId;
     }
@@ -216,11 +229,19 @@ public class User {
     public UserTitles getUserTitles() {
         return userTitles;
     }
+
     public void setUserTitles(UserTitles userTitles) {
         this.userTitles = userTitles;
     }
-    public String getSignatureData() { return signatureData; }
-    public void setSignatureData(String signatureData) { this.signatureData = signatureData; }
+
+    public String getSignatureData() {
+        return signatureData;
+    }
+
+    public void setSignatureData(String signatureData) {
+        this.signatureData = signatureData;
+    }
+
     public String getProfilePictureUrl() {
         return profilePictureUrl;
     }
@@ -228,11 +249,22 @@ public class User {
     public void setProfilePictureUrl(String profilePictureUrl) {
         this.profilePictureUrl = profilePictureUrl;
     }
-    public LocalDateTime getWaiverSignedDate() { return waiverSignedDate; }
-    public void setWaiverSignedDate(LocalDateTime waiverSignedDate) { this.waiverSignedDate = waiverSignedDate; }
 
-    public Membership getMembership() { return membership; }
-    public void setMembership(Membership membership) { this.membership = membership; }
+    public LocalDateTime getWaiverSignedDate() {
+        return waiverSignedDate;
+    }
+
+    public void setWaiverSignedDate(LocalDateTime waiverSignedDate) {
+        this.waiverSignedDate = waiverSignedDate;
+    }
+
+    public Membership getMembership() {
+        return membership;
+    }
+
+    public void setMembership(Membership membership) {
+        this.membership = membership;
+    }
 
     public String getReferralCode() {
         return referralCode;
@@ -241,6 +273,7 @@ public class User {
     public void setReferralCode(String referralCode) {
         this.referralCode = referralCode;
     }
+
     public User getReferredBy() {
         return referredBy;
     }
@@ -257,13 +290,14 @@ public class User {
         this.isOver18 = isOver18 != null ? isOver18 : false; // Default to false if null
     }
 
-    public String isLockedInRate() {
+    public String getLockedInRate() {
         return lockedInRate;
     }
 
     public void setLockedInRate(String lockedInRate) {
         this.lockedInRate = lockedInRate;
     }
+
     public User getParent() {
         return parent;
     }
@@ -296,10 +330,6 @@ public class User {
         isOver18 = over18;
     }
 
-    public String getLockedInRate() {
-        return lockedInRate;
-    }
-
     public void setChildrenDto(Set<UserDTO> childrenDto) {
         this.childrenDto = childrenDto;
     }
@@ -312,11 +342,19 @@ public class User {
         this.signInLogs = signInLogs;
     }
 
-    public List<Club> getClubs() {
-        return clubs;
+    public List<UserClub> getUserClubs() {
+        return userClubs;
     }
 
-    public void setClubs(List<Club> clubs) {
-        this.clubs = clubs;
+    public void setUserClubs(List<UserClub> userClubs) {
+        this.userClubs = userClubs;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
     }
 }

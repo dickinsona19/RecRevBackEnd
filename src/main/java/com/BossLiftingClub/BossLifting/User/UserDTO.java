@@ -48,7 +48,7 @@ public class UserDTO {
         this.createdAt = user.getCreatedAt();
         this.userTitles = user.getUserTitles();
         this.isOver18 = user.isOver18();
-        this.lockedInRate = user.isLockedInRate();
+        this.lockedInRate = user.getLockedInRate();
         this.signatureData = user.getSignatureData();
         this.waiverSignedDate = user.getWaiverSignedDate();
         this.profilePictureUrl = user.getProfilePictureUrl();

@@ -10,7 +10,7 @@ import java.util.Optional;
 @Repository
 public interface ClientRepository extends JpaRepository<Client, Integer> {
     Optional<Client> findByEmail(String email);
-    @Query("SELECT c FROM Client c JOIN FETCH c.clubs cl JOIN FETCH cl.memberships WHERE c.id = :id")
+    @Query("SELECT c FROM Client c JOIN FETCH c.clubs WHERE c.id = :id")
     Optional<Client> findByIdWithClubs(@Param("id") Integer id);
 
 }

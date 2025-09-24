@@ -1,5 +1,6 @@
 package com.BossLiftingClub.BossLifting.User;
 
+import com.BossLiftingClub.BossLifting.User.ClubUser.UserCreateDTO;
 import com.BossLiftingClub.BossLifting.User.PasswordAuth.JwtUtil;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLogRepository;
@@ -8,6 +9,7 @@ import com.stripe.model.billingportal.Session;
 
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
+import jakarta.validation.Valid;
 import org.checkerframework.checker.units.qual.A;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -63,6 +65,36 @@ public class UserController {
                 .map(user -> ResponseEntity.ok(new UserMediaDTO(user)))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
+    @PostMapping("/addNewUser")
+    public ResponseEntity<?> addNewUser(@Valid @RequestBody UserCreateDTO userDTO) {
+        try {
+            User user = userService.handleNewClub(userDTO);
+            UserDTO userResponse = new UserDTO(user);
+            return new ResponseEntity<>(userResponse, HttpStatus.CREATED);
+        } catch (IllegalArgumentException e) {
+            return new ResponseEntity<>(new ErrorResponse("Invalid input: " + e.getMessage()), HttpStatus.BAD_REQUEST);
+        } catch (Exception e) {
+            return new ResponseEntity<>(new ErrorResponse("Server error: " + e.getMessage()), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    // Simple error response DTO
+    private static class ErrorResponse {
+        private String error;
+
+        public ErrorResponse(String error) {
+            this.error = error;
+        }
+
+        public String getError() {
+            return error;
+        }
+
+        public void setError(String error) {
+            this.error = error;
+        }
+    }
+
     @PostMapping("/signin")
     public ResponseEntity<Map<String, Object>> signIn(@RequestBody Map<String, String> requestBody) {
         try {

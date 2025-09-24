@@ -1,7 +1,5 @@
 package com.BossLiftingClub.BossLifting.User.Membership;
 
-
-
 import lombok.Data;
 
 @Data
@@ -11,7 +9,6 @@ public class MembershipDTO {
     private String price;
     private String chargeInterval;
     private String clubTag;
-
 
     public Long getId() {
         return id;
@@ -44,19 +41,6 @@ public class MembershipDTO {
     public void setChargeInterval(String chargeInterval) {
         this.chargeInterval = chargeInterval;
     }
-
-
-    public static MembershipDTO toMembershipDTO(Membership membership) {
-        MembershipDTO dto = new MembershipDTO();
-        dto.setId(membership.getId());
-        dto.setTitle(membership.getTitle());
-        dto.setPrice(membership.getPrice());
-        dto.setChargeInterval(membership.getChargeInterval());
-        dto.setClubTag(membership.getClub() != null ? membership.getClub().getClubTag() : null);
-        return dto;
-    }
-
-
 
     public String getClubTag() {
         return clubTag;

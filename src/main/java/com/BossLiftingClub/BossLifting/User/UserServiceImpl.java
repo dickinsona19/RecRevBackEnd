@@ -1,6 +1,12 @@
 package com.BossLiftingClub.BossLifting.User;
 
-
+import com.BossLiftingClub.BossLifting.Club.Club;
+import com.BossLiftingClub.BossLifting.Club.ClubRepository;
+import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
+import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubRepository;
+import com.BossLiftingClub.BossLifting.User.ClubUser.UserCreateDTO;
+import com.BossLiftingClub.BossLifting.User.Membership.Membership;
+import com.BossLiftingClub.BossLifting.User.Membership.MembershipRepository;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLogRepository;
 import jakarta.mail.MessagingException;
@@ -21,26 +27,37 @@ import java.util.stream.Collectors;
 @Service
 public class UserServiceImpl implements UserService {
 
-
     private final UserRepository userRepository;
     private final SecureRandom random = new SecureRandom();
     private static final String CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private final PasswordEncoder passwordEncoder;
+
     @Autowired
     private SignInLogRepository signInLogRepository;
+
     @Autowired
     private JavaMailSender mailSender;
+
+    @Autowired
+    private ClubRepository clubRepository;
+
+    @Autowired
+    private UserClubRepository userClubRepository;
+
+    @Autowired
+    private MembershipRepository membershipRepository;
+
     @Autowired
     public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
-
     }
 
     @Transactional
     public boolean updateReferralCode(String currentReferralCode, String newReferralCode) {
         return userRepository.updateReferralCode(currentReferralCode, newReferralCode) > 0;
     }
+
     @Override
     public User getUserByReferralCode(String referralCode) {
         User userOptional = userRepository.findByReferralCode(referralCode);
@@ -49,6 +66,7 @@ public class UserServiceImpl implements UserService {
         }
         return null;
     }
+
     @Override
     public Optional<User> updateWaiverSignature(Long userId, String imageUrl) {
         return userRepository.findById(userId).map(user -> {
@@ -56,6 +74,89 @@ public class UserServiceImpl implements UserService {
             return userRepository.save(user);
         });
     }
+
+    @Override
+    @Transactional
+    public User handleNewClub(UserCreateDTO userDTO) throws Exception {
+        // Validate input
+        if (userDTO.getEmail() == null || userDTO.getEmail().trim().isEmpty()) {
+            throw new IllegalArgumentException("Email is required");
+        }
+        if (userDTO.getClubMembership() == null || userDTO.getClubMembership().getClubId() == null) {
+            throw new IllegalArgumentException("Club membership is required");
+        }
+
+        // Check if user exists by email
+        Optional<User> existingUserOpt = userRepository.findByEmail(userDTO.getEmail());
+        User user;
+
+        // Fetch the club (common for both branches)
+        Club club = clubRepository.findById(userDTO.getClubMembership().getClubId())
+                .orElseThrow(() -> new IllegalArgumentException("Invalid club ID: " + userDTO.getClubMembership().getClubId()));
+
+        if (existingUserOpt.isPresent()) {
+            // User exists, add new club membership
+            user = existingUserOpt.get();
+            List<UserClub> userClubs = user.getUserClubs();
+            if (userClubs == null) {
+                userClubs = new ArrayList<>();
+                user.setUserClubs(userClubs);
+            }
+
+            // Check for existing relationship
+            if (!userClubRepository.existsByUser_IdAndClub_Id(user.getId(), club.getId())) {
+                UserClub userClub = new UserClub(
+                        user,
+                        club,
+                        userDTO.getClubMembership().getStripeId() != null ? userDTO.getClubMembership().getStripeId() : "",
+                        userDTO.getClubMembership().getStatus() != null ? userDTO.getClubMembership().getStatus() : "ACTIVE"
+                );
+                userClubs.add(userClub);
+            }
+
+            // Update membership if provided
+            if (userDTO.getMembershipId() != null) {
+                Membership membership = membershipRepository.findById(userDTO.getMembershipId())
+                        .orElseThrow(() -> new IllegalArgumentException("Invalid membership ID"));
+                user.setMembership(membership);
+            }
+        } else {
+            // Create new user
+            if (userDTO.getFirstName() == null || userDTO.getLastName() == null) {
+                throw new IllegalArgumentException("First name and last name are required for new users");
+            }
+
+            user = new User();
+            user.setFirstName(userDTO.getFirstName());
+            user.setLastName(userDTO.getLastName());
+            user.setEmail(userDTO.getEmail());
+            user.setPassword("userpass1"); // Temporary; consider generating or prompting
+            user.setIsInGoodStanding(true);
+
+            // Set membership if provided
+            if (userDTO.getMembershipId() != null) {
+                Membership membership = membershipRepository.findById(userDTO.getMembershipId())
+                        .orElseThrow(() -> new IllegalArgumentException("Invalid membership ID"));
+                user.setMembership(membership);
+            }
+
+            // Save user first to generate ID (this calls the overridden save() which encodes password and generates tokens)
+            user = save(user);
+
+            // Create UserClub entry
+            UserClub userClub = new UserClub(
+                    user,
+                    club,
+                    userDTO.getClubMembership().getStripeId() != null ? userDTO.getClubMembership().getStripeId() : "",
+                    userDTO.getClubMembership().getStatus() != null ? userDTO.getClubMembership().getStatus() : "ACTIVE"
+            );
+            user.setUserClubs(new ArrayList<>(List.of(userClub)));
+        }
+
+        // Save the updated user (cascades to UserClub due to @OneToMany cascade)
+        return userRepository.save(user);
+    }
+
     @Override
     @Transactional
     public User updateUser(User user) {
@@ -66,6 +167,7 @@ public class UserServiceImpl implements UserService {
     public boolean existsByReferralCode(String referralCode) {
         return userRepository.existsByReferralCode(referralCode);
     }
+
     @Override
     public Optional<User> updateProfilePicture(Long id, String imageUrl) {
         return userRepository.findById(id).map(user -> {
@@ -73,6 +175,7 @@ public class UserServiceImpl implements UserService {
             return userRepository.save(user);
         });
     }
+
     @Override
     @Transactional(readOnly = true) // readOnly = true since we're only reading
     public User signInWithPhoneNumber(String phoneNumber, String password) throws Exception {
@@ -88,16 +191,22 @@ public class UserServiceImpl implements UserService {
         // Return user if credentials are valid
         return user;
     }
+
     @Override
     public List<User> findAll() {
         return userRepository.findAll();
     }
+
     @Override
-    public List<UserDTOBasic> getAllUserDTOBasics(String cluTag){return userRepository.findAllUserDTOBasicByClubTag(cluTag);};
+    public List<UserDTOBasic> getAllUserDTOBasics(String cluTag) {
+        return userRepository.findAllUserDTOBasicByClubTag(cluTag);
+    }
+
     @Override
     public Optional<User> findById(Long id) {
         return userRepository.findById(id);
     }
+
     @Override
     public User updateUserAfterPayment(String stripeCustomerId, boolean standing) {
         Optional<User> optionalUser = userRepository.findByUserStripeMemberId(stripeCustomerId);
@@ -109,11 +218,11 @@ public class UserServiceImpl implements UserService {
             throw new RuntimeException("User not found for Stripe customer ID: " + stripeCustomerId);
         }
     }
+
     @Override
     public Optional<User> getUserByPhoneNumber(String phoneNumber) {
         return userRepository.findByPhoneNumber(phoneNumber);
     }
-
 
     @Override
     public Optional<User> deleteUserWithPhoneNumber(String phoneNumber) {
@@ -141,6 +250,7 @@ public class UserServiceImpl implements UserService {
             throw new RuntimeException("User not found for Stripe customer ID: " + stripeCustomerId);
         }
     }
+
     @Override
     public User save(User user) throws Exception {
         // Encode password
@@ -181,9 +291,10 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public Optional<User> getUserByBarcodeToken(String barcodeToken){
-       return userRepository.findByEntryQrcodeToken(barcodeToken);
+    public Optional<User> getUserByBarcodeToken(String barcodeToken) {
+        return userRepository.findByEntryQrcodeToken(barcodeToken);
     }
+
     @Override
     public User signIn(Map<String, String> requestBody) throws Exception {
         String phoneNumber = requestBody.get("phoneNumber");
@@ -207,6 +318,7 @@ public class UserServiceImpl implements UserService {
 
         return user; // Return the user object on successful login
     }
+
     @Override
     @Transactional
     public User updateUserOver18(long userId) {
@@ -215,6 +327,7 @@ public class UserServiceImpl implements UserService {
         user.setIsOver18(true);
         return userRepository.save(user);
     }
+
     @Override
     public UserDTO addChildToParent(Long parentId, User user) {
         // Encode password
@@ -250,8 +363,6 @@ public class UserServiceImpl implements UserService {
                 .collect(Collectors.toList());
     }
 
-
-
     @Transactional
     public UserDTO processBarcodeScan(String barcode) throws Exception {
         User user = getUserByBarcodeToken(barcode)
@@ -262,8 +373,6 @@ public class UserServiceImpl implements UserService {
         log.setUser(user);
         log.setSignInTime(LocalDateTime.now());
         signInLogRepository.save(log);
-
-
 
         // Load user with sign-in logs initialized
         User userWithLogs = userRepository.findByIdWithSignInLogs(user.getId())
