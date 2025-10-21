@@ -30,21 +30,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByIdWithSignInLogs(@Param("id") Long id);
 
     @Query("""
-        SELECT new com.BossLiftingClub.BossLifting.User.UserDTOBasic(
-            u.id,
-            u.firstName,
-            u.lastName,
-            u.isInGoodStanding,
-            u.isOver18,
-            u.signatureData,
-            u.profilePictureUrl,
-            u.membership
-        )
+        SELECT u
         FROM User u
-        LEFT JOIN u.membership m
-        JOIN u.userClubs uc
-        JOIN uc.club c
+        LEFT JOIN FETCH u.membership
+        JOIN FETCH u.userClubs uc
+        JOIN FETCH uc.club c
         WHERE c.clubTag = :clubTag
     """)
-    List<UserDTOBasic> findAllUserDTOBasicByClubTag(@Param("clubTag") String clubTag);
+    List<User> findUsersWithMembershipByClubTag(@Param("clubTag") String clubTag);
 }

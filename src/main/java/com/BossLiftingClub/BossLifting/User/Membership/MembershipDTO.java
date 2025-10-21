@@ -10,6 +10,18 @@ public class MembershipDTO {
     private String chargeInterval;
     private String clubTag;
 
+    public MembershipDTO() {}
+
+    public MembershipDTO(Membership membership) {
+        if (membership != null) {
+            this.id = membership.getId();
+            this.title = membership.getTitle();
+            this.price = membership.getPrice();
+            this.chargeInterval = membership.getChargeInterval();
+            this.clubTag = membership.getClubTag();
+        }
+    }
+
     public Long getId() {
         return id;
     }

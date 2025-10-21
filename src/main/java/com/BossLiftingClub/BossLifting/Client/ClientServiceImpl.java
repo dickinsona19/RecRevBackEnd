@@ -31,37 +31,52 @@ public class ClientServiceImpl implements ClientService {
 
 
     @Transactional
-    public String onboardClient(String email, String country, String businessType, String password) throws StripeException {
+    public Client createClientWithoutStripe(String email, String password) {
         // Check if client already exists
         if (clientRepository.findByEmail(email).isPresent()) {
             throw new IllegalStateException("Email already exists");
         }
 
-        // Create Stripe account
-        AccountCreateParams params = AccountCreateParams.builder()
-                .setType(AccountCreateParams.Type.EXPRESS)
-                .setCountry(country)
-                .setEmail(email)
-                .setBusinessType(AccountCreateParams.BusinessType.valueOf(businessType.toUpperCase()))
-                .build();
-
-        Account account = Account.create(params);
-
-        // Create new client
+        // Create new client without Stripe account
         Client client = new Client();
         client.setEmail(email);
-        client.setPassword(passwordEncoder.encode(password)); // You should get this from request
+        client.setPassword(passwordEncoder.encode(password));
         client.setCreatedAt(LocalDateTime.now());
-        client.setStatus("PENDING");
-        client.setStripeAccountId(account.getId());
+        client.setStatus("ACTIVE");
+        client.setStripeAccountId(null); // No Stripe account yet
         client.setClubs(new ArrayList<>());
 
         // Save client to database
-        clientRepository.save(client);
+        return clientRepository.save(client);
+    }
+
+    @Transactional
+    public String createStripeOnboardingLink(Integer clientId, String country, String businessType) throws StripeException {
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new IllegalStateException("Client not found"));
+
+        String stripeAccountId = client.getStripeAccountId();
+
+        // If client doesn't have a Stripe account, create one
+        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+            AccountCreateParams params = AccountCreateParams.builder()
+                    .setType(AccountCreateParams.Type.EXPRESS)
+                    .setCountry(country)
+                    .setEmail(client.getEmail())
+                    .setBusinessType(AccountCreateParams.BusinessType.valueOf(businessType.toUpperCase()))
+                    .build();
+
+            Account account = Account.create(params);
+            stripeAccountId = account.getId();
+
+            // Update client with Stripe account ID
+            client.setStripeAccountId(stripeAccountId);
+            clientRepository.save(client);
+        }
 
         // Create Stripe onboarding link
         AccountLinkCreateParams linkParams = AccountLinkCreateParams.builder()
-                .setAccount(account.getId())
+                .setAccount(stripeAccountId)
                 .setRefreshUrl("http://localhost:5173/dashboard")
                 .setReturnUrl("http://localhost:5173/dashboard")
                 .setType(AccountLinkCreateParams.Type.ACCOUNT_ONBOARDING)

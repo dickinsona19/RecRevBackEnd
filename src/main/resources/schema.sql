@@ -49,6 +49,7 @@ CREATE TABLE users (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     first_name VARCHAR(255) NOT NULL,
     last_name VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
     password VARCHAR(255) NOT NULL,
     phone_number VARCHAR(50),
     is_in_good_standing BOOLEAN NOT NULL DEFAULT FALSE,
@@ -65,6 +66,7 @@ CREATE TABLE users (
     parent_id BIGINT,
     referred_by_id BIGINT,
     membership_id BIGINT,
+    UNIQUE (email),
     UNIQUE (phone_number),
     UNIQUE (entry_qrcode_token),
     UNIQUE (user_stripe_member_id),
@@ -75,11 +77,17 @@ CREATE TABLE users (
     FOREIGN KEY (membership_id) REFERENCES membership(id)
 );
 CREATE TABLE user_clubs (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
     user_id BIGINT NOT NULL,
     club_id INTEGER NOT NULL,
-    PRIMARY KEY (user_id, club_id),
+    membership_id BIGINT,
+    stripe_id VARCHAR(100),
+    status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+    created_at DATETIME NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (club_id) REFERENCES clubs(id) ON DELETE CASCADE
+    FOREIGN KEY (club_id) REFERENCES clubs(id) ON DELETE CASCADE,
+    FOREIGN KEY (membership_id) REFERENCES membership(id),
+    CONSTRAINT unique_user_club UNIQUE (user_id, club_id)
 );
 
 CREATE TABLE sign_in_logs (
@@ -105,7 +113,7 @@ INSERT INTO user_titles (title) VALUES
 ('Guest');
 
 INSERT INTO clients (email, password, created_at, status, stripe_account_id) VALUES
-('anndreuis@gmail.com', 'admin123', '2025-08-19 11:00:00', 'ACTIVE', 'acct_1SAhtKLfLLcJtrGn'),
+('anndreuis@gmail.com', '$2a$10$cE/mC1Kd/ADnIvX.uV/tgeiuXIdxYG7/qXRVYHEwz5BUcgmnvyaUC', '2025-08-19 11:00:00', 'ACTIVE', 'acct_1SAhtKLfLLcJtrGn'),
 ('jane.smith@example.com', 'hashed_password_456', '2025-08-18 09:30:00', 'INACTIVE', 'acct_2K8X1yJ2M3N4P5Q6'),
 ('bob.jones@example.com', 'hashed_password_789', '2025-08-17 14:15:00', 'ACTIVE', NULL);
 
@@ -127,19 +135,19 @@ INSERT INTO membership (title, price, charge_interval, club_tag) VALUES
 
 
 
-INSERT INTO users (first_name, last_name, password, phone_number, is_in_good_standing, created_at, entry_qrcode_token, user_stripe_member_id, user_title_id, is_over_18, locked_in_rate, signature_data, waiver_signed_date, profile_picture_url, referral_code, parent_id, referred_by_id, membership_id) VALUES
-('Alice', 'Smith', 'hashed_password_111', '1234567890', TRUE, '2025-08-19 10:00:00', 'qrcode_001', 'stripe_mem_001', 1, TRUE, '29.99', 'signature_data_001', '2025-08-19 10:05:00', 'https://example.com/profiles/alice.png', 'REF001', NULL, NULL, 1),
-('Bob', 'Johnson', 'hashed_password_222', '0987654321', TRUE, '2025-08-19 11:00:00', 'qrcode_002', 'stripe_mem_002', 2, TRUE, '59.99', 'signature_data_002', '2025-08-19 11:05:00', NULL, 'REF002', NULL, 1, 2),
-('Charlie', 'Brown', 'hashed_password_333', '1122334455', FALSE, '2025-08-18 12:00:00', 'qrcode_003', NULL, 3, FALSE, NULL, NULL, NULL, NULL, 'REF003', 1, NULL, 3),
-('Diana', 'Wilson', 'hashed_password_444', '5566778899', TRUE, '2025-08-17 13:00:00', 'qrcode_004', 'stripe_mem_003', 1, TRUE, '49.99', 'signature_data_003', '2025-08-17 13:05:00', 'https://example.com/profiles/diana.png', 'REF004', NULL, 2, 4);
+INSERT INTO users (first_name, last_name, email, password, phone_number, is_in_good_standing, created_at, entry_qrcode_token, user_stripe_member_id, user_title_id, is_over_18, locked_in_rate, signature_data, waiver_signed_date, profile_picture_url, referral_code, parent_id, referred_by_id, membership_id) VALUES
+('Alice', 'Smith', 'alice.smith@example.com', 'hashed_password_111', '1234567890', TRUE, '2025-08-19 10:00:00', 'qrcode_001', 'stripe_mem_001', 1, TRUE, '29.99', 'signature_data_001', '2025-08-19 10:05:00', 'https://example.com/profiles/alice.png', 'REF001', NULL, NULL, 1),
+('Bob', 'Johnson', 'bob.johnson@example.com', 'hashed_password_222', '0987654321', TRUE, '2025-08-19 11:00:00', 'qrcode_002', 'stripe_mem_002', 2, TRUE, '59.99', 'signature_data_002', '2025-08-19 11:05:00', NULL, 'REF002', NULL, 1, 2),
+('Charlie', 'Brown', 'charlie.brown@example.com', 'hashed_password_333', '1122334455', FALSE, '2025-08-18 12:00:00', 'qrcode_003', NULL, 3, FALSE, NULL, NULL, NULL, NULL, 'REF003', 1, NULL, 3),
+('Diana', 'Wilson', 'diana.wilson@example.com', 'hashed_password_444', '5566778899', TRUE, '2025-08-17 13:00:00', 'qrcode_004', 'stripe_mem_003', 1, TRUE, '49.99', 'signature_data_003', '2025-08-17 13:05:00', 'https://example.com/profiles/diana.png', 'REF004', NULL, 2, 4);
 
 -- Inserting sample data into user_clubs table
-INSERT INTO user_clubs (user_id, club_id) VALUES
-(1, 1), -- Alice in John's Fitness Club
-(1, 2), -- Alice in John's Yoga Studio
-(2, 1), -- Bob in John's Fitness Club
-(3, 3), -- Charlie in Jane's Gym
-(4, 4); -- Diana in Bob's Weightlifting Center
+INSERT INTO user_clubs (user_id, club_id, membership_id, stripe_id, status, created_at) VALUES
+(1, 1, 1, NULL, 'ACTIVE', '2025-08-19 10:10:00'), -- Alice in John's Fitness Club with Basic Membership
+(1, 2, 3, NULL, 'ACTIVE', '2025-08-19 10:15:00'), -- Alice in John's Yoga Studio with Yoga Pass
+(2, 1, 2, 'stripe_sub_002', 'ACTIVE', '2025-08-19 11:10:00'), -- Bob in John's Fitness Club with Premium Membership
+(3, 3, NULL, NULL, 'PENDING', '2025-08-18 12:10:00'), -- Charlie in Jane's Gym (no membership yet)
+(4, 4, 4, 'stripe_sub_004', 'ACTIVE', '2025-08-17 13:10:00'); -- Diana in Bob's Weightlifting Center
 
 -- Inserting sample data into sign_in_logs table
 INSERT INTO sign_in_logs (user_id, sign_in_time) VALUES

@@ -37,7 +37,10 @@ public class Client {
     @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
     private List<Club> clubs = new ArrayList<>();
-
+    @Override
+    public String toString() {
+        return "Client{id=" + id + ", email='" + email + "'}";
+    }
     // Getters and Setters
     public Integer getId() {
         return id;

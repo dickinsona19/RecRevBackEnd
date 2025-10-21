@@ -11,5 +11,6 @@ public interface ClientService {
     ClientDTO updateClient(Integer id, ClientDTO clientDTO);
     void deleteClient(Integer id);
     ClientDTO getClientWithClubs(Integer id);
-    public String onboardClient(String clientEmail, String country, String businessType, String password) throws StripeException;
+    Client createClientWithoutStripe(String email, String password);
+    String createStripeOnboardingLink(Integer clientId, String country, String businessType) throws StripeException;
 }

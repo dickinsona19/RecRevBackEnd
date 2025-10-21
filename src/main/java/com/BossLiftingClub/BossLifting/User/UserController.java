@@ -11,6 +11,8 @@ import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.validation.Valid;
 import org.checkerframework.checker.units.qual.A;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -30,6 +32,8 @@ import java.util.Optional;
 @RestController
 @RequestMapping("/users")
 public class UserController {
+    private static final Logger logger = LoggerFactory.getLogger(UserController.class);
+
     private final BarcodeService barcodeService;
     private final UserService userService;
     private final FirebaseService firebaseService;
@@ -130,7 +134,17 @@ public class UserController {
 
     @GetMapping("/basic/{clubTag}")
     public List<UserDTOBasic> getAllUsersDTOBasic(@PathVariable String clubTag) {
-        return userService.getAllUserDTOBasics(clubTag);
+        logger.info("=== INCOMING REQUEST: GET /users/basic/{} ===", clubTag);
+        try {
+            List<UserDTOBasic> users = userService.getAllUserDTOBasics(clubTag);
+            logger.info("Successfully fetched {} users for clubTag: {}", users.size(), clubTag);
+            logger.info("=== REQUEST COMPLETED SUCCESSFULLY ===");
+            return users;
+        } catch (Exception e) {
+            logger.error("ERROR fetching users for clubTag: {}", clubTag, e);
+            logger.error("=== REQUEST FAILED ===");
+            throw e;
+        }
     }
     //Delete User given Phone Number
     @DeleteMapping("/delete-user")

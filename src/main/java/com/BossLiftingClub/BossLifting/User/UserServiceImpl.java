@@ -95,31 +95,36 @@ public class UserServiceImpl implements UserService {
                 .orElseThrow(() -> new IllegalArgumentException("Invalid club ID: " + userDTO.getClubMembership().getClubId()));
 
         if (existingUserOpt.isPresent()) {
-            // User exists, add new club membership
+            // User exists, check if they're already in this club
             user = existingUserOpt.get();
+
+            // Check if user is already a member of this club
+            if (userClubRepository.existsByUser_IdAndClub_Id(user.getId(), club.getId())) {
+                throw new IllegalArgumentException("User with email " + userDTO.getEmail() + " is already a member of this club");
+            }
+
+            // Add new club membership
             List<UserClub> userClubs = user.getUserClubs();
             if (userClubs == null) {
                 userClubs = new ArrayList<>();
                 user.setUserClubs(userClubs);
             }
 
-            // Check for existing relationship
-            if (!userClubRepository.existsByUser_IdAndClub_Id(user.getId(), club.getId())) {
-                UserClub userClub = new UserClub(
-                        user,
-                        club,
-                        userDTO.getClubMembership().getStripeId() != null ? userDTO.getClubMembership().getStripeId() : "",
-                        userDTO.getClubMembership().getStatus() != null ? userDTO.getClubMembership().getStatus() : "ACTIVE"
-                );
-                userClubs.add(userClub);
+            // Fetch membership if provided
+            Membership membership = null;
+            if (userDTO.getMembershipId() != null) {
+                membership = membershipRepository.findById(userDTO.getMembershipId())
+                        .orElseThrow(() -> new IllegalArgumentException("Invalid membership ID"));
             }
 
-            // Update membership if provided
-            if (userDTO.getMembershipId() != null) {
-                Membership membership = membershipRepository.findById(userDTO.getMembershipId())
-                        .orElseThrow(() -> new IllegalArgumentException("Invalid membership ID"));
-                user.setMembership(membership);
-            }
+            UserClub userClub = new UserClub(
+                    user,
+                    club,
+                    membership,
+                    userDTO.getClubMembership().getStripeId() != null ? userDTO.getClubMembership().getStripeId() : "",
+                    userDTO.getClubMembership().getStatus() != null ? userDTO.getClubMembership().getStatus() : "ACTIVE"
+            );
+            userClubs.add(userClub);
         } else {
             // Create new user
             if (userDTO.getFirstName() == null || userDTO.getLastName() == null) {
@@ -133,20 +138,21 @@ public class UserServiceImpl implements UserService {
             user.setPassword("userpass1"); // Temporary; consider generating or prompting
             user.setIsInGoodStanding(true);
 
-            // Set membership if provided
-            if (userDTO.getMembershipId() != null) {
-                Membership membership = membershipRepository.findById(userDTO.getMembershipId())
-                        .orElseThrow(() -> new IllegalArgumentException("Invalid membership ID"));
-                user.setMembership(membership);
-            }
-
             // Save user first to generate ID (this calls the overridden save() which encodes password and generates tokens)
             user = save(user);
 
-            // Create UserClub entry
+            // Fetch membership if provided for the club relationship
+            Membership membership = null;
+            if (userDTO.getMembershipId() != null) {
+                membership = membershipRepository.findById(userDTO.getMembershipId())
+                        .orElseThrow(() -> new IllegalArgumentException("Invalid membership ID"));
+            }
+
+            // Create UserClub entry with membership
             UserClub userClub = new UserClub(
                     user,
                     club,
+                    membership,
                     userDTO.getClubMembership().getStripeId() != null ? userDTO.getClubMembership().getStripeId() : "",
                     userDTO.getClubMembership().getStatus() != null ? userDTO.getClubMembership().getStatus() : "ACTIVE"
             );
@@ -198,8 +204,20 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public List<UserDTOBasic> getAllUserDTOBasics(String cluTag) {
-        return userRepository.findAllUserDTOBasicByClubTag(cluTag);
+    public List<UserDTOBasic> getAllUserDTOBasics(String clubTag) {
+        List<User> users = userRepository.findUsersWithMembershipByClubTag(clubTag);
+        return users.stream()
+                .map(user -> new UserDTOBasic(
+                        user.getId(),
+                        user.getFirstName(),
+                        user.getLastName(),
+                        user.getIsInGoodStanding(),
+                        user.isOver18(),
+                        user.getSignatureData(),
+                        user.getProfilePictureUrl(),
+                        user.getMembership()
+                ))
+                .toList();
     }
 
     @Override

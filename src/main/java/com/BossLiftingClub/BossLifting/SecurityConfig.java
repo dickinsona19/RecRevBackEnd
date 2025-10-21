@@ -1,12 +1,16 @@
 package com.BossLiftingClub.BossLifting;
 
+import com.BossLiftingClub.BossLifting.Security.JwtAuthenticationFilter;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -17,14 +21,19 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
 
+    @Autowired
+    private JwtAuthenticationFilter jwtAuthenticationFilter;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource())) // Enable CORS
                 .csrf(csrf -> csrf.disable()) // Disable CSRF for stateless API
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // Stateless sessions
                 .authorizeHttpRequests(auth -> auth
-                        .anyRequest().permitAll() // Allow all requests without authentication
-                );
+                        .anyRequest().permitAll() // Allow all requests for development - TODO: Add proper authentication for production
+                )
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class); // Add JWT filter
         return http.build();
     }
 
@@ -32,25 +41,20 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
 
-        // Define allowed origins
-        config.setAllowedOrigins(List.of(
-                "http://localhost:5173",        // Vite/React default (web dev)
-                "http://localhost:8081",        // Local frontend (web dev)
-                "https://boss-lifting-club.onrender.com", // Production web 1
-                "https://www.cltliftingclub.com", // Production web 2
-                "https://joyful-sunflower-8144bb.netlify.app", // Production web 3
-                "*"                             // Allow all origins (for mobile app direct requests)
-        ));
+        // Allow all origins for development (use specific origins in production)
+        config.addAllowedOriginPattern("*");
 
-        // Allowed HTTP methods (same as web)
+        // Allowed HTTP methods
         config.setAllowedMethods(List.of("GET", "POST", "OPTIONS", "DELETE", "PUT", "PATCH"));
 
-        // Allowed headers (same as web)
+        // Allowed headers
         config.setAllowedHeaders(List.of("*"));
 
-        // Credentials: Set to true if your app needs cookies or auth headers
-        // Note: If true, you CANNOT use "*" in allowedOrigins; list specific origins instead
-        config.setAllowCredentials(false); // Change to true if needed
+        // Expose headers (needed for JWT tokens in Authorization header)
+        config.setExposedHeaders(List.of("Authorization"));
+
+        // Allow credentials (cookies, auth headers)
+        config.setAllowCredentials(true);
 
         // Apply this config to all paths
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

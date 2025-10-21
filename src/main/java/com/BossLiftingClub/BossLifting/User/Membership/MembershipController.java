@@ -3,6 +3,7 @@ package com.BossLiftingClub.BossLifting.User.Membership;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -15,6 +16,7 @@ public class MembershipController {
     private MembershipService membershipService;
 
     @GetMapping("/club/{clubTag}")
+    @Transactional(readOnly = true)
     public ResponseEntity<?> getMembershipsByClubTag(@PathVariable String clubTag) {
         try {
             List<MembershipDTO> memberships = membershipService.getMembershipsByClubTag(clubTag);

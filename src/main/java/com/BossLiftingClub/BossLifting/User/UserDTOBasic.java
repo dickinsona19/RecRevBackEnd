@@ -1,8 +1,10 @@
 package com.BossLiftingClub.BossLifting.User;
 
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
+import com.BossLiftingClub.BossLifting.User.Membership.MembershipDTO;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLogDto;
 import com.BossLiftingClub.BossLifting.User.UserTitles.UserTitles;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.time.LocalDateTime;
 import java.util.Set;
@@ -16,7 +18,7 @@ public class UserDTOBasic {
     private Boolean isOver18;
     private String signatureData;
     private String profilePictureUrl;
-    private Membership membership;
+    private MembershipDTO membership;
 
     public UserDTOBasic() {}
 
@@ -31,7 +33,7 @@ public class UserDTOBasic {
         this.isOver18 = isOver18;
         this.signatureData = signatureData;
         this.profilePictureUrl = profilePictureUrl;
-        this.membership = membership;
+        this.membership = membership != null ? new MembershipDTO(membership) : null;
     }
 
     public Long getId() {
@@ -90,11 +92,11 @@ public class UserDTOBasic {
         this.profilePictureUrl = profilePictureUrl;
     }
 
-    public Membership getMembership() {
+    public MembershipDTO getMembership() {
         return membership;
     }
 
-    public void setMembership(Membership membership) {
+    public void setMembership(MembershipDTO membership) {
         this.membership = membership;
     }
 }

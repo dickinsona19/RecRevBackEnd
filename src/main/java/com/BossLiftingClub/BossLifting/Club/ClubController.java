@@ -1,5 +1,8 @@
 package com.BossLiftingClub.BossLifting.Club;
 
+import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
+import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubService;
+import com.BossLiftingClub.BossLifting.User.UserDTO;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/clubs")
@@ -18,6 +22,9 @@ import java.util.Map;
 public class ClubController {
     @Autowired
     private ClubService clubService;
+
+    @Autowired
+    private UserClubService userClubService;
 
     @PostMapping
     public ResponseEntity<?> createClub(@Valid @RequestBody ClubDTO clubDTO) {
@@ -77,6 +84,97 @@ public class ClubController {
         } catch (EntityNotFoundException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Get all members (users) for a specific club by clubTag
+     */
+    @GetMapping("/{clubTag}/members")
+    public ResponseEntity<?> getMembersByClubTag(@PathVariable String clubTag) {
+        try {
+            List<UserClub> userClubs = userClubService.getUsersByClubTag(clubTag);
+
+            // Map to DTOs with user information
+            List<Map<String, Object>> members = userClubs.stream()
+                    .map(uc -> {
+                        Map<String, Object> member = new java.util.HashMap<>();
+                        member.put("user", new UserDTO(uc.getUser()));
+                        member.put("status", uc.getStatus());
+                        member.put("stripeId", uc.getStripeId() != null ? uc.getStripeId() : "");
+                        member.put("membershipId", uc.getMembership() != null ? uc.getMembership().getId() : null);
+                        member.put("createdAt", uc.getCreatedAt());
+                        return member;
+                    })
+                    .collect(Collectors.toList());
+
+            return ResponseEntity.ok(members);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to retrieve members: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Update the status of a user-club relationship
+     */
+    @PutMapping("/{clubTag}/members/{userId}/status")
+    public ResponseEntity<?> updateMemberStatus(
+            @PathVariable String clubTag,
+            @PathVariable Long userId,
+            @RequestBody Map<String, String> request) {
+        try {
+            String newStatus = request.get("status");
+            if (newStatus == null || newStatus.trim().isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Status is required"));
+            }
+
+            // Validate status
+            List<String> validStatuses = List.of("ACTIVE", "INACTIVE", "CANCELLED", "PENDING");
+            if (!validStatuses.contains(newStatus.toUpperCase())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Invalid status. Must be one of: ACTIVE, INACTIVE, CANCELLED, PENDING"));
+            }
+
+            UserClub updatedRelationship = userClubService.updateUserClubStatus(userId, clubTag, newStatus.toUpperCase());
+
+            return ResponseEntity.ok(Map.of(
+                    "message", "Member status updated successfully",
+                    "userId", userId,
+                    "clubTag", clubTag,
+                    "newStatus", updatedRelationship.getStatus()
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to update member status: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Remove a user from a club
+     */
+    @DeleteMapping("/{clubTag}/members/{userId}")
+    public ResponseEntity<?> removeMemberFromClub(
+            @PathVariable String clubTag,
+            @PathVariable Long userId) {
+        try {
+            userClubService.removeUserFromClub(userId, clubTag);
+
+            return ResponseEntity.ok(Map.of(
+                    "message", "Member removed from club successfully",
+                    "userId", userId,
+                    "clubTag", clubTag
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to remove member from club: " + e.getMessage()));
         }
     }
 }

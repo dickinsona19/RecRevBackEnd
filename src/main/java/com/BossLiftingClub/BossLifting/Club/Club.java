@@ -3,11 +3,15 @@ package com.BossLiftingClub.BossLifting.Club;
 
 import com.BossLiftingClub.BossLifting.Client.Client;
 import com.BossLiftingClub.BossLifting.Club.Staff.Staff;
+import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
 import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "clubs")
@@ -42,6 +46,10 @@ public class Club {
     @ManyToOne
     @JoinColumn(name = "staff_id")
     private Staff staff;
+
+    @OneToMany(mappedBy = "club", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
+    private List<UserClub> userClubs = new ArrayList<>();
 
     public Long getId() {
         return id;
@@ -107,5 +115,12 @@ public class Club {
         this.staff = staff;
     }
 
+    public List<UserClub> getUserClubs() {
+        return userClubs;
+    }
+
+    public void setUserClubs(List<UserClub> userClubs) {
+        this.userClubs = userClubs;
+    }
 
 }

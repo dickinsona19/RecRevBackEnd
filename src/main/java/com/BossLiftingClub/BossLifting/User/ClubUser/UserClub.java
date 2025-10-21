@@ -2,9 +2,11 @@ package com.BossLiftingClub.BossLifting.User.ClubUser;
 
 
 import com.BossLiftingClub.BossLifting.Club.Club;
+import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.User;
 import jakarta.persistence.*;
 
+import java.time.LocalDateTime;
 import java.util.Objects;
 
 @Entity
@@ -23,20 +25,30 @@ public class UserClub {
     @JoinColumn(name = "club_id", nullable = false)
     private Club club;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "membership_id")
+    private Membership membership;
+
     @Column(name = "stripe_id")
     private String stripeId;
 
     @Column(name = "status")
     private String status;
 
+    @Column(name = "created_at", nullable = false)
+    private LocalDateTime createdAt;
+
     public UserClub() {
+        this.createdAt = LocalDateTime.now();
     }
 
-    public UserClub(User user, Club club, String stripeId, String status) {
+    public UserClub(User user, Club club, Membership membership, String stripeId, String status) {
         this.user = user;
         this.club = club;
+        this.membership = membership;
         this.stripeId = stripeId;
         this.status = status;
+        this.createdAt = LocalDateTime.now();
     }
 
     // Getters and setters
@@ -78,6 +90,22 @@ public class UserClub {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public Membership getMembership() {
+        return membership;
+    }
+
+    public void setMembership(Membership membership) {
+        this.membership = membership;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
     }
 
     @Override
