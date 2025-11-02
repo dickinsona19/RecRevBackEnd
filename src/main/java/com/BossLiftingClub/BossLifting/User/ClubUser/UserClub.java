@@ -4,9 +4,12 @@ package com.BossLiftingClub.BossLifting.User.ClubUser;
 import com.BossLiftingClub.BossLifting.Club.Club;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.User;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 @Entity
@@ -25,9 +28,14 @@ public class UserClub {
     @JoinColumn(name = "club_id", nullable = false)
     private Club club;
 
+    // Deprecated: Kept for backward compatibility, use userClubMemberships instead
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "membership_id")
+    @Deprecated
     private Membership membership;
+
+    @OneToMany(mappedBy = "userClub", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    private List<UserClubMembership> userClubMemberships = new ArrayList<>();
 
     @Column(name = "stripe_id")
     private String stripeId;
@@ -106,6 +114,24 @@ public class UserClub {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public List<UserClubMembership> getUserClubMemberships() {
+        return userClubMemberships;
+    }
+
+    public void setUserClubMemberships(List<UserClubMembership> userClubMemberships) {
+        this.userClubMemberships = userClubMemberships;
+    }
+
+    public void addMembership(UserClubMembership membership) {
+        userClubMemberships.add(membership);
+        membership.setUserClub(this);
+    }
+
+    public void removeMembership(UserClubMembership membership) {
+        userClubMemberships.remove(membership);
+        membership.setUserClub(null);
     }
 
     @Override

@@ -2,6 +2,7 @@ package com.BossLiftingClub.BossLifting.User;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -33,6 +34,9 @@ public class UserDTO {
     private Membership membership;
     private Set<SignInLogDto> signInLogs;
     private List<String> clubTags;
+
+    // New field for multiple memberships
+    private List<Map<String, Object>> memberships;
     public UserDTO() {}
 
     public UserDTO(User user) {
@@ -257,5 +261,13 @@ public class UserDTO {
 
     public void setClubTags(List<String> clubTags) {
         this.clubTags = clubTags;
+    }
+
+    public List<Map<String, Object>> getMemberships() {
+        return memberships;
+    }
+
+    public void setMemberships(List<Map<String, Object>> memberships) {
+        this.memberships = memberships;
     }
 }

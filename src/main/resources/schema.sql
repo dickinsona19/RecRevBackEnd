@@ -90,6 +90,30 @@ CREATE TABLE user_clubs (
     CONSTRAINT unique_user_club UNIQUE (user_id, club_id)
 );
 
+-- Create user_club_memberships junction table for multiple memberships per user-club relationship
+CREATE TABLE user_club_memberships (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_club_id BIGINT NOT NULL,
+    membership_id BIGINT NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+    anchor_date DATETIME NOT NULL,
+    end_date DATETIME NULL,
+    stripe_subscription_id VARCHAR(255) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_ucm_user_club FOREIGN KEY (user_club_id) REFERENCES user_clubs(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ucm_membership FOREIGN KEY (membership_id) REFERENCES membership(id) ON DELETE CASCADE
+);
+
+-- Create indexes for user_club_memberships table
+CREATE INDEX idx_ucm_user_club_id ON user_club_memberships(user_club_id);
+CREATE INDEX idx_ucm_membership_id ON user_club_memberships(membership_id);
+CREATE INDEX idx_ucm_status ON user_club_memberships(status);
+CREATE INDEX idx_ucm_anchor_date ON user_club_memberships(anchor_date);
+CREATE INDEX idx_ucm_stripe_subscription ON user_club_memberships(stripe_subscription_id);
+CREATE INDEX idx_ucm_active_memberships ON user_club_memberships(user_club_id, status, anchor_date);
+CREATE INDEX idx_ucm_membership_status ON user_club_memberships(membership_id, status);
+
 CREATE TABLE sign_in_logs (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     user_id BIGINT NOT NULL,
@@ -162,3 +186,17 @@ INSERT INTO products (name, definition, price, image_url, category, stripe_produ
 ('Yoga Mat', 'Non-slip yoga mat for studio use', 29.99, 'https://example.com/products/yoga_mat.png', 'Equipment', 'prod_002', 'JFC001'),
 ('Weightlifting Belt', 'Supportive belt for heavy lifts', 39.99, NULL, 'Equipment', 'prod_003', 'JFC001'),
 ('Energy Drink', 'Sugar-free energy drink', 3.99, 'https://example.com/products/energy_drink.png', 'Supplement', 'prod_004', 'JFC002');
+
+-- Migrate existing memberships from user_clubs table to user_club_memberships junction table
+-- This moves membership data from the old schema to the new multi-membership structure
+INSERT INTO user_club_memberships (user_club_id, membership_id, status, anchor_date, stripe_subscription_id, created_at, updated_at)
+SELECT
+    uc.id as user_club_id,
+    uc.membership_id,
+    uc.status as status,
+    uc.created_at as anchor_date,
+    uc.stripe_id as stripe_subscription_id,
+    uc.created_at as created_at,
+    uc.created_at as updated_at
+FROM user_clubs uc
+WHERE uc.membership_id IS NOT NULL;

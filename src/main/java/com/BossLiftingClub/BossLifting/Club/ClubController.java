@@ -95,14 +95,35 @@ public class ClubController {
         try {
             List<UserClub> userClubs = userClubService.getUsersByClubTag(clubTag);
 
-            // Map to DTOs with user information
+            // Map to DTOs with user information and multiple memberships
             List<Map<String, Object>> members = userClubs.stream()
                     .map(uc -> {
                         Map<String, Object> member = new java.util.HashMap<>();
-                        member.put("user", new UserDTO(uc.getUser()));
+                        UserDTO userDTO = new UserDTO(uc.getUser());
+
+                        // Map memberships from UserClubMembership junction table
+                        List<Map<String, Object>> memberships = uc.getUserClubMemberships().stream()
+                                .map(ucm -> {
+                                    Map<String, Object> membershipData = new java.util.HashMap<>();
+                                    membershipData.put("id", ucm.getId());
+                                    membershipData.put("membershipId", ucm.getMembership().getId());
+                                    membershipData.put("title", ucm.getMembership().getTitle());
+                                    membershipData.put("price", ucm.getMembership().getPrice());
+                                    membershipData.put("chargeInterval", ucm.getMembership().getChargeInterval());
+                                    membershipData.put("status", ucm.getStatus());
+                                    membershipData.put("anchorDate", ucm.getAnchorDate());
+                                    membershipData.put("endDate", ucm.getEndDate());
+                                    membershipData.put("stripeSubscriptionId", ucm.getStripeSubscriptionId());
+                                    return membershipData;
+                                })
+                                .collect(Collectors.toList());
+
+                        userDTO.setMemberships(memberships);
+
+                        member.put("user", userDTO);
+                        member.put("userClubId", uc.getId());
                         member.put("status", uc.getStatus());
                         member.put("stripeId", uc.getStripeId() != null ? uc.getStripeId() : "");
-                        member.put("membershipId", uc.getMembership() != null ? uc.getMembership().getId() : null);
                         member.put("createdAt", uc.getCreatedAt());
                         return member;
                     })
