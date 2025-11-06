@@ -41,7 +41,8 @@ CREATE TABLE membership (
     title VARCHAR(255) NOT NULL,
     price VARCHAR(50) NOT NULL,
     charge_interval VARCHAR(50) NOT NULL,
-    club_tag VARCHAR(100) NOT NULL
+    club_tag VARCHAR(100) NOT NULL,
+    stripe_price_id VARCHAR(255)
 );
 
 -- Modified users table with membership_id foreign key
@@ -137,7 +138,7 @@ INSERT INTO user_titles (title) VALUES
 ('Guest');
 
 INSERT INTO clients (email, password, created_at, status, stripe_account_id) VALUES
-('anndreuis@gmail.com', '$2a$10$cE/mC1Kd/ADnIvX.uV/tgeiuXIdxYG7/qXRVYHEwz5BUcgmnvyaUC', '2025-08-19 11:00:00', 'ACTIVE', 'acct_1SAhtKLfLLcJtrGn'),
+('anndreuis@gmail.com', '$2a$10$hjxdcTpSSMIzYVc4ajNWsurcT2vf7CUJuqqMAHLvFAQr8nmQbXLHm', '2025-08-19 11:00:00', 'ACTIVE', 'acct_1SAhtKLfLLcJtrGn'),
 ('jane.smith@example.com', 'hashed_password_456', '2025-08-18 09:30:00', 'INACTIVE', 'acct_2K8X1yJ2M3N4P5Q6'),
 ('bob.jones@example.com', 'hashed_password_789', '2025-08-17 14:15:00', 'ACTIVE', NULL);
 
@@ -151,11 +152,12 @@ INSERT INTO clubs (title, logo_url, status, created_at, club_tag, client_id, sta
 ('John''s Yoga Studio', 'https://example.com/logos/yoga_studio.png', 'ACTIVE', '2025-08-19 13:00:00', 'JYS002', 1, 2),
 ('Jane''s Gym', 'https://example.com/logos/janes_gym.png', 'INACTIVE', '2025-08-18 10:00:00', 'JG003', 2, 3),
 ('Bob''s Weightlifting Center', NULL, 'ACTIVE', '2025-08-17 15:00:00', 'BWC004', 3, NULL);
-INSERT INTO membership (title, price, charge_interval, club_tag) VALUES
-('Basic Membership', '29.99', 'MONTHLY', 'JFC001'),
-('Premium Membership', '59.99', 'MONTHLY', 'JFC001'),
-('Yoga Pass', '39.99', 'MONTHLY', 'JYS002'),
-('Weightlifting Monthly', '49.99', 'MONTHLY', 'BWC004');
+INSERT INTO membership (title, price, charge_interval, club_tag, stripe_price_id) VALUES
+('Basic Membership', '29.99', 'MONTHLY', 'JFC001', NULL),
+('Premium Membership', '59.99', 'MONTHLY', 'JFC001', NULL),
+('Yoga Pass', '39.99', 'MONTHLY', 'JYS002', NULL),
+('Weightlifting Monthly', '49.99', 'MONTHLY', 'BWC004', NULL),
+('testing', '9.99', 'MONTHLY', 'JFC001', 'price_1SQGLQLfLLcJtrGn9HSLDmka');
 
 
 
@@ -186,6 +188,7 @@ INSERT INTO products (name, definition, price, image_url, category, stripe_produ
 ('Yoga Mat', 'Non-slip yoga mat for studio use', 29.99, 'https://example.com/products/yoga_mat.png', 'Equipment', 'prod_002', 'JFC001'),
 ('Weightlifting Belt', 'Supportive belt for heavy lifts', 39.99, NULL, 'Equipment', 'prod_003', 'JFC001'),
 ('Energy Drink', 'Sugar-free energy drink', 3.99, 'https://example.com/products/energy_drink.png', 'Supplement', 'prod_004', 'JFC002');
+
 
 -- Migrate existing memberships from user_clubs table to user_club_memberships junction table
 -- This moves membership data from the old schema to the new multi-membership structure

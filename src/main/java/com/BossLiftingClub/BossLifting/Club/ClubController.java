@@ -114,15 +114,37 @@ public class ClubController {
                                     membershipData.put("anchorDate", ucm.getAnchorDate());
                                     membershipData.put("endDate", ucm.getEndDate());
                                     membershipData.put("stripeSubscriptionId", ucm.getStripeSubscriptionId());
+                                    membershipData.put("pauseStartDate", ucm.getPauseStartDate());
+                                    membershipData.put("pauseEndDate", ucm.getPauseEndDate());
                                     return membershipData;
                                 })
                                 .collect(Collectors.toList());
 
                         userDTO.setMemberships(memberships);
 
+                        // Calculate user status based on memberships
+                        String calculatedStatus;
+                        if (memberships.isEmpty()) {
+                            calculatedStatus = "INACTIVE";
+                        } else {
+                            // Check if any membership is INACTIVE
+                            boolean hasInactiveMembership = memberships.stream()
+                                    .anyMatch(m -> "INACTIVE".equalsIgnoreCase((String) m.get("status")));
+
+                            // Check if all memberships are ACTIVE
+                            boolean allActive = memberships.stream()
+                                    .allMatch(m -> "ACTIVE".equalsIgnoreCase((String) m.get("status")));
+
+                            if (hasInactiveMembership || !allActive) {
+                                calculatedStatus = "INACTIVE";
+                            } else {
+                                calculatedStatus = "ACTIVE";
+                            }
+                        }
+
                         member.put("user", userDTO);
                         member.put("userClubId", uc.getId());
-                        member.put("status", uc.getStatus());
+                        member.put("status", calculatedStatus);
                         member.put("stripeId", uc.getStripeId() != null ? uc.getStripeId() : "");
                         member.put("createdAt", uc.getCreatedAt());
                         return member;

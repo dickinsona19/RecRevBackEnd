@@ -7,6 +7,7 @@ public class UserCreateDTO {
     private String firstName;
     private String lastName;
     private String email;
+    private String paymentMethodId; // Stripe payment method token
 
     // Deprecated: Use memberships instead
     @Deprecated
@@ -53,6 +54,8 @@ public class UserCreateDTO {
     public void setLastName(String lastName) { this.lastName = lastName; }
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
+    public String getPaymentMethodId() { return paymentMethodId; }
+    public void setPaymentMethodId(String paymentMethodId) { this.paymentMethodId = paymentMethodId; }
 
     @Deprecated
     public Long getMembershipId() { return membershipId; }
