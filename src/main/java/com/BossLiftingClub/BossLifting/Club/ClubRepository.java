@@ -18,4 +18,6 @@ public interface ClubRepository extends JpaRepository<Club, Long> {
     @Query("SELECT c FROM Club c WHERE c.clubTag = :clubTag")
     Optional<Club> findByClubTagWithLock(@Param("clubTag") String clubTag);
 
+    Optional<Club> findByStripeAccountId(String stripeAccountId);
+
 }

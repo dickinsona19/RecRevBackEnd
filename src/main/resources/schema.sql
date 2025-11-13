@@ -11,7 +11,6 @@ CREATE TABLE user_titles (
         password VARCHAR(255) NOT NULL,
         created_at DATETIME NOT NULL,
         status VARCHAR(50),
-        stripe_account_id VARCHAR(100),
         UNIQUE (email)
     );
 
@@ -33,6 +32,8 @@ CREATE TABLE user_titles (
        club_tag VARCHAR(100),
        client_id INTEGER NOT NULL,
        staff_id INTEGER,
+       stripe_account_id VARCHAR(100),
+       onboarding_status VARCHAR(50) DEFAULT 'NOT_STARTED',
        FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
        FOREIGN KEY (staff_id) REFERENCES staff(id)
    );
@@ -137,21 +138,21 @@ INSERT INTO user_titles (title) VALUES
 ('VIP Member'),
 ('Guest');
 
-INSERT INTO clients (email, password, created_at, status, stripe_account_id) VALUES
-('anndreuis@gmail.com', '$2a$10$hjxdcTpSSMIzYVc4ajNWsurcT2vf7CUJuqqMAHLvFAQr8nmQbXLHm', '2025-08-19 11:00:00', 'ACTIVE', 'acct_1SAhtKLfLLcJtrGn'),
-('jane.smith@example.com', 'hashed_password_456', '2025-08-18 09:30:00', 'INACTIVE', 'acct_2K8X1yJ2M3N4P5Q6'),
-('bob.jones@example.com', 'hashed_password_789', '2025-08-17 14:15:00', 'ACTIVE', NULL);
+INSERT INTO clients (email, password, created_at, status) VALUES
+('anndreuis@gmail.com', '$2a$10$hjxdcTpSSMIzYVc4ajNWsurcT2vf7CUJuqqMAHLvFAQr8nmQbXLHm', '2025-08-19 11:00:00', 'ACTIVE'),
+('jane.smith@example.com', 'hashed_password_456', '2025-08-18 09:30:00', 'INACTIVE'),
+('bob.jones@example.com', 'hashed_password_789', '2025-08-17 14:15:00', 'ACTIVE');
 
--- Inserting sample data into staff table
+-- Inserting sample data into staff table'
 INSERT INTO staff (email, password, type) VALUES
 ('alice.trainer@example.com', 'hashed_password_901', 'TRAINER'),
 ('bob.coach@example.com', 'hashed_password_902', 'COACH'),
 ('carol.instructor@example.com', 'hashed_password_903', 'INSTRUCTOR');
-INSERT INTO clubs (title, logo_url, status, created_at, club_tag, client_id, staff_id) VALUES
-('John''s Fitness Club', 'https://example.com/logos/johns_fitness.png', 'ACTIVE', '2025-08-19 12:00:00', 'JFC001', 1, 1),
-('John''s Yoga Studio', 'https://example.com/logos/yoga_studio.png', 'ACTIVE', '2025-08-19 13:00:00', 'JYS002', 1, 2),
-('Jane''s Gym', 'https://example.com/logos/janes_gym.png', 'INACTIVE', '2025-08-18 10:00:00', 'JG003', 2, 3),
-('Bob''s Weightlifting Center', NULL, 'ACTIVE', '2025-08-17 15:00:00', 'BWC004', 3, NULL);
+INSERT INTO clubs (title, logo_url, status, created_at, club_tag, client_id, staff_id, stripe_account_id, onboarding_status) VALUES
+('John''s Fitness Club', 'https://example.com/logos/johns_fitness.png', 'ACTIVE', '2025-08-19 12:00:00', 'JFC001', 1, 1, 'acct_1SAhtKLfLLcJtrGn', 'COMPLETED'),
+('John''s Yoga Studio', 'https://example.com/logos/yoga_studio.png', 'ACTIVE', '2025-08-19 13:00:00', 'JYS002', 1, 2, NULL, 'NOT_STARTED'),
+('Jane''s Gym', 'https://example.com/logos/janes_gym.png', 'INACTIVE', '2025-08-18 10:00:00', 'JG003', 2, 3, NULL, 'NOT_STARTED'),
+('Bob''s Weightlifting Center', NULL, 'ACTIVE', '2025-08-17 15:00:00', 'BWC004', 3, NULL, NULL, 'NOT_STARTED');
 INSERT INTO membership (title, price, charge_interval, club_tag, stripe_price_id) VALUES
 ('Basic Membership', '29.99', 'MONTHLY', 'JFC001', NULL),
 ('Premium Membership', '59.99', 'MONTHLY', 'JFC001', NULL),

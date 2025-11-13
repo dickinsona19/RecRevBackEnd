@@ -1,6 +1,5 @@
 package com.BossLiftingClub.BossLifting.User;
 
-import com.BossLiftingClub.BossLifting.Client.Client;
 import com.BossLiftingClub.BossLifting.Club.Club;
 import com.BossLiftingClub.BossLifting.Club.ClubRepository;
 import com.BossLiftingClub.BossLifting.Stripe.StripeService;
@@ -128,13 +127,13 @@ public class UserServiceImpl implements UserService {
             String stripeCustomerId = userDTO.getClubMembership().getStripeId();
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
                 try {
-                    Client client = club.getClient();
-                    if (client != null && client.getStripeAccountId() != null) {
+                    String stripeAccountId = club.getStripeAccountId();
+                    if (stripeAccountId != null) {
                         String fullName = user.getFirstName() + " " + user.getLastName();
                         stripeCustomerId = stripeService.createCustomerOnConnectedAccount(
                             user.getEmail(),
                             fullName,
-                            client.getStripeAccountId()
+                            stripeAccountId
                         );
                         System.out.println("Created Stripe customer: " + stripeCustomerId + " for user " + user.getEmail());
                     } else {
@@ -154,12 +153,12 @@ public class UserServiceImpl implements UserService {
             // If payment method is provided, attach it immediately
             if (userDTO.getPaymentMethodId() != null && !userDTO.getPaymentMethodId().isEmpty() && stripeCustomerId != null) {
                 try {
-                    Client client = club.getClient();
-                    if (client != null && client.getStripeAccountId() != null) {
+                    String stripeAccountId = club.getStripeAccountId();
+                    if (stripeAccountId != null) {
                         stripeService.attachPaymentMethodOnConnectedAccount(
                             stripeCustomerId,
                             userDTO.getPaymentMethodId(),
-                            client.getStripeAccountId()
+                            stripeAccountId
                         );
                         System.out.println("✅ Payment method " + userDTO.getPaymentMethodId() + " attached to customer " + stripeCustomerId);
                     }
@@ -221,13 +220,13 @@ public class UserServiceImpl implements UserService {
             String stripeCustomerId = userDTO.getClubMembership().getStripeId();
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
                 try {
-                    Client client = club.getClient();
-                    if (client != null && client.getStripeAccountId() != null) {
+                    String stripeAccountId = club.getStripeAccountId();
+                    if (stripeAccountId != null) {
                         String fullName = user.getFirstName() + " " + user.getLastName();
                         stripeCustomerId = stripeService.createCustomerOnConnectedAccount(
                             user.getEmail(),
                             fullName,
-                            client.getStripeAccountId()
+                            stripeAccountId
                         );
                         System.out.println("Created Stripe customer: " + stripeCustomerId + " for user " + user.getEmail());
                     } else {
@@ -248,12 +247,12 @@ public class UserServiceImpl implements UserService {
             // If payment method is provided, attach it immediately
             if (userDTO.getPaymentMethodId() != null && !userDTO.getPaymentMethodId().isEmpty() && stripeCustomerId != null) {
                 try {
-                    Client client = club.getClient();
-                    if (client != null && client.getStripeAccountId() != null) {
+                    String stripeAccountId = club.getStripeAccountId();
+                    if (stripeAccountId != null) {
                         stripeService.attachPaymentMethodOnConnectedAccount(
                             stripeCustomerId,
                             userDTO.getPaymentMethodId(),
-                            client.getStripeAccountId()
+                            stripeAccountId
                         );
                         System.out.println("✅ Payment method " + userDTO.getPaymentMethodId() + " attached to customer " + stripeCustomerId);
                     }
@@ -560,9 +559,9 @@ public class UserServiceImpl implements UserService {
                 return;
             }
 
-            // Get the club's client and Stripe account
-            Client client = club.getClient();
-            if (client == null || client.getStripeAccountId() == null) {
+            // Get the club's Stripe account
+            String stripeAccountId = club.getStripeAccountId();
+            if (stripeAccountId == null) {
                 System.err.println("Client or Stripe account ID not found for club: " + club.getClubTag());
                 return;
             }
@@ -581,7 +580,7 @@ public class UserServiceImpl implements UserService {
             Subscription subscription = stripeService.createSubscription(
                     stripeCustomerId,
                     stripePriceId,
-                    client.getStripeAccountId(),
+                    stripeAccountId,
                     anchorDate
             );
 

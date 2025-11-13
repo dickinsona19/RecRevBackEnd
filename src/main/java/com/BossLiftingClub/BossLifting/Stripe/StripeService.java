@@ -595,6 +595,45 @@ public class StripeService {
                 chargeData.put("paid", charge.getPaid());
                 chargeData.put("refunded", charge.getRefunded());
 
+                // Add refund details if charge has been refunded
+                if (charge.getRefunded() || (charge.getAmountRefunded() != null && charge.getAmountRefunded() > 0)) {
+                    chargeData.put("amountRefunded", charge.getAmountRefunded() / 100.0); // Convert cents to dollars
+
+                    // Determine if it's a full or partial refund
+                    boolean isFullRefund = charge.getAmountRefunded().equals(charge.getAmount());
+                    chargeData.put("refundType", isFullRefund ? "full" : "partial");
+
+                    // Get detailed refund information
+                    try {
+                        Map<String, Object> refundParams = new HashMap<>();
+                        refundParams.put("charge", charge.getId());
+                        refundParams.put("limit", 10); // Get up to 10 refunds for this charge
+
+                        RefundCollection refunds;
+                        if (requestOptions != null) {
+                            refunds = Refund.list(refundParams, requestOptions);
+                        } else {
+                            refunds = Refund.list(refundParams);
+                        }
+
+                        // Convert refunds to a list
+                        List<Map<String, Object>> refundList = new java.util.ArrayList<>();
+                        for (Refund refund : refunds.getData()) {
+                            Map<String, Object> refundData = new HashMap<>();
+                            refundData.put("id", refund.getId());
+                            refundData.put("amount", refund.getAmount() / 100.0);
+                            refundData.put("created", refund.getCreated());
+                            refundData.put("status", refund.getStatus());
+                            refundData.put("reason", refund.getReason());
+                            refundList.add(refundData);
+                        }
+                        chargeData.put("refunds", refundList);
+                    } catch (Exception e) {
+                        System.err.println("Error fetching refund details for charge " + charge.getId() + ": " + e.getMessage());
+                        // Continue without refund details
+                    }
+                }
+
                 // Add payment method details if available
                 if (charge.getPaymentMethodDetails() != null &&
                     charge.getPaymentMethodDetails().getCard() != null) {

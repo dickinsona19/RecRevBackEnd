@@ -1,5 +1,8 @@
 package com.BossLiftingClub.BossLifting.Stripe;
 
+import com.BossLiftingClub.BossLifting.Analytics.RecentActivity;
+import com.BossLiftingClub.BossLifting.Analytics.RecentActivityRepository;
+import com.BossLiftingClub.BossLifting.Club.ClubService;
 import com.BossLiftingClub.BossLifting.Promo.PromoDTO;
 import com.BossLiftingClub.BossLifting.Promo.PromoService;
 import com.BossLiftingClub.BossLifting.Stripe.ProcessedEvent.EventService;
@@ -52,9 +55,11 @@ public class StripeController {
     private final EventService eventService;
     private final TransferService transferService;
     private final PromoService promoService;
+    private final RecentActivityRepository recentActivityRepository;
+    private final ClubService clubService;
     @Autowired
     private JavaMailSender mailSender;
-    public StripeController(EventService eventService, TransferService transferService, UserService userService, StripeService stripeService, @Value("${stripe.webhook.secret}") String webhookSecret, @Value("${stripe.webhook.subscriptionSecret}") String webhookSubscriptionSecret, UserTitlesRepository userTitlesRepository, MembershipRepository membershipRepository, UserRepository userRepository, PromoService promoService) {
+    public StripeController(EventService eventService, TransferService transferService, UserService userService, StripeService stripeService, @Value("${stripe.webhook.secret}") String webhookSecret, @Value("${stripe.webhook.subscriptionSecret}") String webhookSubscriptionSecret, UserTitlesRepository userTitlesRepository, MembershipRepository membershipRepository, UserRepository userRepository, PromoService promoService, RecentActivityRepository recentActivityRepository, ClubService clubService) {
         this.eventService = eventService;
         this.stripeService = stripeService;
         this.webhookSecret = webhookSecret;
@@ -65,6 +70,8 @@ public class StripeController {
         this.webhookSubscriptionSecret = webhookSubscriptionSecret;
         this.transferService = transferService;
         this.promoService = promoService;
+        this.recentActivityRepository = recentActivityRepository;
+        this.clubService = clubService;
     }
 
     public void sendOnboardingEmail(String customerId) throws StripeException, MessagingException {
@@ -427,12 +434,83 @@ public class StripeController {
             // Handle other event types
             switch (eventType) {
                 case "customer.subscription.created":
+                    Subscription newSubscription = (Subscription) dataObjectDeserializer.getObject().get();
+                    String newCustomerId = newSubscription.getCustomer();
+                    String newStatus = newSubscription.getStatus();
+                    boolean isInGoodStanding = "active".equals(newStatus) || "trialing".equals(newStatus);
+                    userService.updateUserAfterPayment(newCustomerId, isInGoodStanding);
+
+                    // Create NEW_MEMBER recent activity
+                    try {
+                        // Check if already processed
+                        if (!recentActivityRepository.findByStripeEventId(eventId).isPresent()) {
+                            Customer newCustomer = Customer.retrieve(newCustomerId);
+                            String customerName = newCustomer.getName() != null ? newCustomer.getName() : "New Member";
+
+                            // TODO: Determine clubId based on your business logic
+                            // For now, using a placeholder. You may need to:
+                            // 1. Add clubId to subscription metadata
+                            // 2. Look up user by customerId and find their club association
+                            // 3. Use a default club for your single-club setup
+                            Long clubId = 1L; // PLACEHOLDER - Replace with actual club lookup logic
+
+                            RecentActivity activity = new RecentActivity();
+                            activity.setClubId(clubId);
+                            activity.setActivityType("NEW_MEMBER");
+                            activity.setDescription(customerName + " joined the club");
+                            activity.setCustomerName(customerName);
+                            activity.setStripeEventId(eventId);
+                            recentActivityRepository.save(activity);
+
+                            System.out.println("Created NEW_MEMBER activity for customer: " + customerName);
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Failed to create NEW_MEMBER activity: " + e.getMessage());
+                    }
+                    break;
+
                 case "customer.subscription.updated":
                     Subscription subscription = (Subscription) dataObjectDeserializer.getObject().get();
                     String customerId = subscription.getCustomer();
                     String status = subscription.getStatus();
-                    boolean isInGoodStanding = "active".equals(status) || "trialing".equals(status);
-                    userService.updateUserAfterPayment(customerId, isInGoodStanding);
+                    boolean isInGoodStandingUpdated = "active".equals(status) || "trialing".equals(status);
+                    userService.updateUserAfterPayment(customerId, isInGoodStandingUpdated);
+                    break;
+
+                case "charge.succeeded":
+                    Charge charge = (Charge) dataObjectDeserializer.getObject().get();
+
+                    // Create PAYMENT recent activity
+                    try {
+                        // Check if already processed
+                        if (!recentActivityRepository.findByStripeEventId(eventId).isPresent()) {
+                            String chargeCustomerId = charge.getCustomer();
+                            double amount = charge.getAmount() / 100.0;
+
+                            Customer chargeCustomer = Customer.retrieve(chargeCustomerId);
+                            String payerName = chargeCustomer.getName() != null ? chargeCustomer.getName() : "Customer";
+
+                            // TODO: Determine clubId based on your business logic
+                            // For connected accounts, you may be able to extract it from:
+                            // 1. request.getHeader("Stripe-Account")
+                            // 2. charge.getMetadata().get("clubId")
+                            // 3. Look up client by stripeAccountId and get associated club
+                            Long clubId = 1L; // PLACEHOLDER - Replace with actual club lookup logic
+
+                            RecentActivity activity = new RecentActivity();
+                            activity.setClubId(clubId);
+                            activity.setActivityType("PAYMENT");
+                            activity.setDescription("Payment received from " + payerName);
+                            activity.setAmount(amount);
+                            activity.setCustomerName(payerName);
+                            activity.setStripeEventId(eventId);
+                            recentActivityRepository.save(activity);
+
+                            System.out.println("Created PAYMENT activity: $" + amount + " from " + payerName);
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Failed to create PAYMENT activity: " + e.getMessage());
+                    }
                     break;
 
                 case "invoice.payment_failed":
@@ -445,6 +523,37 @@ public class StripeController {
                 case "customer.subscription.deleted":
                     Subscription deletedSubscription = (Subscription) dataObjectDeserializer.getObject().get();
                     userService.updateUserAfterPayment(deletedSubscription.getCustomer(), false);
+                    break;
+
+                case "account.updated":
+                    Account account = (Account) dataObjectDeserializer.getObject().get();
+                    String accountId = account.getId();
+
+                    // Check if the account has completed onboarding
+                    boolean chargesEnabled = account.getChargesEnabled();
+                    boolean detailsSubmitted = account.getDetailsSubmitted();
+
+                    String onboardingStatus;
+                    if (chargesEnabled && detailsSubmitted) {
+                        onboardingStatus = "COMPLETED";
+                        System.out.println("Stripe account " + accountId + " completed onboarding");
+                    } else if (detailsSubmitted) {
+                        onboardingStatus = "PENDING";
+                        System.out.println("Stripe account " + accountId + " details submitted, pending review");
+                    } else if (account.getRequirements() != null && !account.getRequirements().getCurrentlyDue().isEmpty()) {
+                        onboardingStatus = "RESTRICTED";
+                        System.out.println("Stripe account " + accountId + " has requirements currently due");
+                    } else {
+                        onboardingStatus = "PENDING";
+                        System.out.println("Stripe account " + accountId + " is pending onboarding");
+                    }
+
+                    try {
+                        clubService.updateOnboardingStatus(accountId, onboardingStatus);
+                        System.out.println("Updated club onboarding status for account " + accountId + " to " + onboardingStatus);
+                    } catch (Exception e) {
+                        System.err.println("Failed to update onboarding status for account " + accountId + ": " + e.getMessage());
+                    }
                     break;
 
                 default:

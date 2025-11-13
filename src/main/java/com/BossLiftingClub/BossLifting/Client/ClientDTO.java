@@ -14,7 +14,6 @@ public class ClientDTO {
     private String password;
     private LocalDateTime createdAt;
     private String status;
-    private String stripeAccountId;
     private Set<ClubDTO> clubs;
 
     // Getters and Setters
@@ -56,14 +55,6 @@ public class ClientDTO {
 
     public void setStatus(String status) {
         this.status = status;
-    }
-
-    public String getStripeAccountId() {
-        return stripeAccountId;
-    }
-
-    public void setStripeAccountId(String stripeAccountId) {
-        this.stripeAccountId = stripeAccountId;
     }
 
     public Set<ClubDTO> getClubs() {

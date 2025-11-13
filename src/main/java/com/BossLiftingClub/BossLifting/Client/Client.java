@@ -31,9 +31,6 @@ public class Client {
     @Column
     private String status;
 
-    @Column(name="stripe_account_id ")
-    private String stripeAccountId;
-
     @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
     private List<Club> clubs = new ArrayList<>();
@@ -80,14 +77,6 @@ public class Client {
 
     public void setStatus(String status) {
         this.status = status;
-    }
-
-    public String getStripeAccountId() {
-        return stripeAccountId;
-    }
-
-    public void setStripeAccountId(String stripeAccountId) {
-        this.stripeAccountId = stripeAccountId;
     }
 
     public List<Club> getClubs() {

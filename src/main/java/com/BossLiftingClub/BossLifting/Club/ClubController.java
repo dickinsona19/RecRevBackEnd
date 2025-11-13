@@ -3,6 +3,7 @@ package com.BossLiftingClub.BossLifting.Club;
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubService;
 import com.BossLiftingClub.BossLifting.User.UserDTO;
+import com.stripe.exception.StripeException;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -218,6 +219,74 @@ public class ClubController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to remove member from club: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Create Stripe onboarding link for a club
+     * This initiates or continues the Stripe Express account setup process
+     */
+    @PostMapping("/{clubTag}/stripe-onboarding")
+    public ResponseEntity<?> createStripeOnboardingLink(
+            @PathVariable String clubTag,
+            @RequestBody Map<String, String> request) {
+        try {
+            String returnUrl = request.get("returnUrl");
+            String refreshUrl = request.get("refreshUrl");
+
+            if (returnUrl == null || returnUrl.trim().isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "returnUrl is required"));
+            }
+
+            if (refreshUrl == null || refreshUrl.trim().isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "refreshUrl is required"));
+            }
+
+            String onboardingUrl = clubService.createStripeOnboardingLink(clubTag, returnUrl, refreshUrl);
+
+            return ResponseEntity.ok(Map.of(
+                    "url", onboardingUrl,
+                    "message", "Stripe onboarding link created successfully"
+            ));
+        } catch (EntityNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", e.getMessage()));
+        } catch (StripeException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Stripe error: " + e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to create onboarding link: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Get Stripe Express Dashboard link for a club
+     * Allows club owners to access their Stripe dashboard to view payments, payouts, etc.
+     */
+    @GetMapping("/{clubTag}/stripe-dashboard-link")
+    public ResponseEntity<?> getStripeDashboardLink(@PathVariable String clubTag) {
+        try {
+            String dashboardUrl = clubService.createStripeDashboardLink(clubTag);
+
+            return ResponseEntity.ok(Map.of(
+                    "url", dashboardUrl,
+                    "message", "Stripe dashboard link created successfully"
+            ));
+        } catch (EntityNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", e.getMessage()));
+        } catch (StripeException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Stripe error: " + e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to create dashboard link: " + e.getMessage()));
         }
     }
 }

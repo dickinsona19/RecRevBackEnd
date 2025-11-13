@@ -6,6 +6,12 @@ import com.BossLiftingClub.BossLifting.Club.Staff.Staff;
 import com.BossLiftingClub.BossLifting.Club.Staff.StaffRepository;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.Membership.MembershipDTO;
+import com.stripe.exception.StripeException;
+import com.stripe.model.Account;
+import com.stripe.model.AccountLink;
+import com.stripe.model.LoginLink;
+import com.stripe.param.AccountCreateParams;
+import com.stripe.param.AccountLinkCreateParams;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.persistence.LockModeType;
 import org.slf4j.Logger;
@@ -18,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -190,6 +197,7 @@ public class ClubServiceImpl implements ClubService {
         dto.setClubTag(club.getClubTag());
         dto.setClientId(club.getClient() != null ? club.getClient().getId() : null);
         dto.setStaffId(club.getStaff() != null ? club.getStaff().getId() : null);
+        dto.setOnboardingStatus(club.getOnboardingStatus());
         return dto;
     }
 
@@ -214,5 +222,98 @@ public class ClubServiceImpl implements ClubService {
 
         logger.info("Generated unique clubTag: {}", potentialTag);
         return potentialTag;
+    }
+
+    @Override
+    @Transactional
+    public String createStripeOnboardingLink(String clubTag, String returnUrl, String refreshUrl) throws StripeException {
+        logger.info("Creating Stripe onboarding link for club: {}", clubTag);
+
+        Club club = clubRepository.findByClubTag(clubTag)
+                .orElseThrow(() -> {
+                    logger.error("Club not found with clubTag: {}", clubTag);
+                    return new EntityNotFoundException("Club not found with clubTag: " + clubTag);
+                });
+
+        String stripeAccountId = club.getStripeAccountId();
+
+        // If club doesn't have a Stripe account yet, create one
+        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+            logger.info("Creating new Stripe connected account for club: {}", clubTag);
+            AccountCreateParams accountParams = AccountCreateParams.builder()
+                    .setType(AccountCreateParams.Type.EXPRESS)
+                    .build();
+
+            Account account = Account.create(accountParams);
+            stripeAccountId = account.getId();
+
+            // Save the Stripe account ID to the club
+            club.setStripeAccountId(stripeAccountId);
+            club.setOnboardingStatus("PENDING");
+            clubRepository.save(club);
+            logger.info("Stripe account created: {} for club: {}", stripeAccountId, clubTag);
+        }
+
+        // Create the account link for onboarding
+        AccountLinkCreateParams linkParams = AccountLinkCreateParams.builder()
+                .setAccount(stripeAccountId)
+                .setRefreshUrl(refreshUrl)
+                .setReturnUrl(returnUrl)
+                .setType(AccountLinkCreateParams.Type.ACCOUNT_ONBOARDING)
+                .build();
+
+        AccountLink accountLink = AccountLink.create(linkParams);
+        logger.info("Onboarding link created successfully for club: {}", clubTag);
+
+        return accountLink.getUrl();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public String createStripeDashboardLink(String clubTag) throws StripeException {
+        logger.info("Creating Stripe dashboard link for club: {}", clubTag);
+
+        Club club = clubRepository.findByClubTag(clubTag)
+                .orElseThrow(() -> {
+                    logger.error("Club not found with clubTag: {}", clubTag);
+                    return new EntityNotFoundException("Club not found with clubTag: " + clubTag);
+                });
+
+        String stripeAccountId = club.getStripeAccountId();
+
+        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+            logger.error("Club {} does not have a Stripe account configured", clubTag);
+            throw new IllegalStateException("Club does not have Stripe configured. Please complete onboarding first.");
+        }
+
+        if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+            logger.error("Club {} has not completed Stripe onboarding. Status: {}", clubTag, club.getOnboardingStatus());
+            throw new IllegalStateException("Club has not completed Stripe onboarding. Please complete the setup first.");
+        }
+
+        // Create login link for Express Dashboard
+        LoginLink loginLink = LoginLink.createOnAccount(
+                stripeAccountId,
+                (Map<String, Object>) null
+        );
+
+        logger.info("Dashboard link created successfully for club: {}", clubTag);
+        return loginLink.getUrl();
+    }
+
+    @Override
+    @Transactional
+    public void updateOnboardingStatus(String stripeAccountId, String status) {
+        logger.info("Updating onboarding status for Stripe account: {} to {}", stripeAccountId, status);
+
+        Club club = clubRepository.findByStripeAccountId(stripeAccountId)
+                .orElseThrow(() -> {
+                    logger.error("Club not found with Stripe account ID: {}", stripeAccountId);
+                    return new EntityNotFoundException("Club not found with Stripe account ID: " + stripeAccountId);
+                });
+
+        club.setOnboardingStatus(status);
+        clubRepository.save(club);
+        logger.info("Onboarding status updated successfully for club: {}", club.getClubTag());
     }
 }

@@ -18,7 +18,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 import com.BossLiftingClub.BossLifting.Club.Club;
 import com.BossLiftingClub.BossLifting.Club.ClubRepository;
-import com.BossLiftingClub.BossLifting.Client.Client;
 
 @Service
 public class MembershipServiceImpl implements MembershipService {
@@ -60,13 +59,17 @@ public class MembershipServiceImpl implements MembershipService {
         Club club = clubRepository.findByClubTag(membership.getClubTag())
                 .orElseThrow(() -> new RuntimeException("Club not found for clubTag: " + membership.getClubTag()));
 
-        Client client = club.getClient();
-        if (client == null || client.getStripeAccountId() == null) {
+        if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+            throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
+        }
+
+        String stripeAccountId = club.getStripeAccountId();
+        if (stripeAccountId == null) {
             throw new RuntimeException("Client or Stripe account ID not found for clubTag: " + membership.getClubTag());
         }
 
-        // Create Stripe Product and Price using the client's Stripe account ID
-        String stripePriceId = createStripePriceForMembership(membership, client.getStripeAccountId());
+        // Create Stripe Product and Price using the club's Stripe account ID
+        String stripePriceId = createStripePriceForMembership(membership, stripeAccountId);
         membership.setStripePriceId(stripePriceId);
         return membershipRepository.save(membership);
     }

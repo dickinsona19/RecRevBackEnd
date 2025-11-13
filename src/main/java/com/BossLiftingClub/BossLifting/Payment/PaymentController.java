@@ -1,6 +1,5 @@
 package com.BossLiftingClub.BossLifting.Payment;
 
-import com.BossLiftingClub.BossLifting.Client.Client;
 import com.BossLiftingClub.BossLifting.Club.Club;
 import com.BossLiftingClub.BossLifting.Club.ClubRepository;
 import com.BossLiftingClub.BossLifting.Stripe.StripeService;
@@ -57,8 +56,12 @@ public class PaymentController {
             }
 
             Club club = userClub.getClub();
-            Client client = club.getClient();
-            String stripeAccountId = client != null ? client.getStripeAccountId() : null;
+            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
+            }
+
+            String stripeAccountId = club.getStripeAccountId();
 
             boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
 
@@ -87,8 +90,12 @@ public class PaymentController {
             }
 
             Club club = userClub.getClub();
-            Client client = club.getClient();
-            String stripeAccountId = client != null ? client.getStripeAccountId() : null;
+            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
+            }
+
+            String stripeAccountId = club.getStripeAccountId();
 
             Map<String, String> paymentMethodDetails = stripeService.getPaymentMethodDetails(stripeCustomerId, stripeAccountId);
 
@@ -123,8 +130,12 @@ public class PaymentController {
             }
 
             Club club = userClub.getClub();
-            Client client = club.getClient();
-            if (client == null || client.getStripeAccountId() == null) {
+            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
+            }
+
+            if (club.getStripeAccountId() == null) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Club does not have Stripe configured"));
             }
@@ -133,7 +144,7 @@ public class PaymentController {
             stripeService.attachPaymentMethodOnConnectedAccount(
                     stripeCustomerId,
                     paymentMethodId,
-                    client.getStripeAccountId()
+                    club.getStripeAccountId()
             );
 
             return ResponseEntity.ok(Map.of(
@@ -169,15 +180,19 @@ public class PaymentController {
             }
 
             Club club = userClub.getClub();
-            Client client = club.getClient();
-            if (client == null || client.getStripeAccountId() == null) {
+            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
+            }
+
+            if (club.getStripeAccountId() == null) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Club does not have Stripe configured"));
             }
 
             String checkoutUrl = stripeService.createPaymentMethodCheckoutSession(
                     stripeCustomerId,
-                    client.getStripeAccountId(),
+                    club.getStripeAccountId(),
                     successUrl,
                     cancelUrl
             );
@@ -212,8 +227,12 @@ public class PaymentController {
             }
 
             Club club = userClub.getClub();
-            Client client = club.getClient();
-            if (client == null || client.getStripeAccountId() == null) {
+            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
+            }
+
+            if (club.getStripeAccountId() == null) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Club does not have Stripe configured"));
             }
@@ -221,7 +240,7 @@ public class PaymentController {
             // Create checkout session
             String checkoutUrl = stripeService.createPaymentMethodCheckoutSession(
                     stripeCustomerId,
-                    client.getStripeAccountId(),
+                    club.getStripeAccountId(),
                     successUrl,
                     cancelUrl
             );
@@ -265,8 +284,12 @@ public class PaymentController {
             }
 
             Club club = userClub.getClub();
-            Client client = club.getClient();
-            String stripeAccountId = client != null ? client.getStripeAccountId() : null;
+            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
+            }
+
+            String stripeAccountId = club.getStripeAccountId();
 
             List<Map<String, Object>> paymentHistory = stripeService.getPaymentHistory(stripeCustomerId, stripeAccountId);
 
@@ -697,10 +720,11 @@ public class PaymentController {
                 UserClub userClub = userClubRepository.findById(userClubId)
                         .orElseThrow(() -> new RuntimeException("UserClub not found"));
                 Club club = userClub.getClub();
-                Client client = club.getClient();
-                if (client != null) {
-                    stripeAccountId = client.getStripeAccountId();
+                if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                            .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
                 }
+                stripeAccountId = club.getStripeAccountId();
             }
 
             System.out.println("💰 Processing refund for charge: " + chargeId);
@@ -792,13 +816,17 @@ public class PaymentController {
             }
 
             Club club = userClub.getClub();
-            Client client = club.getClient();
-            if (client == null || client.getStripeAccountId() == null) {
+            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
+            }
+
+            if (club.getStripeAccountId() == null) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Club does not have Stripe configured"));
             }
 
-            String stripeAccountId = client.getStripeAccountId();
+            String stripeAccountId = club.getStripeAccountId();
 
             // Check if user has payment method
             boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);

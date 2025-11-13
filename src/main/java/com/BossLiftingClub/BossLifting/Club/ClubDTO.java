@@ -22,6 +22,8 @@ public class ClubDTO {
 
     private Integer staffId;
 
+    private String onboardingStatus;
+
     public static ClubDTO mapToClubDTO(Club club) {
         ClubDTO dto = new ClubDTO();
         dto.setId(club.getId());
@@ -32,6 +34,7 @@ public class ClubDTO {
         dto.setClubTag(club.getClubTag());
         dto.setClientId(club.getClient() != null ? club.getClient().getId() : null);
         dto.setStaffId(club.getStaff() != null ? club.getStaff().getId() : null);
+        dto.setOnboardingStatus(club.getOnboardingStatus());
         return dto;
     }
 
@@ -97,5 +100,13 @@ public class ClubDTO {
 
     public void setStaffId(Integer staffId) {
         this.staffId = staffId;
+    }
+
+    public String getOnboardingStatus() {
+        return onboardingStatus;
+    }
+
+    public void setOnboardingStatus(String onboardingStatus) {
+        this.onboardingStatus = onboardingStatus;
     }
 }

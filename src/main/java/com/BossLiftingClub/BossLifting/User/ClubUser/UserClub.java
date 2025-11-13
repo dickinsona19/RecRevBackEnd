@@ -37,11 +37,17 @@ public class UserClub {
     @OneToMany(mappedBy = "userClub", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<UserClubMembership> userClubMemberships = new ArrayList<>();
 
+    @OneToMany(mappedBy = "userClub", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<MemberLog> memberLogs = new ArrayList<>();
+
     @Column(name = "stripe_id")
     private String stripeId;
 
     @Column(name = "status")
     private String status;
+
+    @Column(name = "notes", columnDefinition = "TEXT")
+    private String notes;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
@@ -124,6 +130,14 @@ public class UserClub {
         this.userClubMemberships = userClubMemberships;
     }
 
+    public String getNotes() {
+        return notes;
+    }
+
+    public void setNotes(String notes) {
+        this.notes = notes;
+    }
+
     public void addMembership(UserClubMembership membership) {
         userClubMemberships.add(membership);
         membership.setUserClub(this);
@@ -132,6 +146,24 @@ public class UserClub {
     public void removeMembership(UserClubMembership membership) {
         userClubMemberships.remove(membership);
         membership.setUserClub(null);
+    }
+
+    public List<MemberLog> getMemberLogs() {
+        return memberLogs;
+    }
+
+    public void setMemberLogs(List<MemberLog> memberLogs) {
+        this.memberLogs = memberLogs;
+    }
+
+    public void addMemberLog(MemberLog log) {
+        memberLogs.add(log);
+        log.setUserClub(this);
+    }
+
+    public void removeMemberLog(MemberLog log) {
+        memberLogs.remove(log);
+        log.setUserClub(null);
     }
 
     @Override

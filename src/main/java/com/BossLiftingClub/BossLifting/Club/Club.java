@@ -38,6 +38,12 @@ public class Club {
     @Column(name = "club_tag")
     private String clubTag;
 
+    @Column(name = "stripe_account_id")
+    private String stripeAccountId;
+
+    @Column(name = "onboarding_status")
+    private String onboardingStatus;
+
     @ManyToOne
     @JoinColumn(name = "client_id")
     @JsonBackReference
@@ -121,6 +127,22 @@ public class Club {
 
     public void setUserClubs(List<UserClub> userClubs) {
         this.userClubs = userClubs;
+    }
+
+    public String getStripeAccountId() {
+        return stripeAccountId;
+    }
+
+    public void setStripeAccountId(String stripeAccountId) {
+        this.stripeAccountId = stripeAccountId;
+    }
+
+    public String getOnboardingStatus() {
+        return onboardingStatus;
+    }
+
+    public void setOnboardingStatus(String onboardingStatus) {
+        this.onboardingStatus = onboardingStatus;
     }
 
 }

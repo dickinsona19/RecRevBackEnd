@@ -37,6 +37,9 @@ public class UserClubService {
     @Autowired
     private StripeService stripeService;
 
+    @Autowired
+    private MemberLogRepository memberLogRepository;
+
     /**
      * Create a new user-club relationship
      */
@@ -255,8 +258,11 @@ public class UserClubService {
         // 4. Delete in Stripe
         try {
             // Get the connected account ID from the club
-            String stripeAccountId = userClub.getClub().getClient() != null ?
-                    userClub.getClub().getClient().getStripeAccountId() : null;
+            Club club = userClub.getClub();
+            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
+            }
+            String stripeAccountId = club.getStripeAccountId();
 
             stripeService.cancelSubscription(stripeSubscriptionId, stripeAccountId); // Your Stripe wrapper
         } catch (StripeException e) {
@@ -295,9 +301,14 @@ public class UserClubService {
             throw new RuntimeException("User must have a payment method before adding a membership. Please add payment method first.");
         }
 
+        // Check onboarding status
+        Club club = userClub.getClub();
+        if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+            throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
+        }
+
         // Verify payment method exists in Stripe
-        String stripeAccountId = userClub.getClub().getClient() != null ?
-                userClub.getClub().getClient().getStripeAccountId() : null;
+        String stripeAccountId = club.getStripeAccountId();
 
         try {
             boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
@@ -431,8 +442,11 @@ public class UserClubService {
             try {
                 // Get the connected account ID from the club
                 UserClub userClub = membership.getUserClub();
-                String stripeAccountId = userClub.getClub().getClient() != null ?
-                        userClub.getClub().getClient().getStripeAccountId() : null;
+                Club club = userClub.getClub();
+                if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                    throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
+                }
+                String stripeAccountId = club.getStripeAccountId();
 
                 if (cancelAtPeriodEnd) {
                     // Cancel at period end - get current period end date
@@ -504,8 +518,11 @@ public class UserClubService {
             try {
                 // Get the connected account ID from the club
                 UserClub userClub = membership.getUserClub();
-                String stripeAccountId = userClub.getClub().getClient() != null ?
-                        userClub.getClub().getClient().getStripeAccountId() : null;
+                Club club = userClub.getClub();
+                if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                    throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
+                }
+                String stripeAccountId = club.getStripeAccountId();
 
                 // Pass the pause end date to Stripe - it will pause at next billing cycle
                 stripeService.pauseSubscription(stripeSubscriptionId, pauseEnd, stripeAccountId);
@@ -560,8 +577,11 @@ public class UserClubService {
             try {
                 // Get the connected account ID from the club
                 UserClub userClub = membership.getUserClub();
-                String stripeAccountId = userClub.getClub().getClient() != null ?
-                        userClub.getClub().getClient().getStripeAccountId() : null;
+                Club club = userClub.getClub();
+                if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                    throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
+                }
+                String stripeAccountId = club.getStripeAccountId();
 
                 stripeService.resumeSubscription(stripeSubscriptionId, stripeAccountId);
                 System.out.println("Resumed Stripe subscription: " + stripeSubscriptionId + " on account: " + stripeAccountId);
@@ -581,5 +601,81 @@ public class UserClubService {
         userClubRepository.save(userClub);
 
         return membership;
+    }
+
+    // ===== Notes Management Methods =====
+
+    /**
+     * Update notes for a UserClub
+     */
+    @Transactional
+    public UserClub updateMemberNotes(Long userClubId, String notes) {
+        UserClub userClub = userClubRepository.findById(userClubId)
+                .orElseThrow(() -> new RuntimeException("UserClub not found with id: " + userClubId));
+
+        userClub.setNotes(notes);
+        return userClubRepository.save(userClub);
+    }
+
+    /**
+     * Update notes for a UserClub by userId and clubTag
+     */
+    @Transactional
+    public UserClub updateMemberNotesByUserAndClub(Long userId, String clubTag, String notes) {
+        UserClub userClub = userClubRepository.findByUserIdAndClubTag(userId, clubTag)
+                .orElseThrow(() -> new RuntimeException("User is not a member of club: " + clubTag));
+
+        userClub.setNotes(notes);
+        return userClubRepository.save(userClub);
+    }
+
+    // ===== Member Logs Management Methods =====
+
+    /**
+     * Get all logs for a specific member
+     */
+    @Transactional(readOnly = true)
+    public List<MemberLog> getMemberLogs(Long userClubId) {
+        return memberLogRepository.findByUserClubIdOrderByCreatedAtDesc(userClubId);
+    }
+
+    /**
+     * Add a new log for a member
+     */
+    @Transactional
+    public MemberLog addMemberLog(Long userClubId, String logText, String createdBy) {
+        UserClub userClub = userClubRepository.findById(userClubId)
+                .orElseThrow(() -> new RuntimeException("UserClub not found with id: " + userClubId));
+
+        MemberLog log = new MemberLog(userClub, logText, createdBy);
+        userClub.addMemberLog(log);
+        userClubRepository.save(userClub);
+        return log;
+    }
+
+    /**
+     * Update an existing log
+     */
+    @Transactional
+    public MemberLog updateMemberLog(Long logId, String logText, String updatedBy) {
+        MemberLog log = memberLogRepository.findById(logId)
+                .orElseThrow(() -> new RuntimeException("Log not found with id: " + logId));
+
+        log.setLogText(logText);
+        log.setUpdatedBy(updatedBy);
+        return memberLogRepository.save(log);
+    }
+
+    /**
+     * Delete a log
+     */
+    @Transactional
+    public void deleteMemberLog(Long logId) {
+        MemberLog log = memberLogRepository.findById(logId)
+                .orElseThrow(() -> new RuntimeException("Log not found with id: " + logId));
+
+        UserClub userClub = log.getUserClub();
+        userClub.removeMemberLog(log);
+        userClubRepository.save(userClub);
     }
 }

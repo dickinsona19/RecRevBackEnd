@@ -43,7 +43,6 @@ public class ClientServiceImpl implements ClientService {
         client.setPassword(passwordEncoder.encode(password));
         client.setCreatedAt(LocalDateTime.now());
         client.setStatus("ACTIVE");
-        client.setStripeAccountId(null); // No Stripe account yet
         client.setClubs(new ArrayList<>());
 
         // Save client to database
@@ -55,35 +54,22 @@ public class ClientServiceImpl implements ClientService {
         Client client = clientRepository.findById(clientId)
                 .orElseThrow(() -> new IllegalStateException("Client not found"));
 
-        String stripeAccountId = client.getStripeAccountId();
+        // NOTE: Stripe account ID is now associated with clubs, not clients
+        // This method needs to be refactored to accept a clubId parameter
+        // For now, throwing an exception to indicate this needs implementation
+        throw new UnsupportedOperationException(
+            "Stripe onboarding has been moved to the club level. " +
+            "Please use club-specific onboarding instead. " +
+            "Each club should have its own Stripe connected account."
+        );
 
-        // If client doesn't have a Stripe account, create one
-        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-            AccountCreateParams params = AccountCreateParams.builder()
-                    .setType(AccountCreateParams.Type.EXPRESS)
-                    .setCountry(country)
-                    .setEmail(client.getEmail())
-                    .setBusinessType(AccountCreateParams.BusinessType.valueOf(businessType.toUpperCase()))
-                    .build();
-
-            Account account = Account.create(params);
-            stripeAccountId = account.getId();
-
-            // Update client with Stripe account ID
-            client.setStripeAccountId(stripeAccountId);
-            clientRepository.save(client);
-        }
-
-        // Create Stripe onboarding link
-        AccountLinkCreateParams linkParams = AccountLinkCreateParams.builder()
-                .setAccount(stripeAccountId)
-                .setRefreshUrl("http://localhost:5173/dashboard")
-                .setReturnUrl("http://localhost:5173/dashboard")
-                .setType(AccountLinkCreateParams.Type.ACCOUNT_ONBOARDING)
-                .build();
-
-        AccountLink accountLink = AccountLink.create(linkParams);
-        return accountLink.getUrl();
+        // TODO: Implement club-level onboarding
+        // Example implementation would be:
+        // 1. Accept clubId parameter instead of/in addition to clientId
+        // 2. Get the club from clubRepository
+        // 3. Check if club.getStripeAccountId() exists
+        // 4. If not, create Stripe account and save to club.setStripeAccountId()
+        // 5. Create and return onboarding link
     }
 
     @Override
@@ -94,7 +80,6 @@ public class ClientServiceImpl implements ClientService {
         client.setPassword(clientDTO.getPassword());
         client.setCreatedAt(clientDTO.getCreatedAt());
         client.setStatus(clientDTO.getStatus());
-        client.setStripeAccountId(clientDTO.getStripeAccountId());
         Client savedClient = clientRepository.save(client);
         return mapToDTO(savedClient);
     }
@@ -124,7 +109,6 @@ public class ClientServiceImpl implements ClientService {
         client.setPassword(clientDTO.getPassword());
         client.setCreatedAt(clientDTO.getCreatedAt());
         client.setStatus(clientDTO.getStatus());
-        client.setStripeAccountId(clientDTO.getStripeAccountId());
         Client updatedClient = clientRepository.save(client);
         return mapToDTO(updatedClient);
     }
@@ -154,7 +138,6 @@ public class ClientServiceImpl implements ClientService {
         dto.setPassword(client.getPassword());
         dto.setCreatedAt(client.getCreatedAt());
         dto.setStatus(client.getStatus());
-        dto.setStripeAccountId(client.getStripeAccountId());
         List<Club> clubs = client.getClubs();
         if (clubs != null) {
             dto.setClubs(clubs.stream()
