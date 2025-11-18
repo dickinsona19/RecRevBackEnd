@@ -2,7 +2,7 @@ package com.BossLiftingClub.BossLifting.Stripe;
 
 import com.BossLiftingClub.BossLifting.Analytics.RecentActivity;
 import com.BossLiftingClub.BossLifting.Analytics.RecentActivityRepository;
-import com.BossLiftingClub.BossLifting.Club.ClubService;
+import com.BossLiftingClub.BossLifting.Business.BusinessService;
 import com.BossLiftingClub.BossLifting.Promo.PromoDTO;
 import com.BossLiftingClub.BossLifting.Promo.PromoService;
 import com.BossLiftingClub.BossLifting.Stripe.ProcessedEvent.EventService;
@@ -56,10 +56,10 @@ public class StripeController {
     private final TransferService transferService;
     private final PromoService promoService;
     private final RecentActivityRepository recentActivityRepository;
-    private final ClubService clubService;
+    private final BusinessService businessService;
     @Autowired
     private JavaMailSender mailSender;
-    public StripeController(EventService eventService, TransferService transferService, UserService userService, StripeService stripeService, @Value("${stripe.webhook.secret}") String webhookSecret, @Value("${stripe.webhook.subscriptionSecret}") String webhookSubscriptionSecret, UserTitlesRepository userTitlesRepository, MembershipRepository membershipRepository, UserRepository userRepository, PromoService promoService, RecentActivityRepository recentActivityRepository, ClubService clubService) {
+    public StripeController(EventService eventService, TransferService transferService, UserService userService, StripeService stripeService, @Value("${stripe.webhook.secret:}") String webhookSecret, @Value("${stripe.webhook.subscriptionSecret:}") String webhookSubscriptionSecret, UserTitlesRepository userTitlesRepository, MembershipRepository membershipRepository, UserRepository userRepository, PromoService promoService, RecentActivityRepository recentActivityRepository, BusinessService businessService) {
         this.eventService = eventService;
         this.stripeService = stripeService;
         this.webhookSecret = webhookSecret;
@@ -71,7 +71,7 @@ public class StripeController {
         this.transferService = transferService;
         this.promoService = promoService;
         this.recentActivityRepository = recentActivityRepository;
-        this.clubService = clubService;
+        this.businessService = businessService;
     }
 
     public void sendOnboardingEmail(String customerId) throws StripeException, MessagingException {
@@ -549,8 +549,8 @@ public class StripeController {
                     }
 
                     try {
-                        clubService.updateOnboardingStatus(accountId, onboardingStatus);
-                        System.out.println("Updated club onboarding status for account " + accountId + " to " + onboardingStatus);
+                        businessService.updateOnboardingStatus(accountId, onboardingStatus);
+                        System.out.println("Updated business onboarding status for account " + accountId + " to " + onboardingStatus);
                     } catch (Exception e) {
                         System.err.println("Failed to update onboarding status for account " + accountId + ": " + e.getMessage());
                     }

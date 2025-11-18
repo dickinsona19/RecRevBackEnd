@@ -1,12 +1,8 @@
 package com.BossLiftingClub.BossLifting.Client;
 
-import com.BossLiftingClub.BossLifting.Club.Club;
-import com.BossLiftingClub.BossLifting.Club.ClubDTO;
+import com.BossLiftingClub.BossLifting.Business.Business;
+import com.BossLiftingClub.BossLifting.Business.BusinessDTO;
 import com.stripe.exception.StripeException;
-import com.stripe.model.Account;
-import com.stripe.model.AccountLink;
-import com.stripe.param.AccountCreateParams;
-import com.stripe.param.AccountLinkCreateParams;
 import jakarta.persistence.EntityNotFoundException;
 import org.hibernate.Hibernate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,33 +39,27 @@ public class ClientServiceImpl implements ClientService {
         client.setPassword(passwordEncoder.encode(password));
         client.setCreatedAt(LocalDateTime.now());
         client.setStatus("ACTIVE");
-        client.setClubs(new ArrayList<>());
+        client.setBusinesses(new ArrayList<>());
 
         // Save client to database
         return clientRepository.save(client);
     }
 
+    /**
+     * @deprecated Stripe onboarding has been moved to the business/club level.
+     * Use BusinessService.createStripeOnboardingLink() instead.
+     */
+    @Deprecated
     @Transactional
     public String createStripeOnboardingLink(Integer clientId, String country, String businessType) throws StripeException {
-        Client client = clientRepository.findById(clientId)
-                .orElseThrow(() -> new IllegalStateException("Client not found"));
-
-        // NOTE: Stripe account ID is now associated with clubs, not clients
-        // This method needs to be refactored to accept a clubId parameter
-        // For now, throwing an exception to indicate this needs implementation
+        // NOTE: Stripe account ID is now associated with businesses/clubs, not clients
+        // This method is deprecated and always throws UnsupportedOperationException
+        // Use BusinessService.createStripeOnboardingLink(businessTag, returnUrl, refreshUrl) instead
         throw new UnsupportedOperationException(
-            "Stripe onboarding has been moved to the club level. " +
-            "Please use club-specific onboarding instead. " +
-            "Each club should have its own Stripe connected account."
+            "Stripe onboarding has been moved to the business/club level. " +
+            "Please use BusinessService.createStripeOnboardingLink() instead. " +
+            "Each business/club should have its own Stripe connected account."
         );
-
-        // TODO: Implement club-level onboarding
-        // Example implementation would be:
-        // 1. Accept clubId parameter instead of/in addition to clientId
-        // 2. Get the club from clubRepository
-        // 3. Check if club.getStripeAccountId() exists
-        // 4. If not, create Stripe account and save to club.setStripeAccountId()
-        // 5. Create and return onboarding link
     }
 
     @Override
@@ -124,27 +114,37 @@ public class ClientServiceImpl implements ClientService {
 
     @Override
     @Transactional(readOnly = true)
-    public ClientDTO getClientWithClubs(Integer id) {
-        Client client = clientRepository.findByIdWithClubs(id)
+    public ClientDTO getClientWithBusinesses(Integer id) {
+        Client client = clientRepository.findByIdWithBusinesses(id)
                 .orElseThrow(() -> new EntityNotFoundException("Client not found with ID: " + id));
         return mapToDTO(client);
     }
+    
+    // Backward compatibility - getClientWithClubs maps to getClientWithBusinesses
+    @Transactional(readOnly = true)
+    public ClientDTO getClientWithClubs(Integer id) {
+        return getClientWithBusinesses(id);
+    }
 
     private ClientDTO mapToDTO(Client client) {
-        Hibernate.initialize(client.getClubs()); // Ensure clubs are loaded
+        Hibernate.initialize(client.getBusinesses()); // Ensure businesses are loaded
         ClientDTO dto = new ClientDTO();
         dto.setId(client.getId());
         dto.setEmail(client.getEmail());
         dto.setPassword(client.getPassword());
         dto.setCreatedAt(client.getCreatedAt());
         dto.setStatus(client.getStatus());
-        List<Club> clubs = client.getClubs();
-        if (clubs != null) {
-            dto.setClubs(clubs.stream()
-                    .map(ClubDTO::mapToClubDTO)
+        List<Business> businesses = client.getBusinesses();
+        if (businesses != null) {
+            dto.setBusinesses(businesses.stream()
+                    .map(BusinessDTO::mapToBusinessDTO)
+                    .collect(Collectors.toSet()));
+            // Backward compatibility - also set clubs
+            dto.setClubs(businesses.stream()
+                    .map(BusinessDTO::mapToBusinessDTO)
                     .collect(Collectors.toSet()));
         }
-        System.out.println("Client " + client.getId() + " clubs size: " + (clubs != null ? clubs.size() : 0));
+        System.out.println("Client " + client.getId() + " businesses size: " + (businesses != null ? businesses.size() : 0));
         return dto;
     }
 }

@@ -1,6 +1,6 @@
 package com.BossLiftingClub.BossLifting.Products;
 
-import com.BossLiftingClub.BossLifting.Club.Club;
+import com.BossLiftingClub.BossLifting.Business.Business;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 
@@ -29,7 +29,12 @@ public class Products {
     @Column(name = "stripe_product_id")
     private String stripeProductId;
 
-    @Column(name = "club_tag")
+    @Column(name = "business_tag")
+    private String businessTag;
+    
+    // Backward compatibility - map club_tag to business_tag
+    @Deprecated
+    @Column(name = "club_tag", insertable = false, updatable = false)
     private String clubTag;
 
 
@@ -89,11 +94,22 @@ public class Products {
         this.stripeProductId = stripeProductId;
     }
 
-    public String getClubTag() {
-        return clubTag;
+    public String getBusinessTag() {
+        return businessTag;
     }
 
+    public void setBusinessTag(String businessTag) {
+        this.businessTag = businessTag;
+    }
+    
+    // Backward compatibility getters/setters
+    @Deprecated
+    public String getClubTag() {
+        return businessTag;
+    }
+
+    @Deprecated
     public void setClubTag(String clubTag) {
-        this.clubTag = clubTag;
+        this.businessTag = clubTag;
     }
 }

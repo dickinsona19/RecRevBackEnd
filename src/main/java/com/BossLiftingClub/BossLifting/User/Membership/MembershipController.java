@@ -1,5 +1,6 @@
 package com.BossLiftingClub.BossLifting.User.Membership;
 
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -15,22 +16,30 @@ public class MembershipController {
     @Autowired
     private MembershipService membershipService;
 
-    @GetMapping("/club/{clubTag}")
+    @GetMapping("/business/{businessTag}")
     @Transactional(readOnly = true)
-    public ResponseEntity<?> getMembershipsByClubTag(@PathVariable String clubTag) {
+    public ResponseEntity<?> getMembershipsByBusinessTag(@PathVariable String businessTag) {
         try {
-            List<MembershipDTO> memberships = membershipService.getMembershipsByClubTag(clubTag);
+            List<MembershipDTO> memberships = membershipService.getMembershipsByBusinessTag(businessTag);
             return ResponseEntity.ok(memberships);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to retrieve memberships: " + e.getMessage()));
         }
     }
+    
+    // Backward compatibility - clubTag maps to businessTag
+    @GetMapping("/club/{clubTag}")
+    @Transactional(readOnly = true)
+    public ResponseEntity<?> getMembershipsByClubTag(@PathVariable String clubTag) {
+        return getMembershipsByBusinessTag(clubTag);
+    }
 
     // ✅ Add a new membership
     @PostMapping
-    public ResponseEntity<?> addMembership(@RequestBody Membership membership) {
+    public ResponseEntity<?> addMembership(@Valid @RequestBody MembershipDTO membershipDTO) {
         try {
+            Membership membership = membershipDTO.toEntity();
             Membership saved = membershipService.createMembershipWithStripe(membership);
             return ResponseEntity.status(HttpStatus.CREATED).body(saved);
         } catch (Exception e) {

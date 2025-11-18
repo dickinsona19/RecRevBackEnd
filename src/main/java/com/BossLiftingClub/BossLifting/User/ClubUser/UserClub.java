@@ -1,7 +1,7 @@
 package com.BossLiftingClub.BossLifting.User.ClubUser;
 
 
-import com.BossLiftingClub.BossLifting.Club.Club;
+import com.BossLiftingClub.BossLifting.Business.Business;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.User;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -25,8 +25,8 @@ public class UserClub {
     private User user;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "club_id", nullable = false)
-    private Club club;
+    @JoinColumn(name = "business_id", nullable = false)
+    private Business business;
 
     // Deprecated: Kept for backward compatibility, use userClubMemberships instead
     @ManyToOne(fetch = FetchType.LAZY)
@@ -56,9 +56,9 @@ public class UserClub {
         this.createdAt = LocalDateTime.now();
     }
 
-    public UserClub(User user, Club club, Membership membership, String stripeId, String status) {
+    public UserClub(User user, Business business, Membership membership, String stripeId, String status) {
         this.user = user;
-        this.club = club;
+        this.business = business;
         this.membership = membership;
         this.stripeId = stripeId;
         this.status = status;
@@ -82,12 +82,12 @@ public class UserClub {
         this.user = user;
     }
 
-    public Club getClub() {
-        return club;
+    public Business getBusiness() {
+        return business;
     }
 
-    public void setClub(Club club) {
-        this.club = club;
+    public void setBusiness(Business business) {
+        this.business = business;
     }
 
     public String getStripeId() {
@@ -171,11 +171,11 @@ public class UserClub {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         UserClub userClub = (UserClub) o;
-        return user != null && club != null && user.equals(userClub.user) && club.equals(userClub.club);
+        return user != null && business != null && user.equals(userClub.user) && business.equals(userClub.business);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(user, club);
+        return Objects.hash(user, business);
     }
 }

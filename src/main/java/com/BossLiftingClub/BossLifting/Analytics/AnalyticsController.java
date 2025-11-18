@@ -1,7 +1,7 @@
 package com.BossLiftingClub.BossLifting.Analytics;
 
-import com.BossLiftingClub.BossLifting.Club.Club;
-import com.BossLiftingClub.BossLifting.Club.ClubRepository;
+import com.BossLiftingClub.BossLifting.Business.Business;
+import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
 import com.BossLiftingClub.BossLifting.Client.Client;
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubRepository;
@@ -16,6 +16,8 @@ import com.stripe.param.InvoiceListParams;
 import com.stripe.param.RefundListParams;
 import com.stripe.param.ChargeListParams;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -79,7 +81,7 @@ public class AnalyticsController {
     private final ObjectMapper objectMapper;
 
     @Autowired
-    private final ClubRepository clubRepository;
+    private final BusinessRepository businessRepository;
 
     @Autowired
     private final UserClubRepository userClubRepository;
@@ -88,12 +90,12 @@ public class AnalyticsController {
     private final RecentActivityRepository recentActivityRepository;
 
     public AnalyticsController(UserRepository userRepository, AnalyticsCacheRepository analyticsCacheRepository,
-                                ObjectMapper objectMapper, ClubRepository clubRepository, UserClubRepository userClubRepository,
+                                ObjectMapper objectMapper, BusinessRepository businessRepository, UserClubRepository userClubRepository,
                                 RecentActivityRepository recentActivityRepository) {
         this.userRepository = userRepository;
         this.analyticsCacheRepository = analyticsCacheRepository;
         this.objectMapper = objectMapper;
-        this.clubRepository = clubRepository;
+        this.businessRepository = businessRepository;
         this.userClubRepository = userClubRepository;
         this.recentActivityRepository = recentActivityRepository;
     }
@@ -199,7 +201,6 @@ public class AnalyticsController {
             List<User> users;
             try {
                 users = userRepository.findAll();
-                logger.info("Fetched {} users from UserRepository", users.size());
             } catch (Exception e) {
                 logger.error("Error fetching users: {}", e.getMessage(), e);
                 throw new RuntimeException("Failed to fetch users: " + e.getMessage());
@@ -700,16 +701,14 @@ public class AnalyticsController {
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate) {
         try {
-            logger.info("Fetching dashboard metrics for clubTag={}, startDate={}, endDate={}", clubTag, startDate, endDate);
+            Business business = businessRepository.findByBusinessTag(clubTag)
+                    .orElseThrow(() -> new RuntimeException("Business not found with tag: " + clubTag));
 
-            Club club = clubRepository.findByClubTag(clubTag)
-                    .orElseThrow(() -> new RuntimeException("Club not found with tag: " + clubTag));
-
-            Long clubId = club.getId();
-            String stripeAccountId = club.getStripeAccountId();
+            Long businessId = business.getId();
+            String stripeAccountId = business.getStripeAccountId();
 
             if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                throw new RuntimeException("Club does not have Stripe configured");
+                throw new RuntimeException("Business does not have Stripe configured");
             }
 
             // Parse date range - handle ISO 8601 format with timezone (Z suffix)
@@ -731,8 +730,8 @@ public class AnalyticsController {
                 return errorResponse;
             }
 
-            // Get all UserClub records for this club
-            List<UserClub> userClubs = userClubRepository.findAllByClubTag(clubTag);
+            // Get all UserClub records for this business
+            List<UserClub> userClubs = userClubRepository.findAllByBusinessTag(clubTag);
 
             Map<String, Object> metrics = new HashMap<>();
 
@@ -755,7 +754,7 @@ public class AnalyticsController {
             return metrics;
         } catch (RuntimeException e) {
             // If already a RuntimeException with specific message, rethrow
-            if (e.getMessage() != null && e.getMessage().contains("Club not found")) {
+            if (e.getMessage() != null && e.getMessage().contains("Business not found")) {
                 throw e;
             }
             logger.error("Error fetching dashboard metrics: {}", e.getMessage(), e);
@@ -987,25 +986,49 @@ public class AnalyticsController {
     }
 
     /**
-     * Get club-specific overview analytics
+     * Get business-specific overview analytics
+     * GET /api/analytics/business-overview?businessId={id}
+     */
+    @GetMapping("/business-overview")
+    @Transactional
+    public ClubOverviewResponse getBusinessOverview(@RequestParam Long businessId) {
+        try {
+            return getClubOverviewInternal(businessId);
+        } catch (Exception e) {
+            logger.error("Error fetching business overview for businessId={}: {}", businessId, e.getMessage(), e);
+            throw e;
+        }
+    }
+    
+    /**
+     * Get business-specific overview analytics (backward compatibility)
      * GET /api/analytics/club-overview?clubId={id}
+     * Note: clubId parameter is kept for backward compatibility, but internally uses businessId
      */
     @GetMapping("/club-overview")
     @Transactional
     public ClubOverviewResponse getClubOverview(@RequestParam Long clubId) {
         try {
-            logger.info("Fetching club overview analytics for clubId={}", clubId);
+            Long businessId = clubId; // Parameter name kept for backward compatibility
+            return getClubOverviewInternal(businessId);
+        } catch (Exception e) {
+            logger.error("Error fetching club overview for clubId={}: {}", clubId, e.getMessage(), e);
+            throw e;
+        }
+    }
+    
+    private ClubOverviewResponse getClubOverviewInternal(Long businessId) {
+        try {
+            // Get the business
+            Business business = businessRepository.findById(businessId)
+                    .orElseThrow(() -> new RuntimeException("Business not found with id: " + businessId));
 
-            // Get the club
-            Club club = clubRepository.findById(clubId)
-                    .orElseThrow(() -> new RuntimeException("Club not found with id: " + clubId));
+            // Get all UserClub records for this business
+            List<UserClub> userClubs = userClubRepository.findByBusinessId(businessId);
+            logger.info("Found {} UserClub records for businessId={}", userClubs.size(), businessId);
 
-            // Get all UserClub records for this club
-            List<UserClub> userClubs = userClubRepository.findByClubId(clubId);
-            logger.info("Found {} UserClub records for clubId={}", userClubs.size(), clubId);
-
-            // Get Stripe Account ID from club
-            String stripeAccountId = club.getStripeAccountId();
+            // Get Stripe Account ID from business
+            String stripeAccountId = business.getStripeAccountId();
 
             // Calculate Total Active Members (users with at least one ACTIVE membership)
             int totalActiveMembers = 0;
@@ -1060,12 +1083,10 @@ public class AnalyticsController {
             // Calculate Total Revenue from Stripe - Pull ALL charges from the connected account
             double totalRevenue = 0.0;
 
-            logger.info("Fetching revenue from Stripe Account ID: {} for clubId={}", stripeAccountId, clubId);
-
             // Fetch ALL charges directly from the connected account
             if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                logger.error("Cannot fetch revenue from Stripe: Stripe Account ID is null or empty for clubId={}. " +
-                    "Please ensure the club's client has a valid stripe_account_id configured.", clubId);
+                logger.error("Cannot fetch revenue from Stripe: Stripe Account ID is null or empty for businessId={}. " +
+                    "Please ensure the business's client has a valid stripe_account_id configured.", businessId);
             } else {
                 try {
                     com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
@@ -1073,7 +1094,6 @@ public class AnalyticsController {
                             .build();
 
                     int totalCharges = 0;
-                    logger.info("Fetching ALL charges from Stripe account: {}", stripeAccountId);
 
                     // Fetch ALL charges from this connected account (no customer filter)
                     ChargeListParams params = ChargeListParams.builder()
@@ -1091,10 +1111,10 @@ public class AnalyticsController {
                             logger.debug("Added charge ${} (ID: {})", amount, charge.getId());
                         }
                     }
-                    logger.info("Total revenue from Stripe: ${} from {} charges for clubId={}",
-                        totalRevenue, totalCharges, clubId);
+                    logger.info("Total revenue from Stripe: ${} from {} charges for businessId={}",
+                        totalRevenue, totalCharges, businessId);
                 } catch (Exception e) {
-                    logger.error("Error fetching Stripe data for clubId={}: {}", clubId, e.getMessage(), e);
+                    logger.error("Error fetching Stripe data for businessId={}: {}", businessId, e.getMessage(), e);
                 }
             }
 
@@ -1104,12 +1124,12 @@ public class AnalyticsController {
             response.setTotalActiveMembers(totalActiveMembers);
             response.setNewMembers(newMembers);
 
-            logger.info("Club overview calculated: totalRevenue={}, mrr={}, activeMembers={}, newMembers={}",
+            logger.info("Business overview calculated: totalRevenue={}, mrr={}, activeMembers={}, newMembers={}",
                     totalRevenue, mrr, totalActiveMembers, newMembers);
 
             return response;
         } catch (Exception e) {
-            logger.error("Error fetching club overview for clubId={}: {}", clubId, e.getMessage(), e);
+            logger.error("Error fetching business overview for businessId={}: {}", businessId, e.getMessage(), e);
             throw new RuntimeException("Error fetching club overview: " + e.getMessage());
         }
     }
@@ -1139,25 +1159,38 @@ public class AnalyticsController {
      */
     @GetMapping("/revenue-chart")
     @Transactional
-    public RevenueChartResponse getRevenueChart(
-            @RequestParam Long clubId,
+    public ResponseEntity<?> getRevenueChart(
+            @RequestParam(required = false) Long businessId,
+            @RequestParam(required = false) Long clubId, // Backward compatibility
             @RequestParam(defaultValue = "30d") String period) {
+        // Support both businessId and clubId for backward compatibility
+        Long actualBusinessId = businessId != null ? businessId : clubId;
+        if (actualBusinessId == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "Either businessId or clubId parameter is required"));
+        }
+        
         try {
-            logger.info("Fetching revenue chart data for clubId={}, period={}", clubId, period);
+            // Get the business
+            Business business = businessRepository.findById(actualBusinessId)
+                    .orElse(null);
 
-            // Get the club
-            Club club = clubRepository.findById(clubId)
-                    .orElseThrow(() -> new RuntimeException("Club not found with id: " + clubId));
-
-            // Get Stripe Account ID from club
-            String stripeAccountId = club.getStripeAccountId();
-
-            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                logger.error("No Stripe account ID found for clubId={}", clubId);
-                throw new RuntimeException("Club does not have a Stripe account configured");
+            if (business == null) {
+                logger.error("Business not found with id: {}", actualBusinessId);
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Business not found with id: " + actualBusinessId));
             }
 
-            logger.info("Using Stripe account ID: {} for clubId={}", stripeAccountId, clubId);
+            // Get Stripe Account ID from business
+            String stripeAccountId = business.getStripeAccountId();
+
+            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+                logger.error("No Stripe account ID found for businessId={}", actualBusinessId);
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Business does not have a Stripe account configured"));
+            }
+
+            logger.info("Using Stripe account ID: {} for businessId={}", stripeAccountId, actualBusinessId);
 
             // Calculate date range based on period
             LocalDateTime endDate = LocalDateTime.now();
@@ -1197,9 +1230,6 @@ public class AnalyticsController {
                 com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
                         .setStripeAccount(stripeAccountId)
                         .build();
-
-                logger.info("Fetching ALL charges from Stripe account {} from {} to {}",
-                    stripeAccountId, startDate.toLocalDate(), endDate.toLocalDate());
 
                 // Fetch all charges from this connected account (no customer filter)
                 ChargeListParams params = ChargeListParams.builder()
@@ -1243,8 +1273,9 @@ public class AnalyticsController {
                 logger.info("Total charges processed: {}, Total unique dates: {}",
                     totalChargesProcessed, revenueByDate.size());
             } catch (Exception e) {
-                logger.error("Error fetching Stripe data for clubId={}: {}", clubId, e.getMessage(), e);
-                throw new RuntimeException("Error fetching Stripe data: " + e.getMessage());
+                logger.error("Error fetching Stripe data for businessId={}: {}", actualBusinessId, e.getMessage(), e);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(Map.of("error", "Error fetching Stripe data: " + e.getMessage()));
             }
 
             // For "today", ensure we have all 24 hours (0:00 to 23:00) with zeros for missing hours
@@ -1271,10 +1302,26 @@ public class AnalyticsController {
             logger.info("Revenue chart data calculated: {} data points from {} to {}",
                     labels.size(), startDate.toLocalDate(), endDate.toLocalDate());
 
-            return response;
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            // Re-throw if it's already a proper HTTP error response
+            if (e.getMessage() != null && e.getMessage().contains("Business not found")) {
+                logger.error("Business not found for businessId={}, period={}: {}", actualBusinessId, period, e.getMessage());
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", e.getMessage()));
+            }
+            if (e.getMessage() != null && e.getMessage().contains("Stripe account")) {
+                logger.error("Stripe account issue for businessId={}, period={}: {}", actualBusinessId, period, e.getMessage());
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", e.getMessage()));
+            }
+            logger.error("Error fetching revenue chart for businessId={}, period={}: {}", actualBusinessId, period, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Error fetching revenue chart: " + e.getMessage()));
         } catch (Exception e) {
-            logger.error("Error fetching revenue chart for clubId={}, period={}: {}", clubId, period, e.getMessage(), e);
-            throw new RuntimeException("Error fetching revenue chart: " + e.getMessage());
+            logger.error("Unexpected error fetching revenue chart for businessId={}, period={}: {}", actualBusinessId, period, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Unexpected error fetching revenue chart: " + e.getMessage()));
         }
     }
 
@@ -1305,18 +1352,16 @@ public class AnalyticsController {
     @Transactional
     public BalanceResponse getBalance(@RequestParam Long clubId) {
         try {
-            logger.info("Fetching balance for clubId={}", clubId);
+            // Get the business
+            Business business = businessRepository.findById(clubId)
+                    .orElseThrow(() -> new RuntimeException("Business not found with id: " + clubId));
 
-            // Get the club
-            Club club = clubRepository.findById(clubId)
-                    .orElseThrow(() -> new RuntimeException("Club not found with id: " + clubId));
-
-            // Get Stripe Account ID from club
-            String stripeAccountId = club.getStripeAccountId();
+            // Get Stripe Account ID from business
+            String stripeAccountId = business.getStripeAccountId();
 
             if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                logger.error("No Stripe account ID found for clubId={}", clubId);
-                throw new RuntimeException("Club does not have a Stripe account configured");
+                logger.error("No Stripe account ID found for businessId={}", clubId);
+                throw new RuntimeException("Business does not have a Stripe account configured");
             }
 
             // Fetch balance from Stripe
@@ -1346,8 +1391,6 @@ public class AnalyticsController {
             response.setAvailable(totalAvailable);
             response.setPending(totalPending);
             response.setCurrency(currency);
-
-            logger.info("Balance retrieved for clubId={}: available={}, pending={}", clubId, totalAvailable, totalPending);
 
             return response;
         } catch (Exception e) {
@@ -1379,18 +1422,18 @@ public class AnalyticsController {
             @RequestParam Long clubId,
             @RequestParam(required = false) Double amount) {
         try {
-            logger.info("Creating payout for clubId={}, amount={}", clubId, amount);
+            logger.info("Creating payout for businessId={}, amount={}", clubId, amount);
 
-            // Get the club
-            Club club = clubRepository.findById(clubId)
-                    .orElseThrow(() -> new RuntimeException("Club not found with id: " + clubId));
+            // Get the business
+            Business business = businessRepository.findById(clubId)
+                    .orElseThrow(() -> new RuntimeException("Business not found with id: " + clubId));
 
-            // Get Stripe Account ID from club
-            String stripeAccountId = club.getStripeAccountId();
+            // Get Stripe Account ID from business
+            String stripeAccountId = business.getStripeAccountId();
 
             if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                logger.error("No Stripe account ID found for clubId={}", clubId);
-                throw new RuntimeException("Club does not have a Stripe account configured");
+                logger.error("No Stripe account ID found for businessId={}", clubId);
+                throw new RuntimeException("Business does not have a Stripe account configured");
             }
 
             // Fetch balance to determine available funds
@@ -1432,7 +1475,7 @@ public class AnalyticsController {
             com.stripe.param.PayoutCreateParams params = com.stripe.param.PayoutCreateParams.builder()
                     .setAmount(amountInCents)
                     .setCurrency(currency)
-                    .setDescription("Payout for club " + club.getTitle())
+                    .setDescription("Payout for business " + business.getTitle())
                     .build();
 
             com.stripe.model.Payout payout = com.stripe.model.Payout.create(params, requestOptions);
@@ -1487,8 +1530,6 @@ public class AnalyticsController {
     @Transactional
     public List<RecentActivityResponse> getRecentActivity(@RequestParam Long clubId) {
         try {
-            logger.info("Fetching recent activity for clubId={}", clubId);
-
             // Get activities from last 2 days
             LocalDateTime twoDaysAgo = LocalDateTime.now().minusDays(2);
             List<RecentActivity> activities = recentActivityRepository.findRecentByClubId(clubId, twoDaysAgo);

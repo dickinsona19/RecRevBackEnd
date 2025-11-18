@@ -1,7 +1,7 @@
 package com.BossLiftingClub.BossLifting.Analytics;
 
-import com.BossLiftingClub.BossLifting.Club.Club;
-import com.BossLiftingClub.BossLifting.Club.ClubRepository;
+import com.BossLiftingClub.BossLifting.Business.Business;
+import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubRepository;
 import com.BossLiftingClub.BossLifting.User.User;
@@ -30,7 +30,7 @@ public class FailedPaymentDetailsEndpoint {
     private static final Logger logger = LoggerFactory.getLogger(FailedPaymentDetailsEndpoint.class);
 
     @Autowired
-    private final ClubRepository clubRepository;
+    private final BusinessRepository businessRepository;
 
     @Autowired
     private final UserClubRepository userClubRepository;
@@ -38,8 +38,8 @@ public class FailedPaymentDetailsEndpoint {
     @Autowired
     private final UserRepository userRepository;
 
-    public FailedPaymentDetailsEndpoint(ClubRepository clubRepository, UserClubRepository userClubRepository, UserRepository userRepository) {
-        this.clubRepository = clubRepository;
+    public FailedPaymentDetailsEndpoint(BusinessRepository businessRepository, UserClubRepository userClubRepository, UserRepository userRepository) {
+        this.businessRepository = businessRepository;
         this.userClubRepository = userClubRepository;
         this.userRepository = userRepository;
     }
@@ -47,6 +47,7 @@ public class FailedPaymentDetailsEndpoint {
     /**
      * Get detailed failed payment information with member details
      * GET /api/analytics/failed-payments-details?clubTag={tag}&startDate={start}&endDate={end}
+     * Note: clubTag parameter is kept for backward compatibility, internally uses businessTag
      */
     @GetMapping("/failed-payments-details")
     @Transactional
@@ -55,15 +56,13 @@ public class FailedPaymentDetailsEndpoint {
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate) {
         try {
-            logger.info("Fetching failed payment details for clubTag={}, startDate={}, endDate={}", clubTag, startDate, endDate);
+            Business business = businessRepository.findByBusinessTag(clubTag)
+                    .orElseThrow(() -> new RuntimeException("Business not found with tag: " + clubTag));
 
-            Club club = clubRepository.findByClubTag(clubTag)
-                    .orElseThrow(() -> new RuntimeException("Club not found with tag: " + clubTag));
-
-            String stripeAccountId = club.getStripeAccountId();
+            String stripeAccountId = business.getStripeAccountId();
 
             if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                throw new RuntimeException("Club does not have Stripe configured");
+                throw new RuntimeException("Business does not have Stripe configured");
             }
 
             // Parse date range
@@ -102,7 +101,7 @@ public class FailedPaymentDetailsEndpoint {
                 if (start != null && invoice.getCreated() < startEpoch) continue;
                 if (invoice.getCreated() > endEpoch) continue;
 
-                FailedPaymentDetail detail = createFailedPaymentDetail(invoice, club.getId());
+                FailedPaymentDetail detail = createFailedPaymentDetail(invoice, business.getId());
                 if (detail != null) {
                     failedPayments.add(detail);
                 }
@@ -118,7 +117,7 @@ public class FailedPaymentDetailsEndpoint {
                 if (start != null && invoice.getCreated() < startEpoch) continue;
                 if (invoice.getCreated() > endEpoch) continue;
 
-                FailedPaymentDetail detail = createFailedPaymentDetail(invoice, club.getId());
+                FailedPaymentDetail detail = createFailedPaymentDetail(invoice, business.getId());
                 if (detail != null) {
                     failedPayments.add(detail);
                 }
@@ -133,22 +132,26 @@ public class FailedPaymentDetailsEndpoint {
         }
     }
 
-    private FailedPaymentDetail createFailedPaymentDetail(Invoice invoice, Long clubId) {
+    private FailedPaymentDetail createFailedPaymentDetail(Invoice invoice, Long businessId) {
         try {
             String customerId = invoice.getCustomer();
             if (customerId == null) return null;
 
             // Find the user by Stripe customer ID
-            User user = userRepository.findByUserStripeMemberId(customerId);
-            if (user == null) {
+            Optional<User> userOpt = userRepository.findByUserStripeMemberId(customerId);
+            if (!userOpt.isPresent()) {
                 logger.warn("User not found for Stripe customer ID: {}", customerId);
                 return null;
             }
+            User user = userOpt.get();
 
             // Find the UserClub record
-            Optional<UserClub> userClubOpt = userClubRepository.findByUserIdAndClubId(user.getId(), clubId);
+            List<UserClub> userClubs = userClubRepository.findAllByUserId(user.getId());
+            Optional<UserClub> userClubOpt = userClubs.stream()
+                    .filter(uc -> uc.getBusiness().getId().equals(businessId))
+                    .findFirst();
             if (!userClubOpt.isPresent()) {
-                logger.warn("UserClub not found for userId={}, clubId={}", user.getId(), clubId);
+                logger.warn("UserClub not found for userId={}, businessId={}", user.getId(), businessId);
                 return null;
             }
 

@@ -1,4 +1,4 @@
-package com.BossLiftingClub.BossLifting.Club;
+package com.BossLiftingClub.BossLifting.Business;
 
 
 import com.BossLiftingClub.BossLifting.Client.Client;
@@ -14,11 +14,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "clubs")
+@Table(name = "businesses")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class Club {
+public class Business {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -35,8 +35,8 @@ public class Club {
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
-    @Column(name = "club_tag")
-    private String clubTag;
+    @Column(name = "business_tag")
+    private String businessTag;
 
     @Column(name = "stripe_account_id")
     private String stripeAccountId;
@@ -53,7 +53,7 @@ public class Club {
     @JoinColumn(name = "staff_id")
     private Staff staff;
 
-    @OneToMany(mappedBy = "club", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "business", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private List<UserClub> userClubs = new ArrayList<>();
 
@@ -97,12 +97,12 @@ public class Club {
         this.createdAt = createdAt;
     }
 
-    public String getClubTag() {
-        return clubTag;
+    public String getBusinessTag() {
+        return businessTag;
     }
 
-    public void setClubTag(String clubTag) {
-        this.clubTag = clubTag;
+    public void setBusinessTag(String businessTag) {
+        this.businessTag = businessTag;
     }
 
     public Client getClient() {
@@ -146,3 +146,4 @@ public class Club {
     }
 
 }
+

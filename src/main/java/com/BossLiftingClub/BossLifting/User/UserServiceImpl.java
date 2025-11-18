@@ -1,7 +1,7 @@
 package com.BossLiftingClub.BossLifting.User;
 
-import com.BossLiftingClub.BossLifting.Club.Club;
-import com.BossLiftingClub.BossLifting.Club.ClubRepository;
+import com.BossLiftingClub.BossLifting.Business.Business;
+import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
 import com.BossLiftingClub.BossLifting.Stripe.StripeService;
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubMembership;
@@ -19,6 +19,8 @@ import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +32,7 @@ import java.util.stream.Collectors;
 
 @Service
 public class UserServiceImpl implements UserService {
+    private static final Logger logger = LoggerFactory.getLogger(UserServiceImpl.class);
 
     private final UserRepository userRepository;
     private final SecureRandom random = new SecureRandom();
@@ -43,7 +46,7 @@ public class UserServiceImpl implements UserService {
     private JavaMailSender mailSender;
 
     @Autowired
-    private ClubRepository clubRepository;
+    private BusinessRepository businessRepository;
 
     @Autowired
     private UserClubRepository userClubRepository;
@@ -85,32 +88,47 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public User handleNewClub(UserCreateDTO userDTO) throws Exception {
+        logger.info("=== STARTING handleNewClub ===");
+        logger.info("UserDTO: email={}, firstName={}, lastName={}, paymentMethodId={}, clubId={}", 
+                userDTO.getEmail(), userDTO.getFirstName(), userDTO.getLastName(), 
+                userDTO.getPaymentMethodId(), userDTO.getClubMembership() != null ? userDTO.getClubMembership().getClubId() : "null");
+        
         // Validate input
         if (userDTO.getEmail() == null || userDTO.getEmail().trim().isEmpty()) {
+            logger.error("Validation failed: Email is required");
             throw new IllegalArgumentException("Email is required");
         }
         if (userDTO.getClubMembership() == null || userDTO.getClubMembership().getClubId() == null) {
-            throw new IllegalArgumentException("Club membership is required");
+            logger.error("Validation failed: Business membership is required");
+            throw new IllegalArgumentException("Business membership is required");
         }
 
         // Check if user exists by email
         Optional<User> existingUserOpt = userRepository.findByEmail(userDTO.getEmail());
         User user;
 
-        // Fetch the club (common for both branches)
-        Club club = clubRepository.findById(userDTO.getClubMembership().getClubId())
-                .orElseThrow(() -> new IllegalArgumentException("Invalid club ID: " + userDTO.getClubMembership().getClubId()));
+        // Fetch the business (common for both branches)
+        Long businessId = userDTO.getClubMembership().getClubId();
+        Business business = businessRepository.findById(businessId)
+                .orElseThrow(() -> {
+                    logger.error("Business not found with ID: {}", businessId);
+                    return new IllegalArgumentException("Invalid business ID: " + businessId);
+                });
+        
+        logger.info("Business found: id={}, title={}, businessTag={}, stripeAccountId={}, onboardingStatus={}", 
+                business.getId(), business.getTitle(), business.getBusinessTag(), 
+                business.getStripeAccountId(), business.getOnboardingStatus());
 
         if (existingUserOpt.isPresent()) {
-            // User exists, check if they're already in this club
+            // User exists, check if they're already in this business
             user = existingUserOpt.get();
 
-            // Check if user is already a member of this club
-            if (userClubRepository.existsByUser_IdAndClub_Id(user.getId(), club.getId())) {
-                throw new IllegalArgumentException("User with email " + userDTO.getEmail() + " is already a member of this club");
+            // Check if user is already a member of this business
+            if (userClubRepository.existsByUser_IdAndBusiness_Id(user.getId(), business.getId())) {
+                throw new IllegalArgumentException("User with email " + userDTO.getEmail() + " is already a member of this business");
             }
 
-            // Add new club membership
+            // Add new business membership
             List<UserClub> userClubs = user.getUserClubs();
             if (userClubs == null) {
                 userClubs = new ArrayList<>();
@@ -120,58 +138,87 @@ public class UserServiceImpl implements UserService {
             // Create UserClub entry
             UserClub userClub = new UserClub();
             userClub.setUser(user);
-            userClub.setClub(club);
+            userClub.setBusiness(business);
             userClub.setStatus(userDTO.getClubMembership().getStatus() != null ? userDTO.getClubMembership().getStatus() : "ACTIVE");
 
             // Create Stripe customer on the connected account if not provided
             String stripeCustomerId = userDTO.getClubMembership().getStripeId();
+            logger.info("Existing Stripe customer ID from DTO (existing user path): {}", stripeCustomerId);
+            
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
+                String stripeAccountId = business.getStripeAccountId();
+                logger.info("Business stripeAccountId (existing user path): {}", stripeAccountId);
+                
+                if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+                    logger.error("Business {} (ID: {}) does not have a Stripe account ID. Onboarding status: {}", 
+                            business.getBusinessTag(), business.getId(), business.getOnboardingStatus());
+                    throw new IllegalStateException(
+                            String.format("Business '%s' has not completed Stripe onboarding. Please complete Stripe setup before adding members. Current status: %s", 
+                                    business.getTitle(), business.getOnboardingStatus() != null ? business.getOnboardingStatus() : "NOT_STARTED"));
+                }
+                
                 try {
-                    String stripeAccountId = club.getStripeAccountId();
-                    if (stripeAccountId != null) {
-                        String fullName = user.getFirstName() + " " + user.getLastName();
-                        stripeCustomerId = stripeService.createCustomerOnConnectedAccount(
-                            user.getEmail(),
-                            fullName,
-                            stripeAccountId
-                        );
-                        System.out.println("Created Stripe customer: " + stripeCustomerId + " for user " + user.getEmail());
-                    } else {
-                        System.err.println("Cannot create Stripe customer: Club client or Stripe account ID not found");
-                    }
+                    String fullName = user.getFirstName() + " " + user.getLastName();
+                    logger.info("Creating Stripe customer on connected account (existing user): email={}, name={}, accountId={}", 
+                            user.getEmail(), fullName, stripeAccountId);
+                    stripeCustomerId = stripeService.createCustomerOnConnectedAccount(
+                        user.getEmail(),
+                        fullName,
+                        stripeAccountId
+                    );
+                    logger.info("✅ Created Stripe customer: {} for user {} (existing user)", stripeCustomerId, user.getEmail());
                 } catch (StripeException e) {
-                    System.err.println("Failed to create Stripe customer: " + e.getMessage());
-                    // Don't throw - allow user creation to continue
+                    logger.error("❌ Failed to create Stripe customer (existing user): {}", e.getMessage(), e);
+                    throw new Exception("Failed to create Stripe customer: " + e.getMessage(), e);
                 }
             }
             userClub.setStripeId(stripeCustomerId != null ? stripeCustomerId : "");
+            logger.info("UserClub stripeId set to (existing user path): {}", userClub.getStripeId());
 
             // Save the UserClub first before processing memberships
             userClubs.add(userClub);
             user = userRepository.save(user);
 
             // If payment method is provided, attach it immediately
-            if (userDTO.getPaymentMethodId() != null && !userDTO.getPaymentMethodId().isEmpty() && stripeCustomerId != null) {
+            logger.info("Checking payment method attachment (existing user path): paymentMethodId={}, stripeCustomerId={}", 
+                    userDTO.getPaymentMethodId(), stripeCustomerId);
+            
+            if (userDTO.getPaymentMethodId() != null && !userDTO.getPaymentMethodId().isEmpty() && stripeCustomerId != null && !stripeCustomerId.isEmpty()) {
+                String stripeAccountId = business.getStripeAccountId();
                 try {
-                    String stripeAccountId = club.getStripeAccountId();
-                    if (stripeAccountId != null) {
-                        stripeService.attachPaymentMethodOnConnectedAccount(
-                            stripeCustomerId,
-                            userDTO.getPaymentMethodId(),
-                            stripeAccountId
-                        );
-                        System.out.println("✅ Payment method " + userDTO.getPaymentMethodId() + " attached to customer " + stripeCustomerId);
+                    if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+                        logger.error("Cannot attach payment method (existing user): Business does not have Stripe account ID");
+                        throw new IllegalStateException("Business has not completed Stripe onboarding. Cannot attach payment method.");
                     }
+                    
+                    logger.info("Attaching payment method {} to customer {} on account {} (existing user)", 
+                            userDTO.getPaymentMethodId(), stripeCustomerId, stripeAccountId);
+                    stripeService.attachPaymentMethodOnConnectedAccount(
+                        stripeCustomerId,
+                        userDTO.getPaymentMethodId(),
+                        stripeAccountId
+                    );
+                    logger.info("✅ Payment method {} attached to customer {} (existing user)", userDTO.getPaymentMethodId(), stripeCustomerId);
                 } catch (StripeException e) {
-                    System.err.println("Failed to attach payment method: " + e.getMessage());
-                    throw new Exception("Failed to attach payment method: " + e.getMessage());
+                    logger.error("❌ Failed to attach payment method {} to customer {} on account {}: {} (code: {})", 
+                            userDTO.getPaymentMethodId(), stripeCustomerId, stripeAccountId != null ? stripeAccountId : "unknown", 
+                            e.getMessage(), e.getCode(), e);
+                    throw new Exception("Failed to attach payment method: " + e.getMessage() + 
+                            (e.getCode() != null ? " (code: " + e.getCode() + ")" : ""), e);
+                } catch (IllegalStateException e) {
+                    logger.error("❌ Stripe setup issue (existing user): {}", e.getMessage());
+                    throw e;
                 }
+            } else if (userDTO.getPaymentMethodId() != null && !userDTO.getPaymentMethodId().isEmpty()) {
+                logger.warn("⚠️ Payment method provided but no Stripe customer ID available (existing user). Payment method ID: {}", userDTO.getPaymentMethodId());
+            } else {
+                logger.info("No payment method provided or no customer ID - skipping payment method attachment (existing user)");
             }
 
             // Create memberships immediately if payment method was provided
             if (userDTO.getPaymentMethodId() != null && !userDTO.getPaymentMethodId().isEmpty() && userDTO.getMemberships() != null) {
                 UserClub savedUserClub = user.getUserClubs().stream()
-                    .filter(uc -> uc.getClub().getId().equals(club.getId()))
+                    .filter(uc -> uc.getBusiness().getId().equals(business.getId()))
                     .findFirst()
                     .orElseThrow(() -> new IllegalStateException("UserClub not found after save"));
 
@@ -186,7 +233,7 @@ public class UserServiceImpl implements UserService {
                     userClubMembership.setAnchorDate(membershipRequest.getAnchorDate() != null ? membershipRequest.getAnchorDate() : LocalDateTime.now());
 
                     // Create Stripe subscription
-                    createStripeSubscriptionForMembership(userClubMembership, club);
+                    createStripeSubscriptionForMembership(userClubMembership, business);
 
                     if (savedUserClub.getUserClubMemberships() == null) {
                         savedUserClub.setUserClubMemberships(new ArrayList<>());
@@ -213,31 +260,42 @@ public class UserServiceImpl implements UserService {
             // Create UserClub entry
             UserClub userClub = new UserClub();
             userClub.setUser(user);
-            userClub.setClub(club);
+            userClub.setBusiness(business);
             userClub.setStatus(userDTO.getClubMembership().getStatus() != null ? userDTO.getClubMembership().getStatus() : "ACTIVE");
 
             // Create Stripe customer on the connected account if not provided
             String stripeCustomerId = userDTO.getClubMembership().getStripeId();
+            logger.info("Existing Stripe customer ID from DTO (new user path): {}", stripeCustomerId);
+            
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
+                String stripeAccountId = business.getStripeAccountId();
+                logger.info("Business stripeAccountId (new user path): {}", stripeAccountId);
+                
+                if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+                    logger.error("Business {} (ID: {}) does not have a Stripe account ID. Onboarding status: {}", 
+                            business.getBusinessTag(), business.getId(), business.getOnboardingStatus());
+                    throw new IllegalStateException(
+                            String.format("Business '%s' has not completed Stripe onboarding. Please complete Stripe setup before adding members. Current status: %s", 
+                                    business.getTitle(), business.getOnboardingStatus() != null ? business.getOnboardingStatus() : "NOT_STARTED"));
+                }
+                
                 try {
-                    String stripeAccountId = club.getStripeAccountId();
-                    if (stripeAccountId != null) {
-                        String fullName = user.getFirstName() + " " + user.getLastName();
-                        stripeCustomerId = stripeService.createCustomerOnConnectedAccount(
-                            user.getEmail(),
-                            fullName,
-                            stripeAccountId
-                        );
-                        System.out.println("Created Stripe customer: " + stripeCustomerId + " for user " + user.getEmail());
-                    } else {
-                        System.err.println("Cannot create Stripe customer: Club client or Stripe account ID not found");
-                    }
+                    String fullName = user.getFirstName() + " " + user.getLastName();
+                    logger.info("Creating Stripe customer on connected account (new user): email={}, name={}, accountId={}", 
+                            user.getEmail(), fullName, stripeAccountId);
+                    stripeCustomerId = stripeService.createCustomerOnConnectedAccount(
+                        user.getEmail(),
+                        fullName,
+                        stripeAccountId
+                    );
+                    logger.info("✅ Created Stripe customer: {} for user {} (new user)", stripeCustomerId, user.getEmail());
                 } catch (StripeException e) {
-                    System.err.println("Failed to create Stripe customer: " + e.getMessage());
-                    // Don't throw - allow user creation to continue
+                    logger.error("❌ Failed to create Stripe customer (new user): {}", e.getMessage(), e);
+                    throw new Exception("Failed to create Stripe customer: " + e.getMessage(), e);
                 }
             }
             userClub.setStripeId(stripeCustomerId != null ? stripeCustomerId : "");
+            logger.info("UserClub stripeId set to (new user path): {}", userClub.getStripeId());
 
             user.setUserClubs(new ArrayList<>(List.of(userClub)));
 
@@ -245,21 +303,39 @@ public class UserServiceImpl implements UserService {
             user = userRepository.save(user);
 
             // If payment method is provided, attach it immediately
-            if (userDTO.getPaymentMethodId() != null && !userDTO.getPaymentMethodId().isEmpty() && stripeCustomerId != null) {
+            logger.info("Checking payment method attachment (new user path): paymentMethodId={}, stripeCustomerId={}", 
+                    userDTO.getPaymentMethodId(), stripeCustomerId);
+            
+            if (userDTO.getPaymentMethodId() != null && !userDTO.getPaymentMethodId().isEmpty() && stripeCustomerId != null && !stripeCustomerId.isEmpty()) {
+                String stripeAccountId = business.getStripeAccountId();
                 try {
-                    String stripeAccountId = club.getStripeAccountId();
-                    if (stripeAccountId != null) {
-                        stripeService.attachPaymentMethodOnConnectedAccount(
-                            stripeCustomerId,
-                            userDTO.getPaymentMethodId(),
-                            stripeAccountId
-                        );
-                        System.out.println("✅ Payment method " + userDTO.getPaymentMethodId() + " attached to customer " + stripeCustomerId);
+                    if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+                        logger.error("Cannot attach payment method (new user): Business does not have Stripe account ID");
+                        throw new IllegalStateException("Business has not completed Stripe onboarding. Cannot attach payment method.");
                     }
+                    
+                    logger.info("Attaching payment method {} to customer {} on account {} (new user)", 
+                            userDTO.getPaymentMethodId(), stripeCustomerId, stripeAccountId);
+                    stripeService.attachPaymentMethodOnConnectedAccount(
+                        stripeCustomerId,
+                        userDTO.getPaymentMethodId(),
+                        stripeAccountId
+                    );
+                    logger.info("✅ Payment method {} attached to customer {} (new user)", userDTO.getPaymentMethodId(), stripeCustomerId);
                 } catch (StripeException e) {
-                    System.err.println("Failed to attach payment method: " + e.getMessage());
-                    throw new Exception("Failed to attach payment method: " + e.getMessage());
+                    logger.error("❌ Failed to attach payment method {} to customer {} on account {}: {} (code: {})", 
+                            userDTO.getPaymentMethodId(), stripeCustomerId, stripeAccountId != null ? stripeAccountId : "unknown", 
+                            e.getMessage(), e.getCode(), e);
+                    throw new Exception("Failed to attach payment method: " + e.getMessage() + 
+                            (e.getCode() != null ? " (code: " + e.getCode() + ")" : ""), e);
+                } catch (IllegalStateException e) {
+                    logger.error("❌ Stripe setup issue (new user): {}", e.getMessage());
+                    throw e;
                 }
+            } else if (userDTO.getPaymentMethodId() != null && !userDTO.getPaymentMethodId().isEmpty()) {
+                logger.warn("⚠️ Payment method provided but no Stripe customer ID available (new user). Payment method ID: {}", userDTO.getPaymentMethodId());
+            } else {
+                logger.info("No payment method provided or no customer ID - skipping payment method attachment (new user)");
             }
 
             // Create memberships immediately if payment method was provided
@@ -277,7 +353,7 @@ public class UserServiceImpl implements UserService {
                     userClubMembership.setAnchorDate(membershipRequest.getAnchorDate() != null ? membershipRequest.getAnchorDate() : LocalDateTime.now());
 
                     // Create Stripe subscription
-                    createStripeSubscriptionForMembership(userClubMembership, club);
+                    createStripeSubscriptionForMembership(userClubMembership, business);
 
                     if (savedUserClub.getUserClubMemberships() == null) {
                         savedUserClub.setUserClubMemberships(new ArrayList<>());
@@ -288,7 +364,10 @@ public class UserServiceImpl implements UserService {
         }
 
         // Save the updated user (cascades to UserClub due to @OneToMany cascade)
-        return userRepository.save(user);
+        User savedUser = userRepository.save(user);
+        logger.info("=== COMPLETED handleNewClub successfully ===");
+        logger.info("User ID: {}, Email: {}, Business: {}", savedUser.getId(), savedUser.getEmail(), business.getBusinessTag());
+        return savedUser;
     }
 
     @Override
@@ -540,9 +619,9 @@ public class UserServiceImpl implements UserService {
     /**
      * Helper method to create Stripe subscription for a membership
      * @param userClubMembership The UserClubMembership to create a subscription for
-     * @param club The club the user belongs to
+     * @param business The business the user belongs to
      */
-    private void createStripeSubscriptionForMembership(UserClubMembership userClubMembership, Club club) {
+    private void createStripeSubscriptionForMembership(UserClubMembership userClubMembership, Business business) {
         try {
             // Skip if subscription ID is already provided
             if (userClubMembership.getStripeSubscriptionId() != null && !userClubMembership.getStripeSubscriptionId().isEmpty()) {
@@ -559,10 +638,10 @@ public class UserServiceImpl implements UserService {
                 return;
             }
 
-            // Get the club's Stripe account
-            String stripeAccountId = club.getStripeAccountId();
+            // Get the business's Stripe account
+            String stripeAccountId = business.getStripeAccountId();
             if (stripeAccountId == null) {
-                System.err.println("Client or Stripe account ID not found for club: " + club.getClubTag());
+                System.err.println("Client or Stripe account ID not found for business: " + business.getBusinessTag());
                 return;
             }
 

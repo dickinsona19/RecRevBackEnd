@@ -17,7 +17,7 @@ import java.util.Map;
 @Service
 public class ProductServiceImpl implements ProductService {
 
-    @Value("${stripe.secret.key}")
+    @Value("${stripe.secret.key:}")
     private String stripeApiKey;
 
     private final ProductRepository productRepository;

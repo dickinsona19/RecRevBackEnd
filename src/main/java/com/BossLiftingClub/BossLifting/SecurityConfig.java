@@ -1,6 +1,7 @@
 package com.BossLiftingClub.BossLifting;
 
 import com.BossLiftingClub.BossLifting.Security.JwtAuthenticationFilter;
+import com.BossLiftingClub.BossLifting.Security.RateLimitingFilter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,6 +24,9 @@ public class SecurityConfig {
 
     @Autowired
     private JwtAuthenticationFilter jwtAuthenticationFilter;
+    
+    @Autowired
+    private RateLimitingFilter rateLimitingFilter;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -31,8 +35,30 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable()) // Disable CSRF for stateless API
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // Stateless sessions
                 .authorizeHttpRequests(auth -> auth
-                        .anyRequest().permitAll() // Allow all requests for development - TODO: Add proper authentication for production
+                        // Public endpoints (authentication endpoints)
+                        .requestMatchers("/api/clients/login").permitAll()
+                        .requestMatchers("/api/clients/signup").permitAll()
+                        .requestMatchers("/api/clients/refresh").permitAll()
+                        
+                        // Stripe webhooks (no authentication, verified by signature)
+                        .requestMatchers("/api/stripe/webhook").permitAll()
+                        .requestMatchers("/api/stripe/webhook/subscription").permitAll()
+                        
+                        // Health check endpoints (if needed)
+                        .requestMatchers("/actuator/health").permitAll()
+                        
+                        // Test token endpoint (for development/testing)
+                        .requestMatchers("/api/clients/test-token").permitAll()
+                        
+                        // All other endpoints require authentication
+                        .requestMatchers("/api/**").authenticated()
+                        .requestMatchers("/users/**").authenticated()
+                        .requestMatchers("/products/**").authenticated()
+                        
+                        // Default: require authentication
+                        .anyRequest().authenticated()
                 )
+                .addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class) // Add rate limiting filter first
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class); // Add JWT filter
         return http.build();
     }
@@ -41,8 +67,12 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
 
-        // Allow all origins for development (use specific origins in production)
-        config.addAllowedOriginPattern("*");
+        // Allow specific origins for development (use specific origins in production)
+        // Note: Cannot use wildcard (*) with allowCredentials(true)
+        config.addAllowedOrigin("http://localhost:5173");
+        config.addAllowedOrigin("http://localhost:3000");
+        config.addAllowedOrigin("http://127.0.0.1:5173");
+        config.addAllowedOrigin("http://127.0.0.1:3000");
 
         // Allowed HTTP methods
         config.setAllowedMethods(List.of("GET", "POST", "OPTIONS", "DELETE", "PUT", "PATCH"));

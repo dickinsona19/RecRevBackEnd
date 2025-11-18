@@ -20,7 +20,10 @@ import java.util.Map;
 @Service
 public class StripeService {
 
-    public StripeService(@Value("${stripe.secret.key}") String secretKey) {
+    public StripeService(@Value("${stripe.secret.key:}") String secretKey) {
+        if (secretKey == null || secretKey.isEmpty() || "NOT_SET".equals(secretKey)) {
+            throw new IllegalStateException("Stripe secret key is required. Please set STRIPE_SECRET_KEY environment variable.");
+        }
         Stripe.apiKey = secretKey; // Set the Stripe API key from application.properties or application.yml
     }
     /**
@@ -355,30 +358,72 @@ public class StripeService {
         }
 
         // Create request options for connected account
-        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+        com.stripe.net.RequestOptions connectedAccountOptions = com.stripe.net.RequestOptions.builder()
                 .setStripeAccount(stripeAccountId)
                 .build();
 
-        // Retrieve the payment method on connected account
-        PaymentMethod paymentMethod = PaymentMethod.retrieve(paymentMethodId, requestOptions);
-
-        // Attach it to the customer (if not already attached)
+        // Payment methods can be created on either the platform account or connected account
+        // Try to retrieve from platform account first (most common case with Stripe.js)
+        PaymentMethod paymentMethod = null;
+        try {
+            // First try: retrieve from platform account (no account context)
+            paymentMethod = PaymentMethod.retrieve(paymentMethodId);
+            System.out.println("Retrieved PaymentMethod " + paymentMethodId + " from platform account");
+        } catch (StripeException e) {
+            // If not found on platform account, try retrieving from connected account
+            if (e.getCode() != null && e.getCode().equals("resource_missing")) {
+                try {
+                    System.out.println("PaymentMethod not found on platform account, trying connected account...");
+                    paymentMethod = PaymentMethod.retrieve(paymentMethodId, connectedAccountOptions);
+                    System.out.println("Retrieved PaymentMethod " + paymentMethodId + " from connected account");
+                } catch (StripeException e2) {
+                    // If still not found, throw original error with helpful message
+                    throw new StripeException(
+                        "PaymentMethod " + paymentMethodId + " not found on platform account or connected account " + stripeAccountId + ". " +
+                        "Ensure the PaymentMethod was created correctly. Original error: " + e.getMessage(),
+                        null, null, null
+                    ) {
+                        public String getStripeErrorMessage() { 
+                            return "PaymentMethod not found. Please ensure it was created with the correct account context."; 
+                        }
+                    };
+                }
+            } else {
+                // Re-throw if it's a different error
+                throw e;
+            }
+        }
+        
+        // Attach the payment method to the customer on the connected account
         Map<String, Object> attachParams = new HashMap<>();
         attachParams.put("customer", customerId);
-        paymentMethod.attach(attachParams, requestOptions);
+        
+        // If payment method was retrieved from platform account, attach it to connected account customer
+        // If it was retrieved from connected account, it should already be on that account
+        try {
+            paymentMethod.attach(attachParams, connectedAccountOptions);
+            System.out.println("Attached PaymentMethod " + paymentMethodId + " to customer " + customerId + " on connected account");
+        } catch (StripeException e) {
+            // If attach fails because payment method is already attached, that's okay - continue
+            if (e.getCode() != null && e.getCode().equals("resource_already_exists")) {
+                System.out.println("PaymentMethod " + paymentMethodId + " is already attached to customer " + customerId);
+            } else {
+                throw e;
+            }
+        }
 
         // Explicitly set as default for invoices
-        Customer customer = Customer.retrieve(customerId, requestOptions);
+        Customer customer = Customer.retrieve(customerId, connectedAccountOptions);
         Map<String, Object> updateParams = new HashMap<>();
         updateParams.put("invoice_settings", Map.of(
                 "default_payment_method", paymentMethodId
         ));
-        customer.update(updateParams, requestOptions);
+        customer.update(updateParams, connectedAccountOptions);
 
         System.out.println("Payment method " + paymentMethodId + " attached and set as default for customer " + customerId + " on connected account " + stripeAccountId);
 
         // Verify it's set (optional debugging)
-        Customer updatedCustomer = Customer.retrieve(customerId, requestOptions);
+        Customer updatedCustomer = Customer.retrieve(customerId, connectedAccountOptions);
         String defaultPaymentMethod = updatedCustomer.getInvoiceSettings().getDefaultPaymentMethod();
         if (!paymentMethodId.equals(defaultPaymentMethod)) {
             throw new StripeException("Failed to set payment method as default on connected account", null, null, null) {

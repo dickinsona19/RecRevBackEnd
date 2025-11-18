@@ -1,5 +1,6 @@
 package com.BossLiftingClub.BossLifting.User.ClubUser;
 
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -57,7 +58,7 @@ public class UserClubMembershipController {
     public ResponseEntity<?> addMembershipToUser(
             @PathVariable String clubTag,
             @PathVariable Long userId,
-            @RequestBody MembershipAssignmentRequest request) {
+            @Valid @RequestBody MembershipAssignmentRequest request) {
         try {
             // Validate required fields
             if (request.getMembershipId() == null) {
@@ -102,7 +103,7 @@ public class UserClubMembershipController {
             @PathVariable String clubTag,
             @PathVariable Long userId,
             @PathVariable Long userClubMembershipId,
-            @RequestBody MembershipUpdateRequest request) {
+            @Valid @RequestBody MembershipUpdateRequest request) {
         try {
             UserClubMembership updated = userClubService.updateUserClubMembership(
                     userId,

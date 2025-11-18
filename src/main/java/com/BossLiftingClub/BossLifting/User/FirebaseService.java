@@ -7,6 +7,8 @@ import com.google.cloud.storage.Bucket;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.cloud.StorageClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -19,15 +21,23 @@ import java.util.UUID;
 
 @Service
 public class FirebaseService {
-
+    private static final Logger logger = LoggerFactory.getLogger(FirebaseService.class);
+    
     private final String bucketName = "clt-liftingclub-llc.firebasestorage.app";
 
     // Fetch the service account JSON from the environment variable
-    @Value("${FIREBASE_SERVICE_ACCOUNT_JSON}")
+    // Optional - Firebase will only initialize if provided
+    @Value("${FIREBASE_SERVICE_ACCOUNT_JSON:}")
     private String serviceAccountJson;
 
     @PostConstruct
     public void initializeFirebase() throws IOException {
+        // Only initialize Firebase if service account JSON is provided
+        if (serviceAccountJson == null || serviceAccountJson.isEmpty() || serviceAccountJson.trim().isEmpty()) {
+            logger.warn("Firebase service account JSON not provided. Firebase features will be disabled.");
+            return;
+        }
+        
         if (FirebaseApp.getApps().isEmpty()) {
             // Load the service account JSON directly from the environment variable
             InputStream serviceAccount = new ByteArrayInputStream(serviceAccountJson.getBytes());

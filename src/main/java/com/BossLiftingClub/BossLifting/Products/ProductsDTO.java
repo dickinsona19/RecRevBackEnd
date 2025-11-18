@@ -14,7 +14,8 @@ public class ProductsDTO {
     private String imageUrl;
     private String category;
     private String stripeProductId;
-    private String clubTag;
+    private String businessTag;
+    private String clubTag; // Backward compatibility
 
     // Static mapper to convert from entity to DTO
     public static ProductsDTO fromEntity(Products product) {
@@ -26,7 +27,8 @@ public class ProductsDTO {
         dto.setImageUrl(product.getImageUrl());
         dto.setCategory(product.getCategory());
         dto.setStripeProductId(product.getStripeProductId());
-        dto.setClubTag(product.getClubTag());
+        dto.setBusinessTag(product.getBusinessTag());
+        dto.setClubTag(product.getBusinessTag()); // Backward compatibility
         return dto;
     }
 
@@ -87,11 +89,24 @@ public class ProductsDTO {
         this.stripeProductId = stripeProductId;
     }
 
-    public String getClubTag() {
-        return clubTag;
+    public String getBusinessTag() {
+        return businessTag;
     }
 
+    public void setBusinessTag(String businessTag) {
+        this.businessTag = businessTag;
+        this.clubTag = businessTag; // Backward compatibility
+    }
+    
+    // Backward compatibility getters/setters
+    @Deprecated
+    public String getClubTag() {
+        return businessTag;
+    }
+
+    @Deprecated
     public void setClubTag(String clubTag) {
+        this.businessTag = clubTag;
         this.clubTag = clubTag;
     }
 }

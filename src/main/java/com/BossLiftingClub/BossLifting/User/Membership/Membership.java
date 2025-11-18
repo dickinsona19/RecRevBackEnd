@@ -1,6 +1,6 @@
 package com.BossLiftingClub.BossLifting.User.Membership;
 
-import com.BossLiftingClub.BossLifting.Club.Club;
+import com.BossLiftingClub.BossLifting.Business.Business;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
@@ -25,10 +25,15 @@ public class Membership {
     @Column(name = "charge_interval")
     private String chargeInterval;
 
-    @Column(name = "club_tag")
+    @Column(name = "business_tag")
+    private String businessTag;
+    
+    // Backward compatibility - map club_tag to business_tag in database
+    @Deprecated
+    @Column(name = "club_tag", insertable = false, updatable = false)
     private String clubTag;
 
-    @Column
+    @Column(name = "stripe_price_id")
     private String stripePriceId;
 
     @Column(columnDefinition = "BOOLEAN DEFAULT FALSE")
@@ -66,12 +71,23 @@ public class Membership {
         this.chargeInterval = chargeInterval;
     }
 
-    public String getClubTag() {
-        return clubTag;
+    public String getBusinessTag() {
+        return businessTag;
     }
 
+    public void setBusinessTag(String businessTag) {
+        this.businessTag = businessTag;
+    }
+    
+    // Backward compatibility getter
+    @Deprecated
+    public String getClubTag() {
+        return businessTag;
+    }
+
+    @Deprecated
     public void setClubTag(String clubTag) {
-        this.clubTag = clubTag;
+        this.businessTag = clubTag;
     }
 
     public boolean isArchived() {

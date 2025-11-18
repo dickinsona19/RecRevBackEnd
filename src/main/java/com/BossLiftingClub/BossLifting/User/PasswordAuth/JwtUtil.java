@@ -105,6 +105,7 @@ public class JwtUtil {
     public String generateToken(String email, Integer clientId) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("clientId", clientId);
+        claims.put("userType", "CLIENT");
         claims.put("type", "access");
         return createToken(claims, email, expiration);
     }
@@ -113,8 +114,59 @@ public class JwtUtil {
     public String generateRefreshToken(String email, Integer clientId) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("clientId", clientId);
+        claims.put("userType", "CLIENT");
         claims.put("type", "refresh");
         return createToken(claims, email, refreshExpiration);
+    }
+    
+    // Generate access token for staff
+    public String generateStaffToken(String email, Integer staffId, String role, Long businessId) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("staffId", staffId);
+        claims.put("userType", "STAFF");
+        claims.put("role", role);
+        claims.put("businessId", businessId);
+        claims.put("type", "access");
+        return createToken(claims, email, expiration);
+    }
+
+    // Generate refresh token for staff
+    public String generateStaffRefreshToken(String email, Integer staffId, String role, Long businessId) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("staffId", staffId);
+        claims.put("userType", "STAFF");
+        claims.put("role", role);
+        claims.put("businessId", businessId);
+        claims.put("type", "refresh");
+        return createToken(claims, email, refreshExpiration);
+    }
+    
+    // Extract user type from token
+    public String extractUserType(String token) {
+        Claims claims = extractAllClaims(token);
+        return claims.get("userType", String.class);
+    }
+    
+    // Extract staff ID from token
+    public Integer extractStaffId(String token) {
+        Claims claims = extractAllClaims(token);
+        return claims.get("staffId", Integer.class);
+    }
+    
+    // Extract role from token
+    public String extractRole(String token) {
+        Claims claims = extractAllClaims(token);
+        return claims.get("role", String.class);
+    }
+    
+    // Extract business ID from token
+    public Long extractBusinessId(String token) {
+        Claims claims = extractAllClaims(token);
+        Object businessId = claims.get("businessId");
+        if (businessId instanceof Integer) {
+            return ((Integer) businessId).longValue();
+        }
+        return businessId != null ? (Long) businessId : null;
     }
 
     // Create token with claims, subject, and expiration

@@ -76,8 +76,10 @@ public class UserController {
             UserDTO userResponse = new UserDTO(user);
             return new ResponseEntity<>(userResponse, HttpStatus.CREATED);
         } catch (IllegalArgumentException e) {
+            logger.error("Validation error adding user: {}", e.getMessage());
             return new ResponseEntity<>(new ErrorResponse("Invalid input: " + e.getMessage()), HttpStatus.BAD_REQUEST);
         } catch (Exception e) {
+            logger.error("Error adding user: ", e);
             return new ResponseEntity<>(new ErrorResponse("Server error: " + e.getMessage()), HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
@@ -134,15 +136,12 @@ public class UserController {
 
     @GetMapping("/basic/{clubTag}")
     public List<UserDTOBasic> getAllUsersDTOBasic(@PathVariable String clubTag) {
-        logger.info("=== INCOMING REQUEST: GET /users/basic/{} ===", clubTag);
+        // Note: clubTag parameter kept for backward compatibility, internally uses businessTag
         try {
             List<UserDTOBasic> users = userService.getAllUserDTOBasics(clubTag);
-            logger.info("Successfully fetched {} users for clubTag: {}", users.size(), clubTag);
-            logger.info("=== REQUEST COMPLETED SUCCESSFULLY ===");
             return users;
         } catch (Exception e) {
-            logger.error("ERROR fetching users for clubTag: {}", clubTag, e);
-            logger.error("=== REQUEST FAILED ===");
+            logger.error("ERROR fetching users for businessTag: {}", clubTag, e);
             throw e;
         }
     }

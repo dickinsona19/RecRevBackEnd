@@ -2,6 +2,8 @@ package com.BossLiftingClub.BossLifting.Security;
 
 import com.BossLiftingClub.BossLifting.Client.Client;
 import com.BossLiftingClub.BossLifting.Client.ClientRepository;
+import com.BossLiftingClub.BossLifting.Club.Staff.Staff;
+import com.BossLiftingClub.BossLifting.Club.Staff.StaffRepository;
 import com.BossLiftingClub.BossLifting.User.PasswordAuth.JwtUtil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -15,7 +17,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Optional;
 
 @Component
@@ -26,6 +27,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     @Autowired
     private ClientRepository clientRepository;
+    
+    @Autowired
+    private StaffRepository staffRepository;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
@@ -49,21 +53,68 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         // Validate token and set authentication
         if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            Optional<Client> clientOpt = clientRepository.findByEmail(email);
+            try {
+                // Check user type from token
+                String userType = jwtUtil.extractUserType(jwt);
+                
+                if ("STAFF".equals(userType)) {
+                    // Handle staff authentication
+                    Integer staffId = jwtUtil.extractStaffId(jwt);
+                    if (staffId != null && jwtUtil.validateToken(jwt, email)) {
+                        Optional<Staff> staffOpt = staffRepository.findById(staffId);
+                        
+                        if (staffOpt.isPresent()) {
+                            Staff staff = staffOpt.get();
+                            
+                            // Verify staff is active
+                            if (staff.getIsActive() != null && staff.getIsActive()) {
+                                // Create StaffPrincipal
+                                StaffPrincipal staffPrincipal = new StaffPrincipal(staff);
+                                
+                                // Create authentication token with authorities
+                                UsernamePasswordAuthenticationToken authToken =
+                                    new UsernamePasswordAuthenticationToken(
+                                        staffPrincipal, 
+                                        null, 
+                                        staffPrincipal.getAuthorities()
+                                    );
 
-            if (clientOpt.isPresent()) {
-                Client client = clientOpt.get();
+                                authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
-                if (jwtUtil.validateToken(jwt, email)) {
-                    // Create authentication token
-                    UsernamePasswordAuthenticationToken authToken =
-                        new UsernamePasswordAuthenticationToken(client, null, new ArrayList<>());
+                                // Set authentication in security context
+                                SecurityContextHolder.getContext().setAuthentication(authToken);
+                            }
+                        }
+                    }
+                } else {
+                    // Handle client authentication (default)
+                    Optional<Client> clientOpt = clientRepository.findByEmail(email);
 
-                    authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    if (clientOpt.isPresent()) {
+                        Client client = clientOpt.get();
 
-                    // Set authentication in security context
-                    SecurityContextHolder.getContext().setAuthentication(authToken);
+                        if (jwtUtil.validateToken(jwt, email)) {
+                            // Create UserPrincipal with CLIENT role
+                            UserPrincipal userPrincipal = new UserPrincipal(client, "CLIENT");
+                            
+                            // Create authentication token with authorities
+                            UsernamePasswordAuthenticationToken authToken =
+                                new UsernamePasswordAuthenticationToken(
+                                    userPrincipal, 
+                                    null, 
+                                    userPrincipal.getAuthorities()
+                                );
+
+                            authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+
+                            // Set authentication in security context
+                            SecurityContextHolder.getContext().setAuthentication(authToken);
+                        }
+                    }
                 }
+            } catch (Exception e) {
+                // Invalid token or missing claims, continue without authentication
+                logger.warn("Error processing JWT token: " + e.getMessage());
             }
         }
 

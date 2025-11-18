@@ -33,7 +33,7 @@ public class UserDTOBasic {
         this.isOver18 = isOver18;
         this.signatureData = signatureData;
         this.profilePictureUrl = profilePictureUrl;
-        this.membership = membership != null ? new MembershipDTO(membership) : null;
+        this.membership = membership != null ? MembershipDTO.fromEntity(membership) : null;
     }
 
     public Long getId() {

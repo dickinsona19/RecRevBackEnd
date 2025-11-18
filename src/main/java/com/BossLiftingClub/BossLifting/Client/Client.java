@@ -1,7 +1,7 @@
 package com.BossLiftingClub.BossLifting.Client;
 
 
-import com.BossLiftingClub.BossLifting.Club.Club;
+import com.BossLiftingClub.BossLifting.Business.Business;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import lombok.*;
@@ -33,7 +33,7 @@ public class Client {
 
     @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
-    private List<Club> clubs = new ArrayList<>();
+    private List<Business> businesses = new ArrayList<>();
     @Override
     public String toString() {
         return "Client{id=" + id + ", email='" + email + "'}";
@@ -79,11 +79,22 @@ public class Client {
         this.status = status;
     }
 
-    public List<Club> getClubs() {
-        return clubs;
+    public List<Business> getBusinesses() {
+        return businesses;
     }
 
-    public void setClubs(List<Club> clubs) {
-        this.clubs = clubs;
+    public void setBusinesses(List<Business> businesses) {
+        this.businesses = businesses;
+    }
+
+    // Backward compatibility - keep getClubs/getBusinesses alias
+    @Deprecated
+    public List<Business> getClubs() {
+        return businesses;
+    }
+
+    @Deprecated
+    public void setClubs(List<Business> businesses) {
+        this.businesses = businesses;
     }
 }

@@ -1,7 +1,7 @@
 package com.BossLiftingClub.BossLifting.Payment;
 
-import com.BossLiftingClub.BossLifting.Club.Club;
-import com.BossLiftingClub.BossLifting.Club.ClubRepository;
+import com.BossLiftingClub.BossLifting.Business.Business;
+import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
 import com.BossLiftingClub.BossLifting.Stripe.StripeService;
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubRepository;
@@ -31,7 +31,7 @@ public class PaymentController {
     private UserClubRepository userClubRepository;
 
     @Autowired
-    private ClubRepository clubRepository;
+    private BusinessRepository businessRepository;
 
     @Autowired
     private JavaMailSender mailSender;
@@ -55,7 +55,7 @@ public class PaymentController {
                 return ResponseEntity.ok(Map.of("hasPaymentMethod", false));
             }
 
-            Club club = userClub.getClub();
+            Business club = userClub.getBusiness();
             if (!"COMPLETED".equals(club.getOnboardingStatus())) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
@@ -89,7 +89,7 @@ public class PaymentController {
                         .body(Map.of("error", "No Stripe customer ID found"));
             }
 
-            Club club = userClub.getClub();
+            Business club = userClub.getBusiness();
             if (!"COMPLETED".equals(club.getOnboardingStatus())) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
@@ -129,7 +129,7 @@ public class PaymentController {
                         .body(Map.of("error", "User does not have a Stripe customer ID"));
             }
 
-            Club club = userClub.getClub();
+            Business club = userClub.getBusiness();
             if (!"COMPLETED".equals(club.getOnboardingStatus())) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
@@ -179,7 +179,7 @@ public class PaymentController {
                         .body(Map.of("error", "User does not have a Stripe customer ID"));
             }
 
-            Club club = userClub.getClub();
+            Business club = userClub.getBusiness();
             if (!"COMPLETED".equals(club.getOnboardingStatus())) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
@@ -226,7 +226,7 @@ public class PaymentController {
                         .body(Map.of("error", "User does not have a Stripe customer ID"));
             }
 
-            Club club = userClub.getClub();
+            Business club = userClub.getBusiness();
             if (!"COMPLETED".equals(club.getOnboardingStatus())) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
@@ -283,7 +283,7 @@ public class PaymentController {
                 return ResponseEntity.ok(List.of()); // Return empty list if no Stripe customer
             }
 
-            Club club = userClub.getClub();
+            Business club = userClub.getBusiness();
             if (!"COMPLETED".equals(club.getOnboardingStatus())) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
@@ -719,7 +719,7 @@ public class PaymentController {
             if (userClubId != null) {
                 UserClub userClub = userClubRepository.findById(userClubId)
                         .orElseThrow(() -> new RuntimeException("UserClub not found"));
-                Club club = userClub.getClub();
+                Business club = userClub.getBusiness();
                 if (!"COMPLETED".equals(club.getOnboardingStatus())) {
                     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                             .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
@@ -815,7 +815,7 @@ public class PaymentController {
                         .body(Map.of("error", "User does not have a Stripe customer ID"));
             }
 
-            Club club = userClub.getClub();
+            Business club = userClub.getBusiness();
             if (!"COMPLETED".equals(club.getOnboardingStatus())) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));

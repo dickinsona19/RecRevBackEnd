@@ -1,5 +1,8 @@
 package com.BossLiftingClub.BossLifting.User.ClubUser;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -33,7 +36,7 @@ public class UserClubMembershipSimpleController {
      * }
      */
     @PostMapping
-    public ResponseEntity<?> addMembership(@RequestBody MembershipAddRequest request) {
+    public ResponseEntity<?> addMembership(@Valid @RequestBody MembershipAddRequest request) {
         try {
             // Validate required fields
             if (request.getUserClubId() == null) {
@@ -77,7 +80,7 @@ public class UserClubMembershipSimpleController {
     @PutMapping("/{id}")
     public ResponseEntity<?> updateMembership(
             @PathVariable Long id,
-            @RequestBody MembershipUpdateRequest request) {
+            @Valid @RequestBody MembershipUpdateRequest request) {
         try {
             // Convert anchorDate from string (YYYY-MM-DD) to LocalDateTime
             LocalDateTime anchorDateTime = null;
@@ -178,7 +181,7 @@ public class UserClubMembershipSimpleController {
     @PostMapping("/{id}/pause")
     public ResponseEntity<?> pauseMembership(
             @PathVariable Long id,
-            @RequestBody MembershipPauseRequest request) {
+            @Valid @RequestBody MembershipPauseRequest request) {
         try {
             if (request.getPauseDurationWeeks() == null || request.getPauseDurationWeeks() <= 0) {
                 return ResponseEntity.badRequest()
@@ -216,8 +219,12 @@ public class UserClubMembershipSimpleController {
 
     // DTOs for request bodies
     public static class MembershipAddRequest {
+        @NotNull(message = "userClubId is required")
         private Long userClubId;
+        
+        @NotNull(message = "membershipId is required")
         private Long membershipId;
+        
         private String status;
         private String anchorDate;
 
@@ -296,6 +303,8 @@ public class UserClubMembershipSimpleController {
     }
 
     public static class MembershipPauseRequest {
+        @NotNull(message = "pauseDurationWeeks is required")
+        @Min(value = 1, message = "pauseDurationWeeks must be at least 1")
         private Integer pauseDurationWeeks;
 
         // Getters and Setters

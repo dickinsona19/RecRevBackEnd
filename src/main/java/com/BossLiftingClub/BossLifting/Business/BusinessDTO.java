@@ -1,10 +1,11 @@
-package com.BossLiftingClub.BossLifting.Club;
+package com.BossLiftingClub.BossLifting.Business;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 import java.time.LocalDateTime;
 
-public class ClubDTO {
+public class BusinessDTO {
     private Long id;
 
     @NotBlank(message = "Title is required")
@@ -16,7 +17,7 @@ public class ClubDTO {
 
     private LocalDateTime createdAt;
 
-    private String clubTag; // Removed @NotBlank to allow automatic generation
+    private String businessTag; // Renamed from clubTag
 
     private Integer clientId;
 
@@ -24,17 +25,20 @@ public class ClubDTO {
 
     private String onboardingStatus;
 
-    public static ClubDTO mapToClubDTO(Club club) {
-        ClubDTO dto = new ClubDTO();
-        dto.setId(club.getId());
-        dto.setTitle(club.getTitle());
-        dto.setLogoUrl(club.getLogoUrl());
-        dto.setStatus(club.getStatus());
-        dto.setCreatedAt(club.getCreatedAt());
-        dto.setClubTag(club.getClubTag());
-        dto.setClientId(club.getClient() != null ? club.getClient().getId() : null);
-        dto.setStaffId(club.getStaff() != null ? club.getStaff().getId() : null);
-        dto.setOnboardingStatus(club.getOnboardingStatus());
+    private String stripeAccountId;
+
+    public static BusinessDTO mapToBusinessDTO(Business business) {
+        BusinessDTO dto = new BusinessDTO();
+        dto.setId(business.getId());
+        dto.setTitle(business.getTitle());
+        dto.setLogoUrl(business.getLogoUrl());
+        dto.setStatus(business.getStatus());
+        dto.setCreatedAt(business.getCreatedAt());
+        dto.setBusinessTag(business.getBusinessTag());
+        dto.setClientId(business.getClient() != null ? business.getClient().getId() : null);
+        dto.setStaffId(business.getStaff() != null ? business.getStaff().getId() : null);
+        dto.setOnboardingStatus(business.getOnboardingStatus());
+        dto.setStripeAccountId(business.getStripeAccountId());
         return dto;
     }
 
@@ -78,12 +82,12 @@ public class ClubDTO {
         this.createdAt = createdAt;
     }
 
-    public String getClubTag() {
-        return clubTag;
+    public String getBusinessTag() {
+        return businessTag;
     }
 
-    public void setClubTag(String clubTag) {
-        this.clubTag = clubTag;
+    public void setBusinessTag(String businessTag) {
+        this.businessTag = businessTag;
     }
 
     public Integer getClientId() {
@@ -109,4 +113,17 @@ public class ClubDTO {
     public void setOnboardingStatus(String onboardingStatus) {
         this.onboardingStatus = onboardingStatus;
     }
+
+    public String getStripeAccountId() {
+        return stripeAccountId;
+    }
+
+    public void setStripeAccountId(String stripeAccountId) {
+        this.stripeAccountId = stripeAccountId;
+    }
 }
+
+
+
+
+

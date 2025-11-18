@@ -37,14 +37,22 @@ public class PassController {
     @Autowired
     private PassService passService;
 
-    @Value("${TWILIO_ACCOUNT_SID}")
-    private String twilioAccountSid;
-
-    @Value("${TWILIO_AUTH_TOKEN}")
-    private String twilioAuthToken;
-
-    @Value("${twilio.phone.number}")
-    private String twilioPhoneNumber;
+    // Twilio configuration - optional (for SMS pass delivery if needed)
+    // Using Environment to avoid circular placeholder references
+    @Autowired
+    private org.springframework.core.env.Environment environment;
+    
+    private String getTwilioAccountSid() {
+        return environment.getProperty("TWILIO_ACCOUNT_SID", "");
+    }
+    
+    private String getTwilioAuthToken() {
+        return environment.getProperty("TWILIO_AUTH_TOKEN", "");
+    }
+    
+    private String getTwilioPhoneNumber() {
+        return environment.getProperty("TWILIO_PHONE_NUMBER", environment.getProperty("twilio.phone.number", ""));
+    }
 
 
     @GetMapping("/pass")
@@ -99,11 +107,20 @@ public class PassController {
 //
 //
 //    private void sendPassViaTwilio(String passUrl, String recipientPhone) {
-//        Twilio.init(twilioAccountSid, twilioAuthToken);
+//        String accountSid = getTwilioAccountSid();
+//        String authToken = getTwilioAuthToken();
+//        String phoneNumber = getTwilioPhoneNumber();
+//        
+//        if (accountSid.isEmpty() || authToken.isEmpty()) {
+//            logger.warn("Twilio not configured, cannot send SMS");
+//            return;
+//        }
+//        
+//        Twilio.init(accountSid, authToken);
 //
 //        Message message = Message.creator(
 //                new PhoneNumber(recipientPhone),
-//                new PhoneNumber(twilioPhoneNumber),
+//                new PhoneNumber(phoneNumber),
 //                "Here is your CLTlifting pass: " + passUrl + " Open on your iPhone to add it to Apple Wallet."
 //        ).create();
 //

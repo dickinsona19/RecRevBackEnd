@@ -1,7 +1,7 @@
 package com.BossLiftingClub.BossLifting.User.ClubUser;
 
-import com.BossLiftingClub.BossLifting.Club.Club;
-import com.BossLiftingClub.BossLifting.Club.ClubRepository;
+import com.BossLiftingClub.BossLifting.Business.Business;
+import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
 import com.BossLiftingClub.BossLifting.Stripe.StripeService;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.Membership.MembershipRepository;
@@ -29,7 +29,7 @@ public class UserClubService {
     private UserRepository userRepository;
 
     @Autowired
-    private ClubRepository clubRepository;
+    private BusinessRepository businessRepository;
 
     @Autowired
     private MembershipRepository membershipRepository;
@@ -44,22 +44,22 @@ public class UserClubService {
      * Create a new user-club relationship
      */
     @Transactional
-    public UserClub createUserClubRelationship(Long userId, String clubTag, Long membershipId, String status) {
+    public UserClub createUserClubRelationship(Long userId, String businessTag, Long membershipId, String status) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
 
-        Club club = clubRepository.findByClubTag(clubTag)
-                .orElseThrow(() -> new RuntimeException("Club not found with tag: " + clubTag));
+        Business business = businessRepository.findByBusinessTag(businessTag)
+                .orElseThrow(() -> new RuntimeException("Business not found with tag: " + businessTag));
 
         // Check if relationship already exists
-        Optional<UserClub> existingRelationship = userClubRepository.findByUserIdAndClubTag(userId, clubTag);
+        Optional<UserClub> existingRelationship = userClubRepository.findByUserIdAndBusinessTag(userId, businessTag);
         if (existingRelationship.isPresent()) {
-            throw new RuntimeException("User is already a member of this club");
+            throw new RuntimeException("User is already a member of this business");
         }
 
         UserClub userClub = new UserClub();
         userClub.setUser(user);
-        userClub.setClub(club);
+        userClub.setBusiness(business);
         userClub.setStatus(status);
         userClub.setStripeId(null); // Will be set when payment is processed
 
@@ -71,95 +71,119 @@ public class UserClubService {
 
         return userClubRepository.save(userClub);
     }
-
-    /**
-     * Get all users for a specific club by clubTag
-     */
-    @Transactional(readOnly = true)
-    public List<UserClub> getUsersByClubTag(String clubTag) {
-        return userClubRepository.findAllByClubTag(clubTag);
+    
+    // Backward compatibility method
+    @Transactional
+    public UserClub createUserClubRelationshipLegacy(Long userId, String clubTag, Long membershipId, String status) {
+        return createUserClubRelationship(userId, clubTag, membershipId, status);
     }
 
     /**
-     * Update the status of a user-club relationship
+     * Get all users for a specific business by businessTag
+     */
+    @Transactional(readOnly = true)
+    public List<UserClub> getUsersByBusinessTag(String businessTag) {
+        return userClubRepository.findAllByBusinessTag(businessTag);
+    }
+    
+    // Backward compatibility - clubTag maps to businessTag
+    @Transactional(readOnly = true)
+    public List<UserClub> getUsersByClubTag(String clubTag) {
+        return userClubRepository.findAllByBusinessTag(clubTag);
+    }
+
+    /**
+     * Update the status of a user-business relationship
      */
     @Transactional
-    public UserClub updateUserClubStatus(Long userId, String clubTag, String newStatus) {
-        UserClub userClub = userClubRepository.findByUserIdAndClubTag(userId, clubTag)
-                .orElseThrow(() -> new RuntimeException("User-club relationship not found"));
+    public UserClub updateUserClubStatus(Long userId, String businessTag, String newStatus) {
+        UserClub userClub = userClubRepository.findByUserIdAndBusinessTag(userId, businessTag)
+                .orElseThrow(() -> new RuntimeException("User-business relationship not found"));
 
         userClub.setStatus(newStatus);
         return userClubRepository.save(userClub);
     }
 
     /**
-     * Update the Stripe ID for a user-club relationship
+     * Update the Stripe ID for a user-business relationship
      */
     @Transactional
-    public UserClub updateUserClubStripeId(Long userId, String clubTag, String stripeId) {
-        UserClub userClub = userClubRepository.findByUserIdAndClubTag(userId, clubTag)
-                .orElseThrow(() -> new RuntimeException("User-club relationship not found"));
+    public UserClub updateUserClubStripeId(Long userId, String businessTag, String stripeId) {
+        UserClub userClub = userClubRepository.findByUserIdAndBusinessTag(userId, businessTag)
+                .orElseThrow(() -> new RuntimeException("User-business relationship not found"));
 
         userClub.setStripeId(stripeId);
         return userClubRepository.save(userClub);
     }
 
     /**
-     * Remove a user from a club
+     * Remove a user from a business
      */
     @Transactional
-    public void removeUserFromClub(Long userId, String clubTag) {
-        UserClub userClub = userClubRepository.findByUserIdAndClubTag(userId, clubTag)
-                .orElseThrow(() -> new RuntimeException("User-club relationship not found"));
+    public void removeUserFromBusiness(Long userId, String businessTag) {
+        UserClub userClub = userClubRepository.findByUserIdAndBusinessTag(userId, businessTag)
+                .orElseThrow(() -> new RuntimeException("User-business relationship not found"));
 
         userClubRepository.delete(userClub);
     }
-
-    /**
-     * Get all clubs for a specific user
-     */
-    @Transactional(readOnly = true)
-    public List<UserClub> getClubsForUser(Long userId) {
-        return userClubRepository.findAllByUserId(userId);
+    
+    // Backward compatibility
+    @Transactional
+    public void removeUserFromClub(Long userId, String businessTag) {
+        removeUserFromBusiness(userId, businessTag);
     }
 
     /**
-     * Get a specific user-club relationship
+     * Get all businesses for a specific user
      */
     @Transactional(readOnly = true)
-    public Optional<UserClub> getUserClubRelationship(Long userId, String clubTag) {
-        return userClubRepository.findByUserIdAndClubTag(userId, clubTag);
+    public List<UserClub> getBusinessesForUser(Long userId) {
+        return userClubRepository.findAllByUserId(userId);
+    }
+    
+    // Backward compatibility
+    @Transactional(readOnly = true)
+    public List<UserClub> getClubsForUser(Long userId) {
+        return getBusinessesForUser(userId);
+    }
+
+    /**
+     * Get a specific user-business relationship
+     */
+    @Transactional(readOnly = true)
+    public Optional<UserClub> getUserClubRelationship(Long userId, String businessTag) {
+        return userClubRepository.findByUserIdAndBusinessTag(userId, businessTag);
     }
 
     // ===== UserClubMembership Management Methods =====
 
     /**
-     * Get all memberships for a user in a specific club
+     * Get all memberships for a user in a specific business
      */
     @Transactional(readOnly = true)
-    public List<UserClubMembership> getUserMembershipsInClub(Long userId, String clubTag) {
-        UserClub userClub = userClubRepository.findByUserIdAndClubTag(userId, clubTag)
-                .orElseThrow(() -> new RuntimeException("User is not a member of club: " + clubTag));
+    public List<UserClubMembership> getUserMembershipsInClub(Long userId, String businessTag) {
+        UserClub userClub = userClubRepository.findByUserIdAndBusinessTag(userId, businessTag)
+                .orElseThrow(() -> new RuntimeException("User is not a member of business: " + businessTag));
 
         return userClub.getUserClubMemberships();
     }
 
     /**
-     * Add a new membership to an existing user-club relationship
+     * Add a new membership to an existing user-business relationship
      */
     @Transactional
     public UserClubMembership addMembershipToUser(
             Long userId,
-            String clubTag,
+            String businessTag,
             Long membershipId,
             String status,
             LocalDateTime anchorDate,
             LocalDateTime endDate,
             String stripeSubscriptionId) {
 
-        // Get the user-club relationship
-        UserClub userClub = userClubRepository.findByUserIdAndClubTag(userId, clubTag)
-                .orElseThrow(() -> new RuntimeException("User is not a member of club: " + clubTag));
+        // Get the user-business relationship
+        UserClub userClub = userClubRepository.findByUserIdAndBusinessTag(userId, businessTag)
+                .orElseThrow(() -> new RuntimeException("User is not a member of business: " + businessTag));
 
         // Get the membership plan
         Membership membership = membershipRepository.findById(membershipId)
@@ -198,16 +222,16 @@ public class UserClubService {
     @Transactional
     public UserClubMembership updateUserClubMembership(
             Long userId,
-            String clubTag,
+            String businessTag,
             Long userClubMembershipId,
             String status,
             LocalDateTime anchorDate,
             LocalDateTime endDate,
             String stripeSubscriptionId) {
 
-        // Get the user-club relationship
-        UserClub userClub = userClubRepository.findByUserIdAndClubTag(userId, clubTag)
-                .orElseThrow(() -> new RuntimeException("User is not a member of club: " + clubTag));
+        // Get the user-business relationship
+        UserClub userClub = userClubRepository.findByUserIdAndBusinessTag(userId, businessTag)
+                .orElseThrow(() -> new RuntimeException("User is not a member of business: " + businessTag));
 
         // Find the specific UserClubMembership
         UserClubMembership membership = userClub.getUserClubMemberships().stream()
@@ -235,13 +259,13 @@ public class UserClubService {
     }
     private static final Logger log = LoggerFactory.getLogger(MembershipService.class);
     /**
-     * Remove a specific membership from a user in a club
+     * Remove a specific membership from a user in a business
      */
     @Transactional
-    public void removeMembershipFromUser(Long userId, String clubTag, Long userClubMembershipId) {
+    public void removeMembershipFromUser(Long userId, String businessTag, Long userClubMembershipId) {
         // 1. Fetch UserClub
-        UserClub userClub = userClubRepository.findByUserIdAndClubTag(userId, clubTag)
-                .orElseThrow(() -> new RuntimeException("User is not a member of club: " + clubTag));
+        UserClub userClub = userClubRepository.findByUserIdAndBusinessTag(userId, businessTag)
+                .orElseThrow(() -> new RuntimeException("User is not a member of business: " + businessTag));
 
         // 2. Find the specific membership
         UserClubMembership membership = userClub.getUserClubMemberships().stream()
@@ -257,12 +281,12 @@ public class UserClubService {
 
         // 4. Delete in Stripe
         try {
-            // Get the connected account ID from the club
-            Club club = userClub.getClub();
-            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+            // Get the connected account ID from the business
+            Business business = userClub.getBusiness();
+            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
                 throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
             }
-            String stripeAccountId = club.getStripeAccountId();
+            String stripeAccountId = business.getStripeAccountId();
 
             stripeService.cancelSubscription(stripeSubscriptionId, stripeAccountId); // Your Stripe wrapper
         } catch (StripeException e) {
@@ -302,13 +326,13 @@ public class UserClubService {
         }
 
         // Check onboarding status
-        Club club = userClub.getClub();
-        if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+        Business business = userClub.getBusiness();
+        if (!"COMPLETED".equals(business.getOnboardingStatus())) {
             throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
         }
 
         // Verify payment method exists in Stripe
-        String stripeAccountId = club.getStripeAccountId();
+        String stripeAccountId = business.getStripeAccountId();
 
         try {
             boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
@@ -440,13 +464,13 @@ public class UserClubService {
         String stripeSubscriptionId = membership.getStripeSubscriptionId();
         if (stripeSubscriptionId != null && !stripeSubscriptionId.isEmpty()) {
             try {
-                // Get the connected account ID from the club
+                // Get the connected account ID from the business
                 UserClub userClub = membership.getUserClub();
-                Club club = userClub.getClub();
-                if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                Business business = userClub.getBusiness();
+                if (!"COMPLETED".equals(business.getOnboardingStatus())) {
                     throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
                 }
-                String stripeAccountId = club.getStripeAccountId();
+                String stripeAccountId = business.getStripeAccountId();
 
                 if (cancelAtPeriodEnd) {
                     // Cancel at period end - get current period end date
@@ -516,13 +540,13 @@ public class UserClubService {
         String stripeSubscriptionId = membership.getStripeSubscriptionId();
         if (stripeSubscriptionId != null && !stripeSubscriptionId.isEmpty()) {
             try {
-                // Get the connected account ID from the club
+                // Get the connected account ID from the business
                 UserClub userClub = membership.getUserClub();
-                Club club = userClub.getClub();
-                if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                Business business = userClub.getBusiness();
+                if (!"COMPLETED".equals(business.getOnboardingStatus())) {
                     throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
                 }
-                String stripeAccountId = club.getStripeAccountId();
+                String stripeAccountId = business.getStripeAccountId();
 
                 // Pass the pause end date to Stripe - it will pause at next billing cycle
                 stripeService.pauseSubscription(stripeSubscriptionId, pauseEnd, stripeAccountId);
@@ -575,13 +599,13 @@ public class UserClubService {
         String stripeSubscriptionId = membership.getStripeSubscriptionId();
         if (stripeSubscriptionId != null && !stripeSubscriptionId.isEmpty()) {
             try {
-                // Get the connected account ID from the club
+                // Get the connected account ID from the business
                 UserClub userClub = membership.getUserClub();
-                Club club = userClub.getClub();
-                if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+                Business business = userClub.getBusiness();
+                if (!"COMPLETED".equals(business.getOnboardingStatus())) {
                     throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
                 }
-                String stripeAccountId = club.getStripeAccountId();
+                String stripeAccountId = business.getStripeAccountId();
 
                 stripeService.resumeSubscription(stripeSubscriptionId, stripeAccountId);
                 System.out.println("Resumed Stripe subscription: " + stripeSubscriptionId + " on account: " + stripeAccountId);
@@ -618,15 +642,21 @@ public class UserClubService {
     }
 
     /**
-     * Update notes for a UserClub by userId and clubTag
+     * Update notes for a UserClub by userId and businessTag
      */
     @Transactional
-    public UserClub updateMemberNotesByUserAndClub(Long userId, String clubTag, String notes) {
-        UserClub userClub = userClubRepository.findByUserIdAndClubTag(userId, clubTag)
-                .orElseThrow(() -> new RuntimeException("User is not a member of club: " + clubTag));
-
+    public UserClub updateMemberNotesByUserAndBusiness(Long userId, String businessTag, String notes) {
+        UserClub userClub = userClubRepository.findByUserIdAndBusinessTag(userId, businessTag)
+                .orElseThrow(() -> new RuntimeException("User is not a member of business: " + businessTag));
+        
         userClub.setNotes(notes);
         return userClubRepository.save(userClub);
+    }
+    
+    // Backward compatibility
+    @Transactional
+    public UserClub updateMemberNotesByUserAndClub(Long userId, String clubTag, String notes) {
+        return updateMemberNotesByUserAndBusiness(userId, clubTag, notes);
     }
 
     // ===== Member Logs Management Methods =====

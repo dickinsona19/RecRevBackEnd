@@ -16,59 +16,66 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.stream.Collectors;
-import com.BossLiftingClub.BossLifting.Club.Club;
-import com.BossLiftingClub.BossLifting.Club.ClubRepository;
+import com.BossLiftingClub.BossLifting.Business.Business;
+import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
 
 @Service
 public class MembershipServiceImpl implements MembershipService {
     private static final Logger logger = LoggerFactory.getLogger(MembershipServiceImpl.class);
 
-    @Value("${stripe.secret.key}")
+    @Value("${stripe.secret.key:}")
     private String stripeApiKey;
 
     @Autowired
     private MembershipRepository membershipRepository;
 
     @Autowired
-    private ClubRepository clubRepository;
+    private BusinessRepository businessRepository;
 
     @PostConstruct
     public void initStripe() {
         Stripe.apiKey = stripeApiKey;
     }
 
-    public MembershipServiceImpl(MembershipRepository membershipRepository, ClubRepository clubRepository) {
+    public MembershipServiceImpl(MembershipRepository membershipRepository, BusinessRepository businessRepository) {
         this.membershipRepository = membershipRepository;
-        this.clubRepository = clubRepository;
+        this.businessRepository = businessRepository;
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<MembershipDTO> getMembershipsByClubTag(String clubTag) {
-        logger.debug("Fetching memberships for clubTag: {}", clubTag);
-        List<Membership> memberships = membershipRepository.findByClubTag(clubTag);
+    public List<MembershipDTO> getMembershipsByBusinessTag(String businessTag) {
+        logger.debug("Fetching memberships for businessTag: {}", businessTag);
+        List<Membership> memberships = membershipRepository.findByBusinessTag(businessTag);
         return memberships.stream()
                 .map(this::mapToDTO)
                 .collect(Collectors.toList());
+    }
+    
+    @Override
+    @Transactional(readOnly = true)
+    public List<MembershipDTO> getMembershipsByClubTag(String clubTag) {
+        // Backward compatibility - clubTag maps to businessTag
+        return getMembershipsByBusinessTag(clubTag);
     }
 
     @Override
     @Transactional
     public Membership createMembershipWithStripe(Membership membership) {
-        // Fetch the Club by clubTag to get the associated Client
-        Club club = clubRepository.findByClubTag(membership.getClubTag())
-                .orElseThrow(() -> new RuntimeException("Club not found for clubTag: " + membership.getClubTag()));
+        // Fetch the Business by businessTag to get the associated Client
+        Business business = businessRepository.findByBusinessTag(membership.getBusinessTag())
+                .orElseThrow(() -> new RuntimeException("Business not found for businessTag: " + membership.getBusinessTag()));
 
-        if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+        if (!"COMPLETED".equals(business.getOnboardingStatus())) {
             throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
         }
 
-        String stripeAccountId = club.getStripeAccountId();
+        String stripeAccountId = business.getStripeAccountId();
         if (stripeAccountId == null) {
-            throw new RuntimeException("Client or Stripe account ID not found for clubTag: " + membership.getClubTag());
+            throw new RuntimeException("Client or Stripe account ID not found for businessTag: " + membership.getBusinessTag());
         }
 
-        // Create Stripe Product and Price using the club's Stripe account ID
+        // Create Stripe Product and Price using the business's Stripe account ID
         String stripePriceId = createStripePriceForMembership(membership, stripeAccountId);
         membership.setStripePriceId(stripePriceId);
         return membershipRepository.save(membership);
@@ -91,7 +98,7 @@ public class MembershipServiceImpl implements MembershipService {
             // 1. Create Stripe Product on the client's connected account
             ProductCreateParams productParams = ProductCreateParams.builder()
                     .setName(membership.getTitle())
-                    .setDescription("Membership plan for club: " + membership.getClubTag())
+                    .setDescription("Membership plan for business: " + membership.getBusinessTag())
                     .build();
 
             RequestOptions requestOptions = RequestOptions.builder()
@@ -138,7 +145,8 @@ public class MembershipServiceImpl implements MembershipService {
         dto.setTitle(membership.getTitle());
         dto.setPrice(membership.getPrice());
         dto.setChargeInterval(membership.getChargeInterval());
-        dto.setClubTag(membership.getClubTag());
+        dto.setBusinessTag(membership.getBusinessTag());
+        // Note: clubTag removed - use businessTag for backward compatibility
         return dto;
     }
 }

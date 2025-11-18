@@ -10,7 +10,13 @@ import java.util.Optional;
 @Repository
 public interface ClientRepository extends JpaRepository<Client, Integer> {
     Optional<Client> findByEmail(String email);
-    @Query("SELECT c FROM Client c LEFT JOIN FETCH c.clubs WHERE c.id = :id")
+    
+    // Find client with businesses
+    @Query("SELECT c FROM Client c LEFT JOIN FETCH c.businesses WHERE c.id = :id")
+    Optional<Client> findByIdWithBusinesses(@Param("id") Integer id);
+    
+    // Backward compatibility - clubs maps to businesses
+    @Query("SELECT c FROM Client c LEFT JOIN FETCH c.businesses WHERE c.id = :id")
     Optional<Client> findByIdWithClubs(@Param("id") Integer id);
 
 }

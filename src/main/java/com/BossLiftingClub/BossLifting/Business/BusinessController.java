@@ -1,4 +1,4 @@
-package com.BossLiftingClub.BossLifting.Club;
+package com.BossLiftingClub.BossLifting.Business;
 
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubService;
@@ -18,20 +18,20 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/clubs")
+@RequestMapping("/api/businesses")
 @Validated
-public class ClubController {
+public class BusinessController {
     @Autowired
-    private ClubService clubService;
+    private BusinessService businessService;
 
     @Autowired
     private UserClubService userClubService;
 
     @PostMapping
-    public ResponseEntity<?> createClub(@Valid @RequestBody ClubDTO clubDTO) {
+    public ResponseEntity<?> createBusiness(@Valid @RequestBody BusinessDTO businessDTO) {
         try {
-            ClubDTO createdClub = clubService.createClub(clubDTO);
-            return ResponseEntity.ok(createdClub);
+            BusinessDTO createdBusiness = businessService.createBusiness(businessDTO);
+            return ResponseEntity.ok(createdBusiness);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", e.getMessage()));
@@ -40,61 +40,17 @@ public class ClubController {
                     .body(Map.of("error", e.getMessage()));
         } catch (DataIntegrityViolationException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", "Club tag '" + clubDTO.getClubTag() + "' already exists"));
-        }
-    }
-
-//    @GetMapping("/{id}")
-//    public ResponseEntity<?> getClubById(@PathVariable Integer id) {
-//        try {
-//            ClubDTO clubDTO = clubService.getClubById(id);
-//            return ResponseEntity.ok(clubDTO);
-//        } catch (EntityNotFoundException e) {
-//            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-//                    .body(Map.of("error", e.getMessage()));
-//        }
-//    }
-//
-//    @GetMapping
-//    public ResponseEntity<List<ClubDTO>> getAllClubs() {
-//        return ResponseEntity.ok(clubService.getAllClubs());
-//    }
-
-//    @PutMapping("/{id}")
-//    public ResponseEntity<?> updateClub(@PathVariable long id, @Valid @RequestBody ClubDTO clubDTO) {
-//        try {
-//            ClubDTO updatedClub = clubService.updateClub(id, clubDTO);
-//            return ResponseEntity.ok(updatedClub);
-//        } catch (IllegalArgumentException e) {
-//            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-//                    .body(Map.of("error", e.getMessage()));
-//        } catch (EntityNotFoundException e) {
-//            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-//                    .body(Map.of("error", e.getMessage()));
-//        } catch (DataIntegrityViolationException e) {
-//            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-//                    .body(Map.of("error", "Club tag '" + clubDTO.getClubTag() + "' already exists"));
-//        }
-//    }
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteClub(@PathVariable Integer id) {
-        try {
-            clubService.deleteClub(id);
-            return ResponseEntity.ok().build();
-        } catch (EntityNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", e.getMessage()));
+                    .body(Map.of("error", "Business tag '" + businessDTO.getBusinessTag() + "' already exists"));
         }
     }
 
     /**
-     * Get all members (users) for a specific club by clubTag
+     * Get all members (users) for a specific business by businessTag
      */
-    @GetMapping("/{clubTag}/members")
-    public ResponseEntity<?> getMembersByClubTag(@PathVariable String clubTag) {
+    @GetMapping("/{businessTag}/members")
+    public ResponseEntity<?> getMembersByBusinessTag(@PathVariable String businessTag) {
         try {
-            List<UserClub> userClubs = userClubService.getUsersByClubTag(clubTag);
+            List<UserClub> userClubs = userClubService.getUsersByBusinessTag(businessTag);
 
             // Map to DTOs with user information and multiple memberships
             List<Map<String, Object>> members = userClubs.stream()
@@ -160,11 +116,11 @@ public class ClubController {
     }
 
     /**
-     * Update the status of a user-club relationship
+     * Update the status of a user-business relationship
      */
-    @PutMapping("/{clubTag}/members/{userId}/status")
+    @PutMapping("/{businessTag}/members/{userId}/status")
     public ResponseEntity<?> updateMemberStatus(
-            @PathVariable String clubTag,
+            @PathVariable String businessTag,
             @PathVariable Long userId,
             @RequestBody Map<String, String> request) {
         try {
@@ -181,12 +137,12 @@ public class ClubController {
                         .body(Map.of("error", "Invalid status. Must be one of: ACTIVE, INACTIVE, CANCELLED, PENDING"));
             }
 
-            UserClub updatedRelationship = userClubService.updateUserClubStatus(userId, clubTag, newStatus.toUpperCase());
+            UserClub updatedRelationship = userClubService.updateUserClubStatus(userId, businessTag, newStatus.toUpperCase());
 
             return ResponseEntity.ok(Map.of(
                     "message", "Member status updated successfully",
                     "userId", userId,
-                    "clubTag", clubTag,
+                    "businessTag", businessTag,
                     "newStatus", updatedRelationship.getStatus()
             ));
         } catch (RuntimeException e) {
@@ -199,36 +155,36 @@ public class ClubController {
     }
 
     /**
-     * Remove a user from a club
+     * Remove a user from a business
      */
-    @DeleteMapping("/{clubTag}/members/{userId}")
-    public ResponseEntity<?> removeMemberFromClub(
-            @PathVariable String clubTag,
+    @DeleteMapping("/{businessTag}/members/{userId}")
+    public ResponseEntity<?> removeMemberFromBusiness(
+            @PathVariable String businessTag,
             @PathVariable Long userId) {
         try {
-            userClubService.removeUserFromClub(userId, clubTag);
+            userClubService.removeUserFromBusiness(userId, businessTag);
 
             return ResponseEntity.ok(Map.of(
-                    "message", "Member removed from club successfully",
+                    "message", "Member removed from business successfully",
                     "userId", userId,
-                    "clubTag", clubTag
+                    "businessTag", businessTag
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to remove member from club: " + e.getMessage()));
+                    .body(Map.of("error", "Failed to remove member from business: " + e.getMessage()));
         }
     }
 
     /**
-     * Create Stripe onboarding link for a club
+     * Create Stripe onboarding link for a business
      * This initiates or continues the Stripe Express account setup process
      */
-    @PostMapping("/{clubTag}/stripe-onboarding")
+    @PostMapping("/{businessTag}/stripe-onboarding")
     public ResponseEntity<?> createStripeOnboardingLink(
-            @PathVariable String clubTag,
+            @PathVariable String businessTag,
             @RequestBody Map<String, String> request) {
         try {
             String returnUrl = request.get("returnUrl");
@@ -244,7 +200,7 @@ public class ClubController {
                         .body(Map.of("error", "refreshUrl is required"));
             }
 
-            String onboardingUrl = clubService.createStripeOnboardingLink(clubTag, returnUrl, refreshUrl);
+            String onboardingUrl = businessService.createStripeOnboardingLink(businessTag, returnUrl, refreshUrl);
 
             return ResponseEntity.ok(Map.of(
                     "url", onboardingUrl,
@@ -263,13 +219,13 @@ public class ClubController {
     }
 
     /**
-     * Get Stripe Express Dashboard link for a club
-     * Allows club owners to access their Stripe dashboard to view payments, payouts, etc.
+     * Get Stripe Express Dashboard link for a business
+     * Allows business owners to access their Stripe dashboard to view payments, payouts, etc.
      */
-    @GetMapping("/{clubTag}/stripe-dashboard-link")
-    public ResponseEntity<?> getStripeDashboardLink(@PathVariable String clubTag) {
+    @GetMapping("/{businessTag}/stripe-dashboard-link")
+    public ResponseEntity<?> getStripeDashboardLink(@PathVariable String businessTag) {
         try {
-            String dashboardUrl = clubService.createStripeDashboardLink(clubTag);
+            String dashboardUrl = businessService.createStripeDashboardLink(businessTag);
 
             return ResponseEntity.ok(Map.of(
                     "url", dashboardUrl,
@@ -289,4 +245,64 @@ public class ClubController {
                     .body(Map.of("error", "Failed to create dashboard link: " + e.getMessage()));
         }
     }
+    
+    // Backward compatibility endpoints - map clubTag to businessTag
+    @GetMapping("/club/{clubTag}/members")
+    public ResponseEntity<?> getMembersByClubTagLegacy(@PathVariable String clubTag) {
+        return getMembersByBusinessTag(clubTag);
+    }
+    
+    @PutMapping("/club/{clubTag}/members/{userId}/status")
+    public ResponseEntity<?> updateMemberStatusLegacy(
+            @PathVariable String clubTag,
+            @PathVariable Long userId,
+            @RequestBody Map<String, String> request) {
+        return updateMemberStatus(clubTag, userId, request);
+    }
+    
+    @DeleteMapping("/club/{clubTag}/members/{userId}")
+    public ResponseEntity<?> removeMemberFromClubLegacy(
+            @PathVariable String clubTag,
+            @PathVariable Long userId) {
+        return removeMemberFromBusiness(clubTag, userId);
+    }
+    
+    @PostMapping("/club/{clubTag}/stripe-onboarding")
+    public ResponseEntity<?> createStripeOnboardingLinkLegacy(
+            @PathVariable String clubTag,
+            @RequestBody Map<String, String> request) {
+        return createStripeOnboardingLink(clubTag, request);
+    }
+    
+    @GetMapping("/club/{clubTag}/stripe-dashboard-link")
+    public ResponseEntity<?> getStripeDashboardLinkLegacy(@PathVariable String clubTag) {
+        return getStripeDashboardLink(clubTag);
+    }
+
+    @GetMapping("/id/{id}")
+    public ResponseEntity<?> getBusinessById(@PathVariable Long id) {
+        try {
+            BusinessDTO business = businessService.getBusinessById(id);
+            return ResponseEntity.ok(business);
+        } catch (EntityNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/tag/{businessTag}")
+    public ResponseEntity<?> getBusinessByTag(@PathVariable String businessTag) {
+        try {
+            BusinessDTO business = businessService.getBusinessByTag(businessTag);
+            return ResponseEntity.ok(business);
+        } catch (EntityNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", e.getMessage()));
+        }
+    }
 }
+
+
+
+
+

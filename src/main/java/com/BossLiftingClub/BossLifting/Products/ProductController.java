@@ -1,5 +1,6 @@
 package com.BossLiftingClub.BossLifting.Products;
 
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,12 +28,12 @@ public class ProductController {
     }
 
     @PostMapping
-    public ResponseEntity<Products> addProduct(@RequestBody Products products) {
+    public ResponseEntity<Products> addProduct(@Valid @RequestBody Products products) {
         return new ResponseEntity<>(productService.addProduct(products), HttpStatus.CREATED);
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Products> updateProduct(@PathVariable Long id, @RequestBody Products products) {
+    public ResponseEntity<Products> updateProduct(@PathVariable Long id, @Valid @RequestBody Products products) {
         return ResponseEntity.ok(productService.updateProduct(id, products));
     }
 
@@ -51,11 +52,17 @@ public class ProductController {
     }
 
 
-    @GetMapping("/by-club-tag/{clubTag}")
-    public List<ProductsDTO> getProductsByClubTag(@PathVariable String clubTag) {
-        List<Products> products = productRepository.findByClubTag(clubTag);
+    @GetMapping("/by-business-tag/{businessTag}")
+    public List<ProductsDTO> getProductsByBusinessTag(@PathVariable String businessTag) {
+        List<Products> products = productRepository.findByBusinessTag(businessTag);
         return products.stream()
                 .map(ProductsDTO::fromEntity)
                 .collect(Collectors.toList());
+    }
+    
+    // Backward compatibility - clubTag maps to businessTag
+    @GetMapping("/by-club-tag/{clubTag}")
+    public List<ProductsDTO> getProductsByClubTag(@PathVariable String clubTag) {
+        return getProductsByBusinessTag(clubTag);
     }
 }

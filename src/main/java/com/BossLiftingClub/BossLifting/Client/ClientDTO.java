@@ -1,6 +1,8 @@
 package com.BossLiftingClub.BossLifting.Client;
 
-import com.BossLiftingClub.BossLifting.Club.ClubDTO;
+import com.BossLiftingClub.BossLifting.Business.BusinessDTO;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -10,11 +12,17 @@ import java.util.Set;
 @Data
 public class ClientDTO {
     private Integer id;
+    
+    @Email(message = "Please provide a valid email address")
+    @NotBlank(message = "Email is required")
     private String email;
+    
+    @NotBlank(message = "Password is required")
     private String password;
     private LocalDateTime createdAt;
     private String status;
-    private Set<ClubDTO> clubs;
+    private Set<BusinessDTO> businesses;
+    private Set<BusinessDTO> clubs; // Backward compatibility
 
     // Getters and Setters
     public Integer getId() {
@@ -57,11 +65,24 @@ public class ClientDTO {
         this.status = status;
     }
 
-    public Set<ClubDTO> getClubs() {
-        return clubs;
+    public Set<BusinessDTO> getBusinesses() {
+        return businesses;
     }
 
-    public void setClubs(Set<ClubDTO> clubs) {
+    public void setBusinesses(Set<BusinessDTO> businesses) {
+        this.businesses = businesses;
+        this.clubs = businesses; // Backward compatibility
+    }
+
+    // Backward compatibility getters/setters
+    @Deprecated
+    public Set<BusinessDTO> getClubs() {
+        return businesses != null ? businesses : clubs;
+    }
+
+    @Deprecated
+    public void setClubs(Set<BusinessDTO> clubs) {
+        this.businesses = clubs;
         this.clubs = clubs;
     }
 }

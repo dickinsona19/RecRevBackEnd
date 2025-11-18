@@ -1,7 +1,7 @@
 package com.BossLiftingClub.BossLifting.Analytics;
 
-import com.BossLiftingClub.BossLifting.Club.Club;
-import com.BossLiftingClub.BossLifting.Club.ClubRepository;
+import com.BossLiftingClub.BossLifting.Business.Business;
+import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
 import com.BossLiftingClub.BossLifting.Stripe.StripeService;
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubMembership;
@@ -31,27 +31,27 @@ public class AnalyticsService {
     private MembershipRepository membershipRepository;
 
     @Autowired
-    private ClubRepository clubRepository;
+    private BusinessRepository businessRepository;
 
     @Autowired
     private StripeService stripeService;
 
     /**
-     * Get comprehensive analytics for a club
-     * @param clubTag The club tag
+     * Get comprehensive analytics for a business
+     * @param businessTag The business tag (supports clubTag for backward compatibility)
      * @param startDate Start date for the period (null for all time)
      * @param endDate End date for the period (null for now)
      * @return Dashboard metrics
      */
-    public AnalyticsDTO.DashboardMetrics getAnalytics(String clubTag, LocalDateTime startDate, LocalDateTime endDate) throws StripeException {
-        Club club = clubRepository.findByClubTag(clubTag)
-                .orElseThrow(() -> new RuntimeException("Club not found: " + clubTag));
+    public AnalyticsDTO.DashboardMetrics getAnalytics(String businessTag, LocalDateTime startDate, LocalDateTime endDate) throws StripeException {
+        Business business = businessRepository.findByBusinessTag(businessTag)
+                .orElseThrow(() -> new RuntimeException("Business not found: " + businessTag));
 
-        if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+        if (!"COMPLETED".equals(business.getOnboardingStatus())) {
             throw new IllegalStateException("Stripe integration not complete");
         }
 
-        String stripeAccountId = club.getStripeAccountId();
+        String stripeAccountId = business.getStripeAccountId();
 
         // Use current time if endDate is null
         if (endDate == null) {
@@ -60,8 +60,8 @@ public class AnalyticsService {
 
         AnalyticsDTO.DashboardMetrics metrics = new AnalyticsDTO.DashboardMetrics();
 
-        // Get all members for this club
-        List<UserClub> allMembers = userClubRepository.findAllByClubTag(clubTag);
+        // Get all members for this business
+        List<UserClub> allMembers = userClubRepository.findAllByBusinessTag(businessTag);
 
         // Calculate member metrics
         calculateMemberMetrics(metrics, allMembers, startDate, endDate);
@@ -79,7 +79,7 @@ public class AnalyticsService {
         calculateLTV(metrics, allMembers, stripeAccountId);
 
         // Get membership breakdown
-        metrics.setMembershipBreakdown(getMembershipBreakdown(clubTag, allMembers, stripeAccountId));
+        metrics.setMembershipBreakdown(getMembershipBreakdown(businessTag, allMembers, stripeAccountId));
 
         // Get revenue over time
         metrics.setRevenueOverTime(getRevenueOverTime(stripeAccountId, startDate, endDate));
@@ -341,9 +341,9 @@ public class AnalyticsService {
     /**
      * Get membership breakdown by type
      */
-    private List<AnalyticsDTO.MembershipBreakdown> getMembershipBreakdown(String clubTag, List<UserClub> allMembers,
+    private List<AnalyticsDTO.MembershipBreakdown> getMembershipBreakdown(String businessTag, List<UserClub> allMembers,
                                                                           String stripeAccountId) {
-        List<Membership> allMemberships = membershipRepository.findByClubTag(clubTag);
+        List<Membership> allMemberships = membershipRepository.findByBusinessTag(businessTag);
         List<AnalyticsDTO.MembershipBreakdown> breakdown = new ArrayList<>();
 
         for (Membership membership : allMemberships) {

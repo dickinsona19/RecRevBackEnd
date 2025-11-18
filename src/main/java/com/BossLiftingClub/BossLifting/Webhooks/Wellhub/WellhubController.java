@@ -24,8 +24,8 @@ public class WellhubController {
     private final WebClient webClient;
 
     public WellhubController(
-            @Value("${gympass.api.token}") String apiToken,
-            @Value("${gympass.api.gym-id}") String gymId
+            @Value("${gympass.api.token:}") String apiToken,
+            @Value("${gympass.api.gym-id:}") String gymId
     ) {
         this.webClient = WebClient.builder()
                 .baseUrl("https://apitesting.partners.gympass.com")

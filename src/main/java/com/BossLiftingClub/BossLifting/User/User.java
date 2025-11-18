@@ -1,6 +1,5 @@
 package com.BossLiftingClub.BossLifting.User;
 
-import com.BossLiftingClub.BossLifting.Club.Club;
 import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
@@ -152,7 +151,7 @@ public class User {
 
     public List<String> getClubTags() {
         return userClubs.stream()
-                .map(userClub -> userClub.getClub().getClubTag() != null ? userClub.getClub().getClubTag() : "CLT_0001")
+                .map(userClub -> userClub.getBusiness().getBusinessTag() != null ? userClub.getBusiness().getBusinessTag() : "CLT_0001")
                 .collect(Collectors.toList());
     }
 
