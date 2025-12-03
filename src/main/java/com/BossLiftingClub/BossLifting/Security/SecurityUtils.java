@@ -1,7 +1,7 @@
 package com.BossLiftingClub.BossLifting.Security;
 
 import com.BossLiftingClub.BossLifting.Client.Client;
-import com.BossLiftingClub.BossLifting.Club.Staff.Staff;
+import com.BossLiftingClub.BossLifting.Business.Staff.Staff;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 

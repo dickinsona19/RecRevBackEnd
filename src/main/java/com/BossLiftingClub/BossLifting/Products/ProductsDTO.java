@@ -14,6 +14,7 @@ public class ProductsDTO {
     private String imageUrl;
     private String category;
     private String stripeProductId;
+    private String stripePriceId;
     private String businessTag;
     private String clubTag; // Backward compatibility
 
@@ -27,6 +28,7 @@ public class ProductsDTO {
         dto.setImageUrl(product.getImageUrl());
         dto.setCategory(product.getCategory());
         dto.setStripeProductId(product.getStripeProductId());
+        dto.setStripePriceId(product.getStripePriceId());
         dto.setBusinessTag(product.getBusinessTag());
         dto.setClubTag(product.getBusinessTag()); // Backward compatibility
         return dto;
@@ -87,6 +89,14 @@ public class ProductsDTO {
 
     public void setStripeProductId(String stripeProductId) {
         this.stripeProductId = stripeProductId;
+    }
+
+    public String getStripePriceId() {
+        return stripePriceId;
+    }
+
+    public void setStripePriceId(String stripePriceId) {
+        this.stripePriceId = stripePriceId;
     }
 
     public String getBusinessTag() {

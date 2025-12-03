@@ -29,6 +29,9 @@ public class Products {
     @Column(name = "stripe_product_id")
     private String stripeProductId;
 
+    @Column(name = "stripe_price_id")
+    private String stripePriceId;
+
     @Column(name = "business_tag")
     private String businessTag;
     
@@ -92,6 +95,14 @@ public class Products {
 
     public void setStripeProductId(String stripeProductId) {
         this.stripeProductId = stripeProductId;
+    }
+
+    public String getStripePriceId() {
+        return stripePriceId;
+    }
+
+    public void setStripePriceId(String stripePriceId) {
+        this.stripePriceId = stripePriceId;
     }
 
     public String getBusinessTag() {

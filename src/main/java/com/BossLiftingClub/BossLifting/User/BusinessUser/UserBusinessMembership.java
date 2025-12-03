@@ -1,26 +1,27 @@
-package com.BossLiftingClub.BossLifting.User.ClubUser;
+package com.BossLiftingClub.BossLifting.User.BusinessUser;
 
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * Junction table entity representing the relationship between a UserClub and a Membership.
- * This allows a user to have multiple memberships within a single club.
+ * Junction table entity representing the relationship between a UserBusiness and a Membership.
+ * This allows a user to have multiple memberships within a single business.
  */
 @Entity
-@Table(name = "user_club_memberships")
-public class UserClubMembership {
+@Table(name = "user_business_membership")
+public class UserBusinessMembership {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_club_id", nullable = false)
+    @JoinColumn(name = "user_business_id", nullable = false)
     @JsonIgnore
-    private UserClub userClub;
+    private UserBusiness userBusiness;
 
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "membership_id", nullable = false)
@@ -44,6 +45,9 @@ public class UserClubMembership {
     @Column(name = "pause_end_date")
     private LocalDateTime pauseEndDate;
 
+    @Column(name = "actual_price", nullable = false)
+    private BigDecimal actualPrice = BigDecimal.ZERO;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -51,13 +55,13 @@ public class UserClubMembership {
     private LocalDateTime updatedAt;
 
     // Constructors
-    public UserClubMembership() {
+    public UserBusinessMembership() {
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
     }
 
-    public UserClubMembership(UserClub userClub, Membership membership, String status, LocalDateTime anchorDate) {
-        this.userClub = userClub;
+    public UserBusinessMembership(UserBusiness userBusiness, Membership membership, String status, LocalDateTime anchorDate) {
+        this.userBusiness = userBusiness;
         this.membership = membership;
         this.status = status;
         this.anchorDate = anchorDate;
@@ -81,12 +85,12 @@ public class UserClubMembership {
         this.id = id;
     }
 
-    public UserClub getUserClub() {
-        return userClub;
+    public UserBusiness getUserBusiness() {
+        return userBusiness;
     }
 
-    public void setUserClub(UserClub userClub) {
-        this.userClub = userClub;
+    public void setUserBusiness(UserBusiness userBusiness) {
+        this.userBusiness = userBusiness;
     }
 
     public Membership getMembership() {
@@ -159,6 +163,14 @@ public class UserClubMembership {
 
     public void setPauseEndDate(LocalDateTime pauseEndDate) {
         this.pauseEndDate = pauseEndDate;
+    }
+
+    public BigDecimal getActualPrice() {
+        return actualPrice;
+    }
+
+    public void setActualPrice(BigDecimal actualPrice) {
+        this.actualPrice = actualPrice;
     }
 
     @PreUpdate

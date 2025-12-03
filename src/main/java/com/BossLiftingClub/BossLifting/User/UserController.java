@@ -1,6 +1,6 @@
 package com.BossLiftingClub.BossLifting.User;
 
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserCreateDTO;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessCreateDTO;
 import com.BossLiftingClub.BossLifting.User.PasswordAuth.JwtUtil;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLogRepository;
@@ -70,9 +70,9 @@ public class UserController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
     @PostMapping("/addNewUser")
-    public ResponseEntity<?> addNewUser(@Valid @RequestBody UserCreateDTO userDTO) {
+    public ResponseEntity<?> addNewUser(@Valid @RequestBody UserBusinessCreateDTO userDTO) {
         try {
-            User user = userService.handleNewClub(userDTO);
+            User user = userService.handleNewBusiness(userDTO);
             UserDTO userResponse = new UserDTO(user);
             return new ResponseEntity<>(userResponse, HttpStatus.CREATED);
         } catch (IllegalArgumentException e) {
@@ -181,11 +181,12 @@ public class UserController {
     public ResponseEntity<User> updateUser(@PathVariable Long id, @RequestBody User userDetails) {
         return userService.findById(id)
                 .map(user -> {
-                    user.setFirstName(userDetails.getFirstName());
-                    user.setLastName(userDetails.getLastName());
-                    user.setPassword(userDetails.getPassword());
-                    user.setPhoneNumber(userDetails.getPhoneNumber());
-                    user.setIsInGoodStanding(userDetails.getIsInGoodStanding());
+                    if (userDetails.getFirstName() != null) user.setFirstName(userDetails.getFirstName());
+                    if (userDetails.getLastName() != null) user.setLastName(userDetails.getLastName());
+                    if (userDetails.getPassword() != null && !userDetails.getPassword().isEmpty()) user.setPassword(userDetails.getPassword());
+                    if (userDetails.getPhoneNumber() != null) user.setPhoneNumber(userDetails.getPhoneNumber());
+                    if (userDetails.getEmail() != null) user.setEmail(userDetails.getEmail()); // Added email update
+                    if (userDetails.getIsInGoodStanding() != null) user.setIsInGoodStanding(userDetails.getIsInGoodStanding());
                     // createdAt usually remains unchanged
                     try {
                         return ResponseEntity.ok(userService.save(user));

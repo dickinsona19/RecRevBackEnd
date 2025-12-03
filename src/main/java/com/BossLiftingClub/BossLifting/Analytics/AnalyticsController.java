@@ -2,14 +2,12 @@ package com.BossLiftingClub.BossLifting.Analytics;
 
 import com.BossLiftingClub.BossLifting.Business.Business;
 import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
-import com.BossLiftingClub.BossLifting.Client.Client;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubRepository;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubMembership;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessRepository;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.User;
 import com.BossLiftingClub.BossLifting.User.UserRepository;
-import com.stripe.Stripe;
 import com.stripe.model.*;
 import com.stripe.param.SubscriptionListParams;
 import com.stripe.param.InvoiceListParams;
@@ -27,8 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.annotation.PostConstruct;
-
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -84,19 +82,19 @@ public class AnalyticsController {
     private final BusinessRepository businessRepository;
 
     @Autowired
-    private final UserClubRepository userClubRepository;
+    private final UserBusinessRepository userBusinessRepository;
 
     @Autowired
     private final RecentActivityRepository recentActivityRepository;
 
     public AnalyticsController(UserRepository userRepository, AnalyticsCacheRepository analyticsCacheRepository,
-                                ObjectMapper objectMapper, BusinessRepository businessRepository, UserClubRepository userClubRepository,
+                                ObjectMapper objectMapper, BusinessRepository businessRepository, UserBusinessRepository userBusinessRepository,
                                 RecentActivityRepository recentActivityRepository) {
         this.userRepository = userRepository;
         this.analyticsCacheRepository = analyticsCacheRepository;
         this.objectMapper = objectMapper;
         this.businessRepository = businessRepository;
-        this.userClubRepository = userClubRepository;
+        this.userBusinessRepository = userBusinessRepository;
         this.recentActivityRepository = recentActivityRepository;
     }
 
@@ -691,20 +689,24 @@ public class AnalyticsController {
     }
 
     /**
-     * Get comprehensive dashboard metrics for a club
-     * GET /api/analytics/dashboard?clubTag={tag}&startDate={start}&endDate={end}
+     * Get comprehensive dashboard metrics for a business
+     * GET /api/analytics/dashboard?businessTag={tag}&startDate={start}&endDate={end}
      */
     @GetMapping("/dashboard")
     @Transactional
     public Map<String, Object> getDashboardMetrics(
-            @RequestParam String clubTag,
+            @RequestParam(required = false) String businessTag,
+            @RequestParam(required = false) String clubTag, // Backward compatibility
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate) {
         try {
-            Business business = businessRepository.findByBusinessTag(clubTag)
-                    .orElseThrow(() -> new RuntimeException("Business not found with tag: " + clubTag));
+            String tag = businessTag != null ? businessTag : clubTag;
+            if (tag == null) {
+                throw new RuntimeException("businessTag parameter is required");
+            }
+            Business business = businessRepository.findByBusinessTag(tag)
+                    .orElseThrow(() -> new RuntimeException("Business not found with tag: " + tag));
 
-            Long businessId = business.getId();
             String stripeAccountId = business.getStripeAccountId();
 
             if (stripeAccountId == null || stripeAccountId.isEmpty()) {
@@ -730,26 +732,26 @@ public class AnalyticsController {
                 return errorResponse;
             }
 
-            // Get all UserClub records for this business
-            List<UserClub> userClubs = userClubRepository.findAllByBusinessTag(clubTag);
+            // Get all UserBusiness records for this business
+            List<UserBusiness> userBusinesses = userBusinessRepository.findAllByBusinessTag(tag);
 
             Map<String, Object> metrics = new HashMap<>();
 
             // Calculate metrics based on requirements
             metrics.put("totalRevenue", calculateTotalRevenue(stripeAccountId, start, end));
-            metrics.put("activeMembers", calculateActiveMembers(userClubs));
-            metrics.put("totalMembers", userClubs.size());
-            metrics.put("mrr", calculateMRR(userClubs));
-            metrics.put("memberGrowth", calculateMemberGrowth(userClubs, start, end));
+            metrics.put("activeMembers", calculateActiveMembers(userBusinesses));
+            metrics.put("totalMembers", userBusinesses.size());
+            metrics.put("mrr", calculateMRR(userBusinesses));
+            metrics.put("memberGrowth", calculateMemberGrowth(userBusinesses, start, end));
             metrics.put("revenueGrowth", calculateRevenueGrowth(stripeAccountId, start, end));
-            metrics.put("churnRate", calculateChurnRate(userClubs, start, end));
-            metrics.put("churnCount", calculateChurnCount(userClubs, start, end));
-            metrics.put("newMembers", calculateNewMembers(userClubs, start, end));
+            metrics.put("churnRate", calculateChurnRate(userBusinesses, start, end));
+            metrics.put("churnCount", calculateChurnCount(userBusinesses, start, end));
+            metrics.put("newMembers", calculateNewMembers(userBusinesses, start, end));
             metrics.put("totalLifetimeRevenue", calculateLifetimeRevenue(stripeAccountId));
-            metrics.put("averageLTV", calculateAverageLTV(stripeAccountId, userClubs.size()));
+            metrics.put("averageLTV", calculateAverageLTV(stripeAccountId, userBusinesses.size()));
             metrics.put("failedPayments", getFailedPayments(stripeAccountId, start, end));
             metrics.put("refundedPayments", getRefundedPayments(stripeAccountId, start, end));
-            metrics.put("membershipBreakdown", getMembershipBreakdown(userClubs));
+            metrics.put("membershipBreakdown", getMembershipBreakdown(userBusinesses));
 
             return metrics;
         } catch (RuntimeException e) {
@@ -796,10 +798,10 @@ public class AnalyticsController {
         return totalRevenue;
     }
 
-    private int calculateActiveMembers(List<UserClub> userClubs) {
+    private int calculateActiveMembers(List<UserBusiness> userBusinesses) {
         int active = 0;
-        for (UserClub userClub : userClubs) {
-            List<UserClubMembership> memberships = userClub.getUserClubMemberships();
+        for (UserBusiness userBusiness : userBusinesses) {
+            List<UserBusinessMembership> memberships = userBusiness.getUserBusinessMemberships();
             if (memberships == null || memberships.isEmpty()) {
                 active++; // No memberships = active
             } else {
@@ -811,27 +813,20 @@ public class AnalyticsController {
         return active;
     }
 
-    private double calculateMRR(List<UserClub> userClubs) {
+    private double calculateMRR(List<UserBusiness> userBusinesses) {
         double mrr = 0.0;
-        for (UserClub userClub : userClubs) {
-            for (UserClubMembership membership : userClub.getUserClubMemberships()) {
+        for (UserBusiness userBusiness : userBusinesses) {
+            for (UserBusinessMembership membership : userBusiness.getUserBusinessMemberships()) {
                 if ("ACTIVE".equalsIgnoreCase(membership.getStatus())) {
-                    Membership membershipType = membership.getMembership();
-                    if (membershipType != null && membershipType.getPrice() != null) {
-                        try {
-                            mrr += Double.parseDouble(membershipType.getPrice());
-                        } catch (NumberFormatException e) {
-                            logger.warn("Could not parse price '{}' for membership id {}",
-                                    membershipType.getPrice(), membershipType.getId());
-                        }
-                    }
+                    double price = getLockedPrice(membership);
+                    mrr += price;
                 }
             }
         }
-        return mrr;
+        return roundTwo(mrr);
     }
 
-    private Map<String, Object> calculateMemberGrowth(List<UserClub> userClubs, LocalDateTime start, LocalDateTime end) {
+    private Map<String, Object> calculateMemberGrowth(List<UserBusiness> userBusinesses, LocalDateTime start, LocalDateTime end) {
         Map<String, Object> growth = new HashMap<>();
 
         if (start == null) {
@@ -840,9 +835,9 @@ public class AnalyticsController {
             return growth;
         }
 
-        int membersNow = userClubs.size();
-        int membersBefore = (int) userClubs.stream()
-                .filter(uc -> uc.getCreatedAt().isBefore(start))
+        int membersNow = userBusinesses.size();
+        int membersBefore = (int) userBusinesses.stream()
+                .filter(ub -> ub.getCreatedAt().isBefore(start))
                 .count();
 
         int absoluteChange = membersNow - membersBefore;
@@ -875,22 +870,22 @@ public class AnalyticsController {
         return growth;
     }
 
-    private double calculateChurnRate(List<UserClub> userClubs, LocalDateTime start, LocalDateTime end) {
+    private double calculateChurnRate(List<UserBusiness> userBusinesses, LocalDateTime start, LocalDateTime end) {
         if (start == null) return 0.0;
 
-        int churned = calculateChurnCount(userClubs, start, end);
-        int totalAtStart = (int) userClubs.stream()
-                .filter(uc -> uc.getCreatedAt().isBefore(start))
+        int churned = calculateChurnCount(userBusinesses, start, end);
+        int totalAtStart = (int) userBusinesses.stream()
+                .filter(ub -> ub.getCreatedAt().isBefore(start))
                 .count();
 
         return totalAtStart > 0 ? ((double) churned / totalAtStart) * 100 : 0.0;
     }
 
-    private int calculateChurnCount(List<UserClub> userClubs, LocalDateTime start, LocalDateTime end) {
+    private int calculateChurnCount(List<UserBusiness> userBusinesses, LocalDateTime start, LocalDateTime end) {
         if (start == null || end == null) return 0;
 
-        return (int) userClubs.stream()
-                .filter(uc -> uc.getUserClubMemberships().stream()
+        return (int) userBusinesses.stream()
+                .filter(ub -> ub.getUserBusinessMemberships().stream()
                         .anyMatch(m -> {
                             LocalDateTime endDate = m.getEndDate();
                             return ("CANCELLED".equalsIgnoreCase(m.getStatus()) || "INACTIVE".equalsIgnoreCase(m.getStatus()))
@@ -901,11 +896,11 @@ public class AnalyticsController {
                 .count();
     }
 
-    private int calculateNewMembers(List<UserClub> userClubs, LocalDateTime start, LocalDateTime end) {
-        if (start == null) return userClubs.size();
+    private int calculateNewMembers(List<UserBusiness> userBusinesses, LocalDateTime start, LocalDateTime end) {
+        if (start == null) return userBusinesses.size();
 
-        return (int) userClubs.stream()
-                .filter(uc -> uc.getCreatedAt().isAfter(start) && uc.getCreatedAt().isBefore(end))
+        return (int) userBusinesses.stream()
+                .filter(ub -> ub.getCreatedAt().isAfter(start) && ub.getCreatedAt().isBefore(end))
                 .count();
     }
 
@@ -958,31 +953,52 @@ public class AnalyticsController {
         return refunded;
     }
 
-    private List<Map<String, Object>> getMembershipBreakdown(List<UserClub> userClubs) {
-        // Group members by membership type
+    private List<Map<String, Object>> getMembershipBreakdown(List<UserBusiness> userBusinesses) {
         Map<String, Map<String, Object>> breakdownMap = new HashMap<>();
 
-        for (UserClub userClub : userClubs) {
-            for (UserClubMembership ucm : userClub.getUserClubMemberships()) {
-                Membership membership = ucm.getMembership();
+        for (UserBusiness userBusiness : userBusinesses) {
+            for (UserBusinessMembership ubm : userBusiness.getUserBusinessMemberships()) {
+                Membership membership = ubm.getMembership();
                 String membershipName = membership.getTitle();
 
                 breakdownMap.putIfAbsent(membershipName, new HashMap<>());
                 Map<String, Object> data = breakdownMap.get(membershipName);
 
                 data.put("membershipName", membershipName);
-                data.put("price", membership.getPrice());
                 data.putIfAbsent("totalCount", 0);
                 data.putIfAbsent("activeCount", 0);
 
+                double planPrice = parsePlanPrice(membership.getPrice());
+                if (!data.containsKey("planPrice")) {
+                    data.put("planPrice", planPrice);
+                }
+
+                double lockedPrice = getLockedPrice(ubm);
                 data.put("totalCount", (int) data.get("totalCount") + 1);
-                if ("ACTIVE".equalsIgnoreCase(ucm.getStatus())) {
+                data.put("totalLockedRevenue", ((Double) data.getOrDefault("totalLockedRevenue", 0.0)) + lockedPrice);
+
+                if ("ACTIVE".equalsIgnoreCase(ubm.getStatus())) {
                     data.put("activeCount", (int) data.get("activeCount") + 1);
+                    data.put("activeLockedRevenue", ((Double) data.getOrDefault("activeLockedRevenue", 0.0)) + lockedPrice);
                 }
             }
         }
 
-        return new ArrayList<>(breakdownMap.values());
+        List<Map<String, Object>> breakdown = new ArrayList<>();
+        for (Map<String, Object> data : breakdownMap.values()) {
+            int activeCount = (int) data.getOrDefault("activeCount", 0);
+            double activeLockedRevenue = (double) data.getOrDefault("activeLockedRevenue", 0.0);
+            double averageLockedPrice = activeCount > 0 ? activeLockedRevenue / activeCount : (double) data.getOrDefault("planPrice", 0.0);
+
+            data.put("price", roundTwo(averageLockedPrice));
+            data.put("monthlyRevenue", roundTwo(activeLockedRevenue));
+
+            data.remove("activeLockedRevenue");
+            data.remove("totalLockedRevenue");
+            breakdown.add(data);
+        }
+
+        return breakdown;
     }
 
     /**
@@ -991,30 +1007,30 @@ public class AnalyticsController {
      */
     @GetMapping("/business-overview")
     @Transactional
-    public ClubOverviewResponse getBusinessOverview(@RequestParam Long businessId) {
+    public ResponseEntity<?> getBusinessOverview(@RequestParam Long businessId) {
         try {
-            return getClubOverviewInternal(businessId);
+            // TODO: Add business scope validation for staff after verifying staff business loading works
+            // For now, we allow all authenticated users to access any business
+            // This will be secured once we verify the staff business relationship is properly loaded
+            
+            return ResponseEntity.ok(getClubOverviewInternal(businessId));
         } catch (Exception e) {
             logger.error("Error fetching business overview for businessId={}: {}", businessId, e.getMessage(), e);
-            throw e;
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to fetch business overview: " + e.getMessage()));
         }
     }
     
     /**
-     * Get business-specific overview analytics (backward compatibility)
+     * Backward compatibility endpoint
      * GET /api/analytics/club-overview?clubId={id}
-     * Note: clubId parameter is kept for backward compatibility, but internally uses businessId
+     * @deprecated Use /api/analytics/business-overview?businessId={id} instead
      */
+    @Deprecated
     @GetMapping("/club-overview")
     @Transactional
-    public ClubOverviewResponse getClubOverview(@RequestParam Long clubId) {
-        try {
-            Long businessId = clubId; // Parameter name kept for backward compatibility
-            return getClubOverviewInternal(businessId);
-        } catch (Exception e) {
-            logger.error("Error fetching club overview for clubId={}: {}", clubId, e.getMessage(), e);
-            throw e;
-        }
+    public ResponseEntity<?> getClubOverview(@RequestParam Long clubId) {
+        return getBusinessOverview(clubId);
     }
     
     private ClubOverviewResponse getClubOverviewInternal(Long businessId) {
@@ -1023,18 +1039,18 @@ public class AnalyticsController {
             Business business = businessRepository.findById(businessId)
                     .orElseThrow(() -> new RuntimeException("Business not found with id: " + businessId));
 
-            // Get all UserClub records for this business
-            List<UserClub> userClubs = userClubRepository.findByBusinessId(businessId);
-            logger.info("Found {} UserClub records for businessId={}", userClubs.size(), businessId);
+            // Get all UserBusiness records for this business
+            List<UserBusiness> userBusinesses = userBusinessRepository.findByBusinessId(businessId);
+            logger.info("Found {} UserBusiness records for businessId={}", userBusinesses.size(), businessId);
 
             // Get Stripe Account ID from business
             String stripeAccountId = business.getStripeAccountId();
 
             // Calculate Total Active Members (users with at least one ACTIVE membership)
             int totalActiveMembers = 0;
-            for (UserClub userClub : userClubs) {
+            for (UserBusiness userBusiness : userBusinesses) {
                 boolean hasActiveMembership = false;
-                for (UserClubMembership membership : userClub.getUserClubMemberships()) {
+                for (UserBusinessMembership membership : userBusiness.getUserBusinessMemberships()) {
                     if ("ACTIVE".equalsIgnoreCase(membership.getStatus())) {
                         hasActiveMembership = true;
                         break;
@@ -1045,37 +1061,29 @@ public class AnalyticsController {
                 }
             }
 
-            // Calculate New Members (UserClubs created in last 30 days)
+            // Calculate New Members (UserBusiness created in last 30 days)
             LocalDateTime thirtyDaysAgo = LocalDateTime.now().minusDays(30);
             int newMembers = 0;
-            for (UserClub userClub : userClubs) {
-                if (userClub.getCreatedAt() != null && userClub.getCreatedAt().isAfter(thirtyDaysAgo)) {
+            for (UserBusiness userBusiness : userBusinesses) {
+                if (userBusiness.getCreatedAt() != null && userBusiness.getCreatedAt().isAfter(thirtyDaysAgo)) {
                     newMembers++;
                 }
             }
 
             // Calculate MRR from active memberships
             double mrr = 0.0;
-            for (UserClub userClub : userClubs) {
-                for (UserClubMembership membership : userClub.getUserClubMemberships()) {
+            for (UserBusiness userBusiness : userBusinesses) {
+                for (UserBusinessMembership membership : userBusiness.getUserBusinessMemberships()) {
                     if ("ACTIVE".equalsIgnoreCase(membership.getStatus())) {
+                        double price = getLockedPrice(membership);
                         Membership membershipType = membership.getMembership();
-                        if (membershipType != null && membershipType.getPrice() != null) {
-                            try {
-                                // Parse price string to double
-                                double price = Double.parseDouble(membershipType.getPrice());
-
-                                // Convert to monthly if it's annual
-                                String chargeInterval = membershipType.getChargeInterval();
-                                if ("yearly".equalsIgnoreCase(chargeInterval) || "annual".equalsIgnoreCase(chargeInterval)) {
-                                    price = price / 12.0;
-                                }
-
-                                mrr += price;
-                            } catch (NumberFormatException e) {
-                                logger.warn("Could not parse price '{}' for membership id {}", membershipType.getPrice(), membershipType.getId());
+                        if (membershipType != null) {
+                            String chargeInterval = membershipType.getChargeInterval();
+                            if ("yearly".equalsIgnoreCase(chargeInterval) || "annual".equalsIgnoreCase(chargeInterval)) {
+                                price = price / 12.0;
                             }
                         }
+                        mrr += price;
                     }
                 }
             }
@@ -1151,10 +1159,10 @@ public class AnalyticsController {
     }
 
     /**
-     * Get revenue chart data from Stripe for a specific club
-     * GET /api/analytics/revenue-chart?clubId={id}&period={period}
+     * Get revenue chart data from Stripe for a specific business
+     * GET /api/analytics/revenue-chart?businessId={id}&period={period}
      *
-     * @param clubId The club ID
+     * @param businessId The business ID
      * @param period Time period: "today", "7d", "30d", "90d", "1y", or "all"
      */
     @GetMapping("/revenue-chart")
@@ -1162,12 +1170,13 @@ public class AnalyticsController {
     public ResponseEntity<?> getRevenueChart(
             @RequestParam(required = false) Long businessId,
             @RequestParam(required = false) Long clubId, // Backward compatibility
-            @RequestParam(defaultValue = "30d") String period) {
-        // Support both businessId and clubId for backward compatibility
+            @RequestParam(defaultValue = "30d") String period,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
         Long actualBusinessId = businessId != null ? businessId : clubId;
         if (actualBusinessId == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", "Either businessId or clubId parameter is required"));
+                    .body(Map.of("error", "businessId parameter is required"));
         }
         
         try {
@@ -1192,34 +1201,49 @@ public class AnalyticsController {
 
             logger.info("Using Stripe account ID: {} for businessId={}", stripeAccountId, actualBusinessId);
 
-            // Calculate date range based on period
-            LocalDateTime endDate = LocalDateTime.now();
-            LocalDateTime startDate;
+            // Calculate date range based on period or custom dates
+            LocalDateTime endDateTime = LocalDateTime.now();
+            LocalDateTime startDateTime;
 
-            switch (period.toLowerCase()) {
-                case "today":
-                    startDate = LocalDate.now().atStartOfDay();
-                    break;
-                case "7d":
-                    startDate = endDate.minusDays(7);
-                    break;
-                case "30d":
-                    startDate = endDate.minusDays(30);
-                    break;
-                case "90d":
-                    startDate = endDate.minusDays(90);
-                    break;
-                case "1y":
-                    startDate = endDate.minusYears(1);
-                    break;
-                case "all":
-                    startDate = LocalDateTime.of(2000, 1, 1, 0, 0); // Far back enough for "all time"
-                    break;
-                default:
-                    startDate = endDate.minusDays(30); // Default to 30 days
+            if (startDate != null && !startDate.isEmpty()) {
+                try {
+                    // Parse dates (assuming YYYY-MM-DD format from frontend date input)
+                    startDateTime = LocalDate.parse(startDate).atStartOfDay();
+                    if (endDate != null && !endDate.isEmpty()) {
+                        endDateTime = LocalDate.parse(endDate).atTime(23, 59, 59);
+                    }
+                    // If custom dates are provided, we treat it as a custom period
+                    period = "custom";
+                } catch (Exception e) {
+                    return ResponseEntity.badRequest().body(Map.of("error", "Invalid date format. Use YYYY-MM-DD"));
+                }
+            } else {
+                switch (period.toLowerCase()) {
+                    case "today":
+                        startDateTime = LocalDate.now().atStartOfDay();
+                        break;
+                    case "7d":
+                        startDateTime = endDateTime.minusDays(7);
+                        break;
+                    case "30d":
+                        startDateTime = endDateTime.minusDays(30);
+                        break;
+                    case "90d":
+                        startDateTime = endDateTime.minusDays(90);
+                        break;
+                    case "1y":
+                        startDateTime = endDateTime.minusYears(1);
+                        break;
+                    case "all":
+                        startDateTime = LocalDateTime.of(2000, 1, 1, 0, 0); // Far back enough for "all time"
+                        break;
+                    default:
+                        startDateTime = endDateTime.minusDays(30); // Default to 30 days
+                }
             }
 
-            long startEpoch = startDate.atZone(ZoneId.systemDefault()).toEpochSecond();
+            long startEpoch = startDateTime.atZone(ZoneId.systemDefault()).toEpochSecond();
+            long endEpoch = endDateTime.atZone(ZoneId.systemDefault()).toEpochSecond();
 
             // Map to store revenue by date (date string -> revenue amount)
             Map<String, Double> revenueByDate = new TreeMap<>(); // TreeMap to keep dates sorted
@@ -1232,25 +1256,31 @@ public class AnalyticsController {
                         .build();
 
                 // Fetch all charges from this connected account (no customer filter)
-                ChargeListParams params = ChargeListParams.builder()
+                // We need to handle pagination to get all charges in the range
+                ChargeListParams.Builder paramsBuilder = ChargeListParams.builder()
                         .setCreated(ChargeListParams.Created.builder()
                                 .setGte(startEpoch)
+                                .setLte(endEpoch)
                                 .build())
-                        .setLimit(100L)
-                        .build();
+                        .setLimit(100L);
 
                 logger.debug("Fetching charges for Stripe account: {}", stripeAccountId);
-                ChargeCollection charges = Charge.list(params, requestOptions);
+                
+                // Use autoPagingIterable to get all results
+                ChargeCollection charges = Charge.list(paramsBuilder.build(), requestOptions);
+                Iterable<Charge> chargesIterable = charges.autoPagingIterable();
 
-                for (Charge charge : charges.autoPagingIterable()) {
+                for (Charge charge : chargesIterable) {
                     // Only count successful charges that haven't been refunded
                     if (charge.getPaid() && !charge.getRefunded()) {
                         LocalDateTime chargeDateTime = LocalDateTime
                                 .ofEpochSecond(charge.getCreated(), 0, java.time.ZoneOffset.UTC);
 
                         String dateKey;
-                        // For "today", group by hour instead of day
-                        if ("today".equalsIgnoreCase(period)) {
+                        // For "today" or single day selection, group by hour
+                        boolean isSingleDay = startDateTime.toLocalDate().isEqual(endDateTime.toLocalDate());
+                        
+                        if ("today".equalsIgnoreCase(period) || isSingleDay) {
                             // Format as "HH:00" for hourly grouping
                             dateKey = String.format("%02d:00", chargeDateTime.getHour());
                         } else {
@@ -1262,11 +1292,6 @@ public class AnalyticsController {
                         revenueByDate.put(dateKey, revenueByDate.getOrDefault(dateKey, 0.0) + amount);
 
                         totalChargesProcessed++;
-
-                        logger.debug("Added charge: ${} on {} (ID: {})", amount, dateKey, charge.getId());
-                    } else {
-                        logger.debug("Skipping charge {} - Paid: {}, Refunded: {}",
-                            charge.getId(), charge.getPaid(), charge.getRefunded());
                     }
                 }
 
@@ -1278,14 +1303,24 @@ public class AnalyticsController {
                         .body(Map.of("error", "Error fetching Stripe data: " + e.getMessage()));
             }
 
-            // For "today", ensure we have all 24 hours (0:00 to 23:00) with zeros for missing hours
-            if ("today".equalsIgnoreCase(period)) {
+            // For "today" or single day, ensure we have all 24 hours
+            boolean isSingleDay = startDateTime.toLocalDate().isEqual(endDateTime.toLocalDate());
+            if ("today".equalsIgnoreCase(period) || isSingleDay) {
                 Map<String, Double> completeHourlyData = new TreeMap<>();
                 for (int hour = 0; hour < 24; hour++) {
                     String hourKey = String.format("%02d:00", hour);
                     completeHourlyData.put(hourKey, revenueByDate.getOrDefault(hourKey, 0.0));
                 }
                 revenueByDate = completeHourlyData;
+            } else {
+                // Fill in missing days with 0
+                LocalDate curr = startDateTime.toLocalDate();
+                LocalDate end = endDateTime.toLocalDate();
+                while (!curr.isAfter(end)) {
+                    String key = curr.toString();
+                    revenueByDate.putIfAbsent(key, 0.0);
+                    curr = curr.plusDays(1);
+                }
             }
 
             // Convert map to arrays for response
@@ -1296,11 +1331,11 @@ public class AnalyticsController {
             response.setLabels(labels.toArray(new String[0]));
             response.setValues(values.stream().mapToDouble(Double::doubleValue).toArray());
             response.setPeriod(period);
-            response.setStartDate(startDate.toString());
-            response.setEndDate(endDate.toString());
+            response.setStartDate(startDateTime.toString());
+            response.setEndDate(endDateTime.toString());
 
             logger.info("Revenue chart data calculated: {} data points from {} to {}",
-                    labels.size(), startDate.toLocalDate(), endDate.toLocalDate());
+                    labels.size(), startDateTime.toLocalDate(), endDateTime.toLocalDate());
 
             return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
@@ -1346,21 +1381,27 @@ public class AnalyticsController {
 
     /**
      * Get available balance for payouts from Stripe
-     * GET /api/analytics/balance?clubId={id}
+     * GET /api/analytics/balance?businessId={id}
      */
     @GetMapping("/balance")
     @Transactional
-    public BalanceResponse getBalance(@RequestParam Long clubId) {
+    public BalanceResponse getBalance(
+            @RequestParam(required = false) Long businessId,
+            @RequestParam(required = false) Long clubId) { // Backward compatibility
+        Long actualBusinessId = businessId != null ? businessId : clubId;
+        if (actualBusinessId == null) {
+            throw new RuntimeException("businessId parameter is required");
+        }
         try {
             // Get the business
-            Business business = businessRepository.findById(clubId)
-                    .orElseThrow(() -> new RuntimeException("Business not found with id: " + clubId));
+            Business business = businessRepository.findById(actualBusinessId)
+                    .orElseThrow(() -> new RuntimeException("Business not found with id: " + actualBusinessId));
 
             // Get Stripe Account ID from business
             String stripeAccountId = business.getStripeAccountId();
 
             if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                logger.error("No Stripe account ID found for businessId={}", clubId);
+                logger.error("No Stripe account ID found for businessId={}", actualBusinessId);
                 throw new RuntimeException("Business does not have a Stripe account configured");
             }
 
@@ -1394,7 +1435,7 @@ public class AnalyticsController {
 
             return response;
         } catch (Exception e) {
-            logger.error("Error fetching balance for clubId={}: {}", clubId, e.getMessage(), e);
+            logger.error("Error fetching balance for businessId={}: {}", actualBusinessId, e.getMessage(), e);
             throw new RuntimeException("Error fetching balance: " + e.getMessage());
         }
     }
@@ -1419,14 +1460,19 @@ public class AnalyticsController {
     @org.springframework.web.bind.annotation.PostMapping("/payout")
     @Transactional
     public PayoutResponse createPayout(
-            @RequestParam Long clubId,
+            @RequestParam(required = false) Long businessId,
+            @RequestParam(required = false) Long clubId, // Backward compatibility
             @RequestParam(required = false) Double amount) {
+        Long actualBusinessId = businessId != null ? businessId : clubId;
+        if (actualBusinessId == null) {
+            throw new RuntimeException("businessId parameter is required");
+        }
         try {
-            logger.info("Creating payout for businessId={}, amount={}", clubId, amount);
+            logger.info("Creating payout for businessId={}, amount={}", actualBusinessId, amount);
 
             // Get the business
-            Business business = businessRepository.findById(clubId)
-                    .orElseThrow(() -> new RuntimeException("Business not found with id: " + clubId));
+            Business business = businessRepository.findById(actualBusinessId)
+                    .orElseThrow(() -> new RuntimeException("Business not found with id: " + actualBusinessId));
 
             // Get Stripe Account ID from business
             String stripeAccountId = business.getStripeAccountId();
@@ -1490,12 +1536,12 @@ public class AnalyticsController {
                     null);
             response.setDescription(payout.getDescription());
 
-            logger.info("Payout created successfully for clubId={}: payoutId={}, amount=${}",
-                    clubId, payout.getId(), payoutAmount);
+            logger.info("Payout created successfully for businessId={}: payoutId={}, amount=${}",
+                    actualBusinessId, payout.getId(), payoutAmount);
 
             return response;
         } catch (Exception e) {
-            logger.error("Error creating payout for clubId={}: {}", clubId, e.getMessage(), e);
+            logger.error("Error creating payout for businessId={}: {}", actualBusinessId, e.getMessage(), e);
             throw new RuntimeException("Error creating payout: " + e.getMessage());
         }
     }
@@ -1523,16 +1569,22 @@ public class AnalyticsController {
     }
 
     /**
-     * Get recent activities for a club
-     * GET /api/analytics/recent-activity?clubId={id}
+     * Get recent activities for a business
+     * GET /api/analytics/recent-activity?businessId={id}
      */
     @GetMapping("/recent-activity")
     @Transactional
-    public List<RecentActivityResponse> getRecentActivity(@RequestParam Long clubId) {
+    public List<RecentActivityResponse> getRecentActivity(
+            @RequestParam(required = false) Long businessId,
+            @RequestParam(required = false) Long clubId) { // Backward compatibility
+        Long actualBusinessId = businessId != null ? businessId : clubId;
+        if (actualBusinessId == null) {
+            throw new RuntimeException("businessId parameter is required");
+        }
         try {
             // Get activities from last 2 days
             LocalDateTime twoDaysAgo = LocalDateTime.now().minusDays(2);
-            List<RecentActivity> activities = recentActivityRepository.findRecentByClubId(clubId, twoDaysAgo);
+            List<RecentActivity> activities = recentActivityRepository.findRecentByBusinessId(actualBusinessId, twoDaysAgo);
 
             List<RecentActivityResponse> response = new ArrayList<>();
             for (RecentActivity activity : activities) {
@@ -1546,10 +1598,10 @@ public class AnalyticsController {
                 response.add(dto);
             }
 
-            logger.info("Found {} recent activities for clubId={}", response.size(), clubId);
+            logger.info("Found {} recent activities for businessId={}", response.size(), actualBusinessId);
             return response;
         } catch (Exception e) {
-            logger.error("Error fetching recent activity for clubId={}: {}", clubId, e.getMessage(), e);
+            logger.error("Error fetching recent activity for businessId={}: {}", actualBusinessId, e.getMessage(), e);
             throw new RuntimeException("Error fetching recent activity: " + e.getMessage());
         }
     }
@@ -1571,6 +1623,173 @@ public class AnalyticsController {
         } catch (Exception e) {
             logger.error("Error during activity cleanup: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * Get recent activity for overview page (payments, failed payments, new members)
+     * GET /api/analytics/overview-activity?businessId={id}
+     */
+    @GetMapping("/overview-activity")
+    @Transactional
+    public ResponseEntity<?> getOverviewActivity(@RequestParam Long businessId) {
+        try {
+            // Validate business exists
+            Business business = businessRepository.findById(businessId)
+                    .orElseThrow(() -> new RuntimeException("Business not found with id: " + businessId));
+            
+            // TODO: Add business scope validation for staff after verifying staff business loading works
+            // For now, we allow all authenticated users to access any business
+            // This will be secured once we verify the staff business relationship is properly loaded
+            
+            String stripeAccountId = business.getStripeAccountId();
+            List<Map<String, Object>> activities = new ArrayList<>();
+
+            // Get recent successful payments (last 7 days)
+            if (stripeAccountId != null && !stripeAccountId.isEmpty() && "COMPLETED".equals(business.getOnboardingStatus())) {
+                try {
+                    LocalDateTime sevenDaysAgo = LocalDateTime.now().minusDays(7);
+                    long sevenDaysAgoEpoch = sevenDaysAgo.atZone(ZoneId.systemDefault()).toEpochSecond();
+
+                    com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                            .setStripeAccount(stripeAccountId)
+                            .build();
+
+                    // Get successful charges
+                    ChargeListParams chargeParams = ChargeListParams.builder()
+                            .setLimit(50L)
+                            .build();
+
+                    for (Charge charge : Charge.list(chargeParams, requestOptions).autoPagingIterable()) {
+                        if (charge.getCreated() < sevenDaysAgoEpoch) break;
+                        if ("succeeded".equals(charge.getStatus()) && charge.getPaid()) {
+                            Map<String, Object> activity = new HashMap<>();
+                            activity.put("type", "PAYMENT");
+                            activity.put("icon", "DollarSign");
+                            String customerName = charge.getBillingDetails() != null && charge.getBillingDetails().getName() != null
+                                    ? charge.getBillingDetails().getName()
+                                    : "Customer";
+                            activity.put("text", "Payment received from " + customerName);
+                            activity.put("amount", charge.getAmount() / 100.0);
+                            activity.put("time", formatTimeAgo(charge.getCreated()));
+                            activity.put("timestamp", charge.getCreated());
+                            activities.add(activity);
+                        }
+                    }
+
+                    // Get failed payments (OPEN and UNCOLLECTIBLE invoices)
+                    InvoiceListParams openParams = InvoiceListParams.builder()
+                            .setStatus(InvoiceListParams.Status.OPEN)
+                            .setLimit(50L)
+                            .build();
+
+                    for (Invoice invoice : Invoice.list(openParams, requestOptions).autoPagingIterable()) {
+                        if (invoice.getCreated() < sevenDaysAgoEpoch) break;
+                        Map<String, Object> activity = new HashMap<>();
+                        activity.put("type", "FAILED_PAYMENT");
+                        activity.put("icon", "AlertCircle");
+                        String customerName = invoice.getCustomerName() != null ? invoice.getCustomerName() : "Customer";
+                        activity.put("text", "Failed payment from " + customerName);
+                        activity.put("amount", invoice.getAmountDue() / 100.0);
+                        activity.put("time", formatTimeAgo(invoice.getCreated()));
+                        activity.put("timestamp", invoice.getCreated());
+                        activities.add(activity);
+                    }
+
+                    InvoiceListParams uncollectibleParams = InvoiceListParams.builder()
+                            .setStatus(InvoiceListParams.Status.UNCOLLECTIBLE)
+                            .setLimit(50L)
+                            .build();
+
+                    for (Invoice invoice : Invoice.list(uncollectibleParams, requestOptions).autoPagingIterable()) {
+                        if (invoice.getCreated() < sevenDaysAgoEpoch) break;
+                        Map<String, Object> activity = new HashMap<>();
+                        activity.put("type", "FAILED_PAYMENT");
+                        activity.put("icon", "AlertCircle");
+                        String customerName = invoice.getCustomerName() != null ? invoice.getCustomerName() : "Customer";
+                        activity.put("text", "Failed payment from " + customerName);
+                        activity.put("amount", invoice.getAmountDue() / 100.0);
+                        activity.put("time", formatTimeAgo(invoice.getCreated()));
+                        activity.put("timestamp", invoice.getCreated());
+                        activities.add(activity);
+                    }
+                } catch (Exception e) {
+                    logger.error("Error fetching Stripe data for recent activity: {}", e.getMessage(), e);
+                }
+            }
+
+            // Get new members (UserBusiness records created in last 7 days)
+            LocalDateTime sevenDaysAgo = LocalDateTime.now().minusDays(7);
+            List<UserBusiness> newMembers = userBusinessRepository.findByBusinessId(businessId).stream()
+                    .filter(ub -> ub.getCreatedAt() != null && ub.getCreatedAt().isAfter(sevenDaysAgo))
+                    .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
+                    .limit(20)
+                    .collect(java.util.stream.Collectors.toList());
+
+            for (UserBusiness userBusiness : newMembers) {
+                Map<String, Object> activity = new HashMap<>();
+                activity.put("type", "NEW_MEMBER");
+                activity.put("icon", "UserPlus");
+                String memberName = userBusiness.getUser().getFirstName() + " " + userBusiness.getUser().getLastName();
+                activity.put("text", "New member " + memberName + " joined");
+                activity.put("time", formatTimeAgo(userBusiness.getCreatedAt().atZone(ZoneId.systemDefault()).toEpochSecond()));
+                activity.put("timestamp", userBusiness.getCreatedAt().atZone(ZoneId.systemDefault()).toEpochSecond());
+                activities.add(activity);
+            }
+
+            // Sort by timestamp (most recent first) and limit to 20
+            activities.sort((a, b) -> {
+                long timeA = (long) a.get("timestamp");
+                long timeB = (long) b.get("timestamp");
+                return Long.compare(timeB, timeA);
+            });
+
+            return ResponseEntity.ok(activities.stream().limit(20).collect(java.util.stream.Collectors.toList()));
+
+        } catch (Exception e) {
+            logger.error("Error fetching overview activity for businessId={}: {}", businessId, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to fetch overview activity: " + e.getMessage()));
+        }
+    }
+
+    private String formatTimeAgo(long timestamp) {
+        long now = System.currentTimeMillis() / 1000;
+        long diff = now - timestamp;
+
+        if (diff < 60) return "just now";
+        if (diff < 3600) return (diff / 60) + " minutes ago";
+        if (diff < 86400) return (diff / 3600) + " hours ago";
+        return (diff / 86400) + " days ago";
+    }
+
+    private double getLockedPrice(UserBusinessMembership membership) {
+        if (membership.getActualPrice() != null) {
+            return membership.getActualPrice().doubleValue();
+        }
+        Membership membershipType = membership.getMembership();
+        if (membershipType != null) {
+            return parsePlanPrice(membershipType.getPrice());
+        }
+        return 0.0;
+    }
+
+    private double parsePlanPrice(String price) {
+        if (price == null || price.trim().isEmpty()) {
+            return 0.0;
+        }
+        try {
+            String normalized = price.replaceAll("[^0-9.]", "");
+            if (normalized.isEmpty()) {
+                return 0.0;
+            }
+            return Double.parseDouble(normalized);
+        } catch (NumberFormatException e) {
+            return 0.0;
+        }
+    }
+
+    private double roundTwo(double value) {
+        return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_UP).doubleValue();
     }
 
     public static class RecentActivityResponse {

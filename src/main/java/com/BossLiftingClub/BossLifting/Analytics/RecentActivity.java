@@ -14,8 +14,8 @@ public class RecentActivity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "club_id", nullable = false)
-    private Long clubId;
+    @Column(name = "business_id", nullable = false)
+    private Long businessId;
 
     @Column(name = "activity_type", nullable = false, length = 50)
     private String activityType; // "PAYMENT" or "NEW_MEMBER"
@@ -49,12 +49,12 @@ public class RecentActivity {
         this.id = id;
     }
 
-    public Long getClubId() {
-        return clubId;
+    public Long getBusinessId() {
+        return businessId;
     }
 
-    public void setClubId(Long clubId) {
-        this.clubId = clubId;
+    public void setBusinessId(Long businessId) {
+        this.businessId = businessId;
     }
 
     public String getActivityType() {

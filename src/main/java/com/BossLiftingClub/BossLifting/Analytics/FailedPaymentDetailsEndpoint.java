@@ -2,8 +2,8 @@ package com.BossLiftingClub.BossLifting.Analytics;
 
 import com.BossLiftingClub.BossLifting.Business.Business;
 import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubRepository;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessRepository;
 import com.BossLiftingClub.BossLifting.User.User;
 import com.BossLiftingClub.BossLifting.User.UserRepository;
 import com.stripe.model.Invoice;
@@ -33,31 +33,35 @@ public class FailedPaymentDetailsEndpoint {
     private final BusinessRepository businessRepository;
 
     @Autowired
-    private final UserClubRepository userClubRepository;
+    private final UserBusinessRepository userBusinessRepository;
 
     @Autowired
     private final UserRepository userRepository;
 
-    public FailedPaymentDetailsEndpoint(BusinessRepository businessRepository, UserClubRepository userClubRepository, UserRepository userRepository) {
+    public FailedPaymentDetailsEndpoint(BusinessRepository businessRepository, UserBusinessRepository userBusinessRepository, UserRepository userRepository) {
         this.businessRepository = businessRepository;
-        this.userClubRepository = userClubRepository;
+        this.userBusinessRepository = userBusinessRepository;
         this.userRepository = userRepository;
     }
 
     /**
      * Get detailed failed payment information with member details
-     * GET /api/analytics/failed-payments-details?clubTag={tag}&startDate={start}&endDate={end}
-     * Note: clubTag parameter is kept for backward compatibility, internally uses businessTag
+     * GET /api/analytics/failed-payments-details?businessTag={tag}&startDate={start}&endDate={end}
      */
     @GetMapping("/failed-payments-details")
     @Transactional
     public List<FailedPaymentDetail> getFailedPaymentsDetails(
-            @RequestParam String clubTag,
+            @RequestParam(required = false) String businessTag,
+            @RequestParam(required = false) String clubTag, // Backward compatibility
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate) {
         try {
-            Business business = businessRepository.findByBusinessTag(clubTag)
-                    .orElseThrow(() -> new RuntimeException("Business not found with tag: " + clubTag));
+            String tag = businessTag != null ? businessTag : clubTag;
+            if (tag == null) {
+                throw new RuntimeException("businessTag parameter is required");
+            }
+            Business business = businessRepository.findByBusinessTag(tag)
+                    .orElseThrow(() -> new RuntimeException("Business not found with tag: " + tag));
 
             String stripeAccountId = business.getStripeAccountId();
 
@@ -123,7 +127,7 @@ public class FailedPaymentDetailsEndpoint {
                 }
             }
 
-            logger.info("Found {} failed payments for clubTag={}", failedPayments.size(), clubTag);
+            logger.info("Found {} failed payments for businessTag={}", failedPayments.size(), tag);
             return failedPayments;
 
         } catch (Exception e) {
@@ -145,17 +149,17 @@ public class FailedPaymentDetailsEndpoint {
             }
             User user = userOpt.get();
 
-            // Find the UserClub record
-            List<UserClub> userClubs = userClubRepository.findAllByUserId(user.getId());
-            Optional<UserClub> userClubOpt = userClubs.stream()
+            // Find the UserBusiness record
+            List<UserBusiness> userBusinesses = userBusinessRepository.findAllByUserId(user.getId());
+            Optional<UserBusiness> userBusinessOpt = userBusinesses.stream()
                     .filter(uc -> uc.getBusiness().getId().equals(businessId))
                     .findFirst();
-            if (!userClubOpt.isPresent()) {
-                logger.warn("UserClub not found for userId={}, businessId={}", user.getId(), businessId);
+            if (!userBusinessOpt.isPresent()) {
+                logger.warn("UserBusiness not found for userId={}, businessId={}", user.getId(), businessId);
                 return null;
             }
 
-            UserClub userClub = userClubOpt.get();
+            UserBusiness userBusiness = userBusinessOpt.get();
 
             // Get customer details from Stripe
             Customer customer = null;
@@ -176,7 +180,7 @@ public class FailedPaymentDetailsEndpoint {
             // Create the detail object
             FailedPaymentDetail detail = new FailedPaymentDetail();
             detail.setInvoiceId(invoice.getId());
-            detail.setUserClubId(userClub.getId());
+            detail.setUserBusinessId(userBusiness.getId());
             detail.setUserId(user.getId());
             detail.setUserName(user.getFirstName() + " " + user.getLastName());
             detail.setUserEmail(user.getEmail());
@@ -228,7 +232,7 @@ public class FailedPaymentDetailsEndpoint {
 
     public static class FailedPaymentDetail {
         private String invoiceId;
-        private Long userClubId;
+        private Long userBusinessId;
         private Long userId;
         private String userName;
         private String userEmail;
@@ -241,8 +245,8 @@ public class FailedPaymentDetailsEndpoint {
         public String getInvoiceId() { return invoiceId; }
         public void setInvoiceId(String invoiceId) { this.invoiceId = invoiceId; }
 
-        public Long getUserClubId() { return userClubId; }
-        public void setUserClubId(Long userClubId) { this.userClubId = userClubId; }
+        public Long getUserBusinessId() { return userBusinessId; }
+        public void setUserBusinessId(Long userBusinessId) { this.userBusinessId = userBusinessId; }
 
         public Long getUserId() { return userId; }
         public void setUserId(Long userId) { this.userId = userId; }

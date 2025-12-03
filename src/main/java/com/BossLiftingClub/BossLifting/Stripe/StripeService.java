@@ -1,20 +1,23 @@
 package com.BossLiftingClub.BossLifting.Stripe;
 
-import com.stripe.exception.InvalidRequestException;
+import com.stripe.Stripe;
+import com.stripe.exception.StripeException;
 import com.stripe.model.*;
 import com.stripe.model.checkout.Session;
-import com.stripe.param.*;
+import com.stripe.param.CouponCreateParams;
+import com.stripe.param.PromotionCodeCreateParams;
+import com.stripe.param.SubscriptionUpdateParams;
 import com.stripe.param.checkout.SessionCreateParams;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import com.stripe.Stripe;
-import com.stripe.exception.StripeException;
-
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -135,9 +138,7 @@ public class StripeService {
         Customer updatedCustomer = Customer.retrieve(customerId);
         String defaultPaymentMethod = updatedCustomer.getInvoiceSettings().getDefaultPaymentMethod();
         if (!paymentMethodId.equals(defaultPaymentMethod)) {
-            throw new StripeException("Failed to set payment method as default", null, null, null) {
-                public String getStripeErrorMessage() { return "Default payment method not set"; }
-            };
+            throw new StripeException("Failed to set payment method as default", null, null, null) { };
         }
     }
 
@@ -286,6 +287,67 @@ public class StripeService {
     }
 
     /**
+     * Create a Coupon and associated Promotion Code in Stripe
+     * @param code The customer-facing code (e.g. "SUMMER50")
+     * @param discountType "percent" or "amount"
+     * @param discountValue The value (e.g. 50.0 for 50%, or 10.0 for $10)
+     * @param duration "forever", "once", or "repeating"
+     * @param durationInMonths Number of months if duration is "repeating"
+     * @param stripeAccountId The connected account ID
+     * @return Map containing "couponId" and "promoCodeId"
+     */
+    public Map<String, String> createPromoCode(String code, String discountType, Double discountValue, String duration, Integer durationInMonths, String stripeAccountId) throws StripeException {
+        if (code == null || code.isEmpty()) {
+            throw new IllegalArgumentException("Code cannot be empty");
+        }
+        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+            throw new IllegalArgumentException("Stripe Account ID cannot be null or empty");
+        }
+
+        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                .setStripeAccount(stripeAccountId)
+                .build();
+
+        // 1. Create Coupon
+        CouponCreateParams.Builder couponBuilder = CouponCreateParams.builder()
+                .setName(code + " Coupon");
+
+        if ("percent".equals(discountType)) {
+            couponBuilder.setPercentOff(BigDecimal.valueOf(discountValue));
+        } else if ("amount".equals(discountType)) {
+            couponBuilder.setAmountOff((long)(discountValue * 100)); // Amount in cents
+            couponBuilder.setCurrency("usd");
+        }
+
+        if ("repeating".equals(duration)) {
+            couponBuilder.setDuration(CouponCreateParams.Duration.REPEATING);
+            if (durationInMonths != null) {
+                couponBuilder.setDurationInMonths(durationInMonths.longValue());
+            }
+        } else if ("once".equals(duration)) {
+            couponBuilder.setDuration(CouponCreateParams.Duration.ONCE);
+        } else {
+            couponBuilder.setDuration(CouponCreateParams.Duration.FOREVER);
+        }
+
+        Coupon coupon = Coupon.create(couponBuilder.build(), requestOptions);
+
+        // 2. Create Promotion Code
+        PromotionCodeCreateParams promoBuilder = PromotionCodeCreateParams.builder()
+                .setCoupon(coupon.getId())
+                .setCode(code)
+                .build();
+
+        PromotionCode promotionCode = PromotionCode.create(promoBuilder, requestOptions);
+
+        Map<String, String> result = new HashMap<>();
+        result.put("couponId", coupon.getId());
+        result.put("promoCodeId", promotionCode.getId());
+
+        return result;
+    }
+
+    /**
      * Check if a customer has a default payment method
      * @param customerId The Stripe customer ID
      * @param stripeAccountId The connected account ID (null for platform account)
@@ -382,11 +444,7 @@ public class StripeService {
                         "PaymentMethod " + paymentMethodId + " not found on platform account or connected account " + stripeAccountId + ". " +
                         "Ensure the PaymentMethod was created correctly. Original error: " + e.getMessage(),
                         null, null, null
-                    ) {
-                        public String getStripeErrorMessage() { 
-                            return "PaymentMethod not found. Please ensure it was created with the correct account context."; 
-                        }
-                    };
+                    ) { };
                 }
             } else {
                 // Re-throw if it's a different error
@@ -426,9 +484,7 @@ public class StripeService {
         Customer updatedCustomer = Customer.retrieve(customerId, connectedAccountOptions);
         String defaultPaymentMethod = updatedCustomer.getInvoiceSettings().getDefaultPaymentMethod();
         if (!paymentMethodId.equals(defaultPaymentMethod)) {
-            throw new StripeException("Failed to set payment method as default on connected account", null, null, null) {
-                public String getStripeErrorMessage() { return "Default payment method not set"; }
-            };
+            throw new StripeException("Failed to set payment method as default on connected account", null, null, null) { };
         }
     }
 
@@ -466,15 +522,50 @@ public class StripeService {
     }
 
     /**
-     * Create a Stripe subscription for a customer on a connected account
-     * @param customerId The Stripe customer ID (on the platform account)
-     * @param stripePriceId The Stripe price ID to subscribe to
-     * @param stripeAccountId The connected account ID
-     * @param anchorDate The billing anchor date (when subscription should start)
-     * @return The created Subscription object
-     * @throws StripeException if the Stripe API call fails
+     * Convenience overload without promo codes or price overrides.
      */
     public Subscription createSubscription(String customerId, String stripePriceId, String stripeAccountId, LocalDateTime anchorDate) throws StripeException {
+        return createSubscription(customerId, stripePriceId, stripeAccountId, anchorDate, null, null);
+    }
+
+    /**
+     * Find a Promotion Code ID by its customer-facing code
+     */
+    public String findPromotionCodeId(String code, String stripeAccountId) throws StripeException {
+        if (code == null || code.isEmpty()) return null;
+
+        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                .setStripeAccount(stripeAccountId)
+                .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("code", code);
+        params.put("active", true);
+        params.put("limit", 1);
+
+        PromotionCodeCollection codes = PromotionCode.list(params, requestOptions);
+        if (codes.getData().isEmpty()) {
+            // Fallback: Check if the input is a Coupon ID or name
+            // Note: Stripe Subscriptions use setCoupon for Coupons or setPromotionCode for Promotion Codes.
+            // Promotion Codes are wrappers around Coupons. If we can't find a Promotion Code, we could look for a Coupon.
+            // However, createSubscription uses setPromotionCode. 
+            // Ideally we stick to Promotion Codes for user-facing codes.
+            // If the user passes a raw Coupon ID (e.g. "25OFF"), we might want to support that too?
+            // But setPromotionCode expects a 'promo_...' ID.
+            return null;
+        }
+        return codes.getData().get(0).getId();
+    }
+
+    /**
+     * Create a Stripe subscription with optional promo code and custom price override.
+     */
+    public Subscription createSubscription(String customerId,
+                                           String stripePriceId,
+                                           String stripeAccountId,
+                                           LocalDateTime anchorDate,
+                                           String promoCode,
+                                           BigDecimal overridePrice) throws StripeException {
         if (customerId == null || customerId.isEmpty()) {
             throw new IllegalArgumentException("Customer ID cannot be null or empty");
         }
@@ -497,11 +588,62 @@ public class StripeService {
         // Create subscription on the connected account
         com.stripe.param.SubscriptionCreateParams.Builder paramsBuilder = com.stripe.param.SubscriptionCreateParams.builder()
                 .setCustomer(customerId)
-                .addItem(
-                        com.stripe.param.SubscriptionCreateParams.Item.builder()
-                                .setPrice(stripePriceId)
+                .setPaymentBehavior(com.stripe.param.SubscriptionCreateParams.PaymentBehavior.ALLOW_INCOMPLETE)
+                .setProrationBehavior(com.stripe.param.SubscriptionCreateParams.ProrationBehavior.ALWAYS_INVOICE);
+
+        com.stripe.param.SubscriptionCreateParams.Item.Builder itemBuilder =
+                com.stripe.param.SubscriptionCreateParams.Item.builder();
+
+        if (overridePrice != null && overridePrice.compareTo(BigDecimal.ZERO) > 0) {
+            Price priceDetails = retrievePrice(stripePriceId, stripeAccountId);
+            if (priceDetails == null || priceDetails.getProduct() == null) {
+                throw new IllegalStateException("Stripe price details required for custom pricing");
+            }
+
+            BigDecimal normalized = overridePrice.setScale(2, RoundingMode.HALF_UP);
+            long unitAmount = normalized.movePointRight(2).longValueExact();
+
+            com.stripe.param.SubscriptionCreateParams.Item.PriceData.Builder priceData =
+                    com.stripe.param.SubscriptionCreateParams.Item.PriceData.builder()
+                            .setCurrency(priceDetails.getCurrency())
+                            .setProduct(priceDetails.getProduct())
+                            .setUnitAmount(unitAmount);
+
+            if (priceDetails.getRecurring() != null && priceDetails.getRecurring().getInterval() != null) {
+                priceData.setRecurring(
+                        com.stripe.param.SubscriptionCreateParams.Item.PriceData.Recurring.builder()
+                                .setInterval(mapInterval(priceDetails.getRecurring().getInterval()))
                                 .build()
                 );
+            }
+
+            itemBuilder.setPriceData(priceData.build());
+        } else {
+            itemBuilder.setPrice(stripePriceId);
+        }
+
+        paramsBuilder.addItem(itemBuilder.build());
+
+        // Apply promo code if provided
+        if (promoCode != null && !promoCode.trim().isEmpty()) {
+            String promotionCodeId = findPromotionCodeId(promoCode.trim(), stripeAccountId);
+            if (promotionCodeId != null) {
+                paramsBuilder.setPromotionCode(promotionCodeId);
+                System.out.println("Applying promotion code: " + promoCode + " (ID: " + promotionCodeId + ")");
+            } else {
+                // Try finding coupon directly if not a promotion code
+                try {
+                    // This is a bit of a hack because setPromotionCode expects a promo_ ID.
+                    // If we want to support raw coupons we should use setCoupon.
+                    // But let's see if we can just support Promotion Codes for now as they are the standard user-facing way.
+                    System.err.println("Promotion code not found: " + promoCode);
+                    // We could throw an exception here if we want to enforce valid codes
+                    // throw new IllegalArgumentException("Invalid promo code: " + promoCode);
+                } catch (Exception e) {
+                    // ignore
+                }
+            }
+        }
 
         // Only set billing cycle anchor if it's in the future
         if (shouldSetAnchor) {
@@ -513,6 +655,57 @@ public class StripeService {
                 .build();
 
         return Subscription.create(paramsBuilder.build(), requestOptions);
+    }
+
+    private Price retrievePrice(String priceId, String stripeAccountId) throws StripeException {
+        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                .setStripeAccount(stripeAccountId)
+                .build();
+        return Price.retrieve(priceId, requestOptions);
+    }
+
+    private com.stripe.param.SubscriptionCreateParams.Item.PriceData.Recurring.Interval mapInterval(String interval) {
+        if (interval == null) {
+            return com.stripe.param.SubscriptionCreateParams.Item.PriceData.Recurring.Interval.MONTH;
+        }
+        switch (interval.toLowerCase(Locale.ROOT)) {
+            case "day":
+                return com.stripe.param.SubscriptionCreateParams.Item.PriceData.Recurring.Interval.DAY;
+            case "week":
+                return com.stripe.param.SubscriptionCreateParams.Item.PriceData.Recurring.Interval.WEEK;
+            case "year":
+                return com.stripe.param.SubscriptionCreateParams.Item.PriceData.Recurring.Interval.YEAR;
+            case "month":
+            default:
+                return com.stripe.param.SubscriptionCreateParams.Item.PriceData.Recurring.Interval.MONTH;
+        }
+    }
+
+    /**
+     * Apply a promo code to an existing subscription
+     */
+    public Subscription applyPromoCodeToSubscription(String subscriptionId, String promoCode, String stripeAccountId) throws StripeException {
+        if (subscriptionId == null || subscriptionId.isEmpty()) {
+            throw new IllegalArgumentException("Subscription ID cannot be null or empty");
+        }
+        if (promoCode == null || promoCode.trim().isEmpty()) {
+            throw new IllegalArgumentException("Promo code cannot be null or empty");
+        }
+
+        String promotionCodeId = findPromotionCodeId(promoCode.trim(), stripeAccountId);
+        if (promotionCodeId == null) {
+            throw new IllegalArgumentException("Invalid promo code: " + promoCode);
+        }
+
+        SubscriptionUpdateParams updateParams = SubscriptionUpdateParams.builder()
+                .setPromotionCode(promotionCodeId)
+                .build();
+
+        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                .setStripeAccount(stripeAccountId)
+                .build();
+
+        return Subscription.retrieve(subscriptionId, requestOptions).update(updateParams, requestOptions);
     }
 
     /**

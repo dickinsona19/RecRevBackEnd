@@ -1,6 +1,6 @@
 package com.BossLiftingClub.BossLifting.Security;
 
-import com.BossLiftingClub.BossLifting.Club.Staff.Staff;
+import com.BossLiftingClub.BossLifting.Business.Staff.Staff;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;

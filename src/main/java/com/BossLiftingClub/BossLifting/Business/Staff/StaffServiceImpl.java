@@ -1,4 +1,4 @@
-package com.BossLiftingClub.BossLifting.Club.Staff;
+package com.BossLiftingClub.BossLifting.Business.Staff;
 
 import com.BossLiftingClub.BossLifting.Business.Business;
 import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
@@ -52,7 +52,7 @@ public class StaffServiceImpl implements StaffService {
 
     @Override
     public StaffDTO getStaffById(Integer id) {
-        Staff staff = staffRepository.findById(id)
+        Staff staff = staffRepository.findByIdWithBusiness(id)
                 .orElseThrow(() -> new RuntimeException("Staff not found"));
         return mapToDTO(staff);
     }

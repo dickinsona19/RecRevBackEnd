@@ -1,4 +1,4 @@
-package com.BossLiftingClub.BossLifting.User.ClubUser;
+package com.BossLiftingClub.BossLifting.User.BusinessUser;
 
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -6,31 +6,32 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Controller for managing UserClubMembership relationships
- * (memberships assigned to users within a club)
+ * Controller for managing UserBusinessMembership relationships
+ * (memberships assigned to users within a business)
  */
 @RestController
-@RequestMapping("/api/clubs/{clubTag}/members/{userId}/memberships")
-public class UserClubMembershipController {
+@RequestMapping("/api/businesses/{businessTag}/members/{userId}/memberships")
+public class UserBusinessMembershipController {
 
     @Autowired
-    private UserClubService userClubService;
+    private UserBusinessService userBusinessService;
 
     /**
-     * Get all memberships for a specific user in a club
-     * GET /api/clubs/{clubTag}/members/{userId}/memberships
+     * Get all memberships for a specific user in a business
+     * GET /api/businesses/{businessTag}/members/{userId}/memberships
      */
     @GetMapping
     public ResponseEntity<?> getUserMemberships(
-            @PathVariable String clubTag,
+            @PathVariable String businessTag,
             @PathVariable Long userId) {
         try {
-            List<UserClubMembership> memberships = userClubService.getUserMembershipsInClub(userId, clubTag);
+            List<UserBusinessMembership> memberships = userBusinessService.getUserMembershipsInBusiness(userId, businessTag);
             return ResponseEntity.ok(memberships);
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -42,8 +43,8 @@ public class UserClubMembershipController {
     }
 
     /**
-     * Add a new membership to an existing user in a club
-     * POST /api/clubs/{clubTag}/members/{userId}/memberships
+     * Add a new membership to an existing user in a business
+     * POST /api/businesses/{businessTag}/members/{userId}/memberships
      *
      * Request body:
      * {
@@ -56,7 +57,7 @@ public class UserClubMembershipController {
      */
     @PostMapping
     public ResponseEntity<?> addMembershipToUser(
-            @PathVariable String clubTag,
+            @PathVariable String businessTag,
             @PathVariable Long userId,
             @Valid @RequestBody MembershipAssignmentRequest request) {
         try {
@@ -66,14 +67,21 @@ public class UserClubMembershipController {
                         .body(Map.of("error", "membershipId is required"));
             }
 
-            UserClubMembership membership = userClubService.addMembershipToUser(
+            BigDecimal overridePrice = request.getCustomPrice() != null ? BigDecimal.valueOf(request.getCustomPrice()) : null;
+            if (overridePrice != null && overridePrice.compareTo(BigDecimal.ZERO) <= 0) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "customPrice must be greater than 0"));
+            }
+
+            UserBusinessMembership membership = userBusinessService.addMembershipToUser(
                     userId,
-                    clubTag,
+                    businessTag,
                     request.getMembershipId(),
                     request.getStatus() != null ? request.getStatus() : "ACTIVE",
                     request.getAnchorDate() != null ? request.getAnchorDate() : LocalDateTime.now(),
                     request.getEndDate(),
-                    request.getStripeSubscriptionId()
+                    request.getStripeSubscriptionId(),
+                    overridePrice
             );
 
             return ResponseEntity.status(HttpStatus.CREATED).body(membership);
@@ -87,8 +95,8 @@ public class UserClubMembershipController {
     }
 
     /**
-     * Update an existing membership for a user in a club
-     * PUT /api/clubs/{clubTag}/members/{userId}/memberships/{membershipId}
+     * Update an existing membership for a user in a business
+     * PUT /api/businesses/{businessTag}/members/{userId}/memberships/{membershipId}
      *
      * Request body:
      * {
@@ -98,17 +106,17 @@ public class UserClubMembershipController {
      *   "stripeSubscriptionId": "sub_123"
      * }
      */
-    @PutMapping("/{userClubMembershipId}")
+    @PutMapping("/{userBusinessMembershipId}")
     public ResponseEntity<?> updateUserMembership(
-            @PathVariable String clubTag,
+            @PathVariable String businessTag,
             @PathVariable Long userId,
-            @PathVariable Long userClubMembershipId,
+            @PathVariable Long userBusinessMembershipId,
             @Valid @RequestBody MembershipUpdateRequest request) {
         try {
-            UserClubMembership updated = userClubService.updateUserClubMembership(
+            UserBusinessMembership updated = userBusinessService.updateUserBusinessMembership(
                     userId,
-                    clubTag,
-                    userClubMembershipId,
+                    businessTag,
+                    userBusinessMembershipId,
                     request.getStatus(),
                     request.getAnchorDate(),
                     request.getEndDate(),
@@ -126,22 +134,22 @@ public class UserClubMembershipController {
     }
 
     /**
-     * Delete a specific membership from a user in a club
-     * DELETE /api/clubs/{clubTag}/members/{userId}/memberships/{membershipId}
+     * Delete a specific membership from a user in a business
+     * DELETE /api/businesses/{businessTag}/members/{userId}/memberships/{membershipId}
      */
-    @DeleteMapping("/{userClubMembershipId}")
+    @DeleteMapping("/{userBusinessMembershipId}")
     public ResponseEntity<?> deleteUserMembership(
-            @PathVariable String clubTag,
+            @PathVariable String businessTag,
             @PathVariable Long userId,
-            @PathVariable Long userClubMembershipId) {
+            @PathVariable Long userBusinessMembershipId) {
         try {
-            userClubService.removeMembershipFromUser(userId, clubTag, userClubMembershipId);
+            userBusinessService.removeMembershipFromUser(userId, businessTag, userBusinessMembershipId);
 
             return ResponseEntity.ok(Map.of(
                     "message", "Membership removed successfully",
                     "userId", userId,
-                    "clubTag", clubTag,
-                    "userClubMembershipId", userClubMembershipId
+                    "businessTag", businessTag,
+                    "userBusinessMembershipId", userBusinessMembershipId
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -159,6 +167,7 @@ public class UserClubMembershipController {
         private LocalDateTime anchorDate;
         private LocalDateTime endDate;
         private String stripeSubscriptionId;
+        private Double customPrice;
 
         // Getters and Setters
         public Long getMembershipId() {
@@ -199,6 +208,14 @@ public class UserClubMembershipController {
 
         public void setStripeSubscriptionId(String stripeSubscriptionId) {
             this.stripeSubscriptionId = stripeSubscriptionId;
+        }
+
+        public Double getCustomPrice() {
+            return customPrice;
+        }
+
+        public void setCustomPrice(Double customPrice) {
+            this.customPrice = customPrice;
         }
     }
 

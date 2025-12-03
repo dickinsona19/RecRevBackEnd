@@ -1,7 +1,7 @@
 package com.BossLiftingClub.BossLifting.Auth;
 
 import com.BossLiftingClub.BossLifting.Client.ClientDTO;
-import com.BossLiftingClub.BossLifting.Club.Staff.StaffDTO;
+import com.BossLiftingClub.BossLifting.Business.Staff.StaffDTO;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;

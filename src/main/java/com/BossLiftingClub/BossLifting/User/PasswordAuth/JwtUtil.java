@@ -144,7 +144,11 @@ public class JwtUtil {
     // Extract user type from token
     public String extractUserType(String token) {
         Claims claims = extractAllClaims(token);
-        return claims.get("userType", String.class);
+        Object userType = claims.get("userType");
+        if (userType == null) {
+            return null; // Return null instead of throwing exception
+        }
+        return userType.toString();
     }
     
     // Extract staff ID from token

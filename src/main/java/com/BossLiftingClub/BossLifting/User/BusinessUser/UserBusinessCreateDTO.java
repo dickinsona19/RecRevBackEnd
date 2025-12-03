@@ -1,4 +1,4 @@
-package com.BossLiftingClub.BossLifting.User.ClubUser;
+package com.BossLiftingClub.BossLifting.User.BusinessUser;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
@@ -7,7 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import java.time.LocalDateTime;
 import java.util.List;
 
-public class UserCreateDTO {
+public class UserBusinessCreateDTO {
     @NotBlank(message = "First name is required")
     private String firstName;
     
@@ -25,22 +25,22 @@ public class UserCreateDTO {
     private Long membershipId;
 
     @Valid
-    @NotNull(message = "Club membership is required")
-    private ClubMembershipDTO clubMembership;
+    @NotNull(message = "Business membership is required")
+    private BusinessMembershipDTO businessMembership;
 
     // New field for multiple memberships
     private List<MembershipRequestDTO> memberships;
 
-    public static class ClubMembershipDTO {
-        @NotNull(message = "Club ID is required")
-        private Long clubId;
+    public static class BusinessMembershipDTO {
+        @NotNull(message = "Business ID is required")
+        private Long businessId;
         
         private String stripeId;
         
         private String status;
 
-        public Long getClubId() { return clubId; }
-        public void setClubId(Long clubId) { this.clubId = clubId; }
+        public Long getBusinessId() { return businessId; }
+        public void setBusinessId(Long businessId) { this.businessId = businessId; }
         public String getStripeId() { return stripeId; }
         public void setStripeId(String stripeId) { this.stripeId = stripeId; }
         public String getStatus() { return status; }
@@ -52,6 +52,7 @@ public class UserCreateDTO {
         private String status;
         private LocalDateTime anchorDate;
         private String stripeSubscriptionId;
+        private String promoCode;
 
         public Long getMembershipId() { return membershipId; }
         public void setMembershipId(Long membershipId) { this.membershipId = membershipId; }
@@ -61,6 +62,8 @@ public class UserCreateDTO {
         public void setAnchorDate(LocalDateTime anchorDate) { this.anchorDate = anchorDate; }
         public String getStripeSubscriptionId() { return stripeSubscriptionId; }
         public void setStripeSubscriptionId(String stripeSubscriptionId) { this.stripeSubscriptionId = stripeSubscriptionId; }
+        public String getPromoCode() { return promoCode; }
+        public void setPromoCode(String promoCode) { this.promoCode = promoCode; }
     }
 
     // Getters and setters
@@ -78,8 +81,8 @@ public class UserCreateDTO {
     @Deprecated
     public void setMembershipId(Long membershipId) { this.membershipId = membershipId; }
 
-    public ClubMembershipDTO getClubMembership() { return clubMembership; }
-    public void setClubMembership(ClubMembershipDTO clubMembership) { this.clubMembership = clubMembership; }
+    public BusinessMembershipDTO getBusinessMembership() { return businessMembership; }
+    public void setBusinessMembership(BusinessMembershipDTO businessMembership) { this.businessMembership = businessMembership; }
 
     public List<MembershipRequestDTO> getMemberships() { return memberships; }
     public void setMemberships(List<MembershipRequestDTO> memberships) { this.memberships = memberships; }

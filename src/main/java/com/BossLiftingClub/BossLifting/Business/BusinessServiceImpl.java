@@ -2,8 +2,8 @@ package com.BossLiftingClub.BossLifting.Business;
 
 import com.BossLiftingClub.BossLifting.Client.Client;
 import com.BossLiftingClub.BossLifting.Client.ClientRepository;
-import com.BossLiftingClub.BossLifting.Club.Staff.Staff;
-import com.BossLiftingClub.BossLifting.Club.Staff.StaffRepository;
+import com.BossLiftingClub.BossLifting.Business.Staff.Staff;
+import com.BossLiftingClub.BossLifting.Business.Staff.StaffRepository;
 import com.stripe.exception.StripeException;
 import com.stripe.model.Account;
 import com.stripe.model.AccountLink;
@@ -61,6 +61,7 @@ public class BusinessServiceImpl implements BusinessService {
         business.setStatus(businessDTO.getStatus());
         business.setCreatedAt(LocalDateTime.now());
         business.setBusinessTag(businessTag);
+        business.setContactEmail(businessDTO.getContactEmail());
 
         if (businessDTO.getClientId() != null) {
             Client client = clientRepository.findById(businessDTO.getClientId())
@@ -253,6 +254,13 @@ public class BusinessServiceImpl implements BusinessService {
         business.setOnboardingStatus(status);
         businessRepository.save(business);
         logger.info("Onboarding status updated successfully for business: {}", business.getBusinessTag());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.Optional<BusinessDTO> findByStripeAccountId(String stripeAccountId) {
+        return businessRepository.findByStripeAccountId(stripeAccountId)
+                .map(BusinessDTO::mapToBusinessDTO);
     }
 }
 

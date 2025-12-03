@@ -27,13 +27,6 @@ public class MembershipController {
                     .body(Map.of("error", "Failed to retrieve memberships: " + e.getMessage()));
         }
     }
-    
-    // Backward compatibility - clubTag maps to businessTag
-    @GetMapping("/club/{clubTag}")
-    @Transactional(readOnly = true)
-    public ResponseEntity<?> getMembershipsByClubTag(@PathVariable String clubTag) {
-        return getMembershipsByBusinessTag(clubTag);
-    }
 
     // ✅ Add a new membership
     @PostMapping

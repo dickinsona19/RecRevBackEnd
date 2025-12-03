@@ -6,46 +6,38 @@ package com.BossLiftingClub.BossLifting.Security;
 public class Permissions {
     
     // Member Management
-    public static final String VIEW_MEMBERS = "VIEW_MEMBERS";
-    public static final String CREATE_MEMBERS = "CREATE_MEMBERS";
-    public static final String EDIT_MEMBERS = "EDIT_MEMBERS";
-    public static final String DELETE_MEMBERS = "DELETE_MEMBERS";
+    public static final String MEMBER_VIEW = "member:view";
+    public static final String MEMBER_CREATE = "member:create";
+    public static final String MEMBER_EDIT = "member:edit";
+    public static final String MEMBER_DELETE = "member:delete";
     
     // Membership Management
-    public static final String VIEW_MEMBERSHIPS = "VIEW_MEMBERSHIPS";
-    public static final String CREATE_MEMBERSHIPS = "CREATE_MEMBERSHIPS";
-    public static final String EDIT_MEMBERSHIPS = "EDIT_MEMBERSHIPS";
-    public static final String DELETE_MEMBERSHIPS = "DELETE_MEMBERSHIPS";
-    public static final String ASSIGN_MEMBERSHIPS = "ASSIGN_MEMBERSHIPS";
+    public static final String MEMBERSHIP_VIEW = "membership:view";
+    public static final String MEMBERSHIP_CREATE = "membership:create";
+    public static final String MEMBERSHIP_EDIT = "membership:edit";
+    public static final String MEMBERSHIP_DELETE = "membership:delete";
+    public static final String MEMBERSHIP_ASSIGN = "membership:assign";
     
     // Analytics
-    public static final String VIEW_ANALYTICS = "VIEW_ANALYTICS";
-    public static final String VIEW_REVENUE = "VIEW_REVENUE";
-    public static final String VIEW_SIMPLE_ANALYTICS = "VIEW_SIMPLE_ANALYTICS";
+    public static final String ANALYTICS_VIEW_SIMPLE = "analytics:view_simple";
+    public static final String ANALYTICS_VIEW_REVENUE = "analytics:view_revenue";
     
     // Staff Management
-    public static final String VIEW_STAFF = "VIEW_STAFF";
-    public static final String CREATE_STAFF = "CREATE_STAFF";
-    public static final String EDIT_STAFF = "EDIT_STAFF";
-    public static final String DELETE_STAFF = "DELETE_STAFF";
-    public static final String MANAGE_STAFF_ROLES = "MANAGE_STAFF_ROLES";
+    public static final String STAFF_VIEW = "staff:view";
+    public static final String STAFF_MANAGE = "staff:manage";
+    public static final String STAFF_DELETE = "staff:delete";
     
     // Products
-    public static final String VIEW_PRODUCTS = "VIEW_PRODUCTS";
-    public static final String CREATE_PRODUCTS = "CREATE_PRODUCTS";
-    public static final String EDIT_PRODUCTS = "EDIT_PRODUCTS";
-    public static final String DELETE_PRODUCTS = "DELETE_PRODUCTS";
+    public static final String PRODUCT_VIEW = "product:view";
+    public static final String PRODUCT_MANAGE = "product:manage";
     
     // Payments
-    public static final String VIEW_PAYMENTS = "VIEW_PAYMENTS";
-    public static final String PROCESS_PAYMENTS = "PROCESS_PAYMENTS";
-    public static final String PROCESS_REFUNDS = "PROCESS_REFUNDS";
+    public static final String PAYMENT_VIEW_HISTORY = "payment:view_history";
+    public static final String PAYMENT_PROCESS = "payment:process";
+    public static final String PAYMENT_REFUND = "payment:refund";
     
     // Stripe
-    public static final String MANAGE_STRIPE = "MANAGE_STRIPE";
-    
-    // Business Settings
-    public static final String MANAGE_BUSINESS_SETTINGS = "MANAGE_BUSINESS_SETTINGS";
+    public static final String STRIPE_ONBOARDING_MANAGE = "stripe:onboarding_manage";
     
     /**
      * Get permissions for a role
@@ -62,109 +54,92 @@ public class Permissions {
         switch (upperRole) {
             case "ADMIN":
                 // ADMIN has all permissions
-                permissions.add(VIEW_MEMBERS);
-                permissions.add(CREATE_MEMBERS);
-                permissions.add(EDIT_MEMBERS);
-                permissions.add(DELETE_MEMBERS);
-                permissions.add(VIEW_MEMBERSHIPS);
-                permissions.add(CREATE_MEMBERSHIPS);
-                permissions.add(EDIT_MEMBERSHIPS);
-                permissions.add(DELETE_MEMBERSHIPS);
-                permissions.add(ASSIGN_MEMBERSHIPS);
-                permissions.add(VIEW_ANALYTICS);
-                permissions.add(VIEW_REVENUE);
-                permissions.add(VIEW_SIMPLE_ANALYTICS);
-                permissions.add(VIEW_STAFF);
-                permissions.add(CREATE_STAFF);
-                permissions.add(EDIT_STAFF);
-                permissions.add(DELETE_STAFF);
-                permissions.add(MANAGE_STAFF_ROLES);
-                permissions.add(VIEW_PRODUCTS);
-                permissions.add(CREATE_PRODUCTS);
-                permissions.add(EDIT_PRODUCTS);
-                permissions.add(DELETE_PRODUCTS);
-                permissions.add(VIEW_PAYMENTS);
-                permissions.add(PROCESS_PAYMENTS);
-                permissions.add(PROCESS_REFUNDS);
-                permissions.add(MANAGE_STRIPE);
-                permissions.add(MANAGE_BUSINESS_SETTINGS);
+                permissions.add(MEMBER_VIEW);
+                permissions.add(MEMBER_CREATE);
+                permissions.add(MEMBER_EDIT);
+                permissions.add(MEMBER_DELETE);
+                permissions.add(MEMBERSHIP_VIEW);
+                permissions.add(MEMBERSHIP_CREATE);
+                permissions.add(MEMBERSHIP_EDIT);
+                permissions.add(MEMBERSHIP_DELETE);
+                permissions.add(MEMBERSHIP_ASSIGN);
+                permissions.add(ANALYTICS_VIEW_SIMPLE);
+                permissions.add(ANALYTICS_VIEW_REVENUE);
+                permissions.add(STAFF_VIEW);
+                permissions.add(STAFF_MANAGE);
+                permissions.add(STAFF_DELETE);
+                permissions.add(PRODUCT_VIEW);
+                permissions.add(PRODUCT_MANAGE);
+                permissions.add(PAYMENT_VIEW_HISTORY);
+                permissions.add(PAYMENT_PROCESS);
+                permissions.add(PAYMENT_REFUND);
+                permissions.add(STRIPE_ONBOARDING_MANAGE);
                 break;
                 
             case "MANAGER":
                 // MANAGER has most permissions except revenue analytics
-                permissions.add(VIEW_MEMBERS);
-                permissions.add(CREATE_MEMBERS);
-                permissions.add(EDIT_MEMBERS);
-                permissions.add(DELETE_MEMBERS);
-                permissions.add(VIEW_MEMBERSHIPS);
-                permissions.add(CREATE_MEMBERSHIPS);
-                permissions.add(EDIT_MEMBERSHIPS);
-                permissions.add(DELETE_MEMBERSHIPS);
-                permissions.add(ASSIGN_MEMBERSHIPS);
-                permissions.add(VIEW_SIMPLE_ANALYTICS); // Simple analytics only, no revenue
-                permissions.add(VIEW_STAFF);
-                permissions.add(CREATE_STAFF);
-                permissions.add(EDIT_STAFF);
-                permissions.add(DELETE_STAFF);
-                permissions.add(MANAGE_STAFF_ROLES);
-                permissions.add(VIEW_PRODUCTS);
-                permissions.add(CREATE_PRODUCTS);
-                permissions.add(EDIT_PRODUCTS);
-                permissions.add(DELETE_PRODUCTS);
-                permissions.add(VIEW_PAYMENTS);
-                permissions.add(PROCESS_PAYMENTS);
-                permissions.add(PROCESS_REFUNDS);
-                // No MANAGE_STRIPE for managers
-                // No MANAGE_BUSINESS_SETTINGS for managers
+                permissions.add(MEMBER_VIEW);
+                permissions.add(MEMBER_CREATE);
+                permissions.add(MEMBER_EDIT);
+                permissions.add(MEMBER_DELETE);
+                permissions.add(MEMBERSHIP_VIEW);
+                permissions.add(MEMBERSHIP_CREATE);
+                permissions.add(MEMBERSHIP_EDIT);
+                permissions.add(MEMBERSHIP_DELETE);
+                permissions.add(MEMBERSHIP_ASSIGN);
+                permissions.add(ANALYTICS_VIEW_SIMPLE); // Simple analytics only, no revenue
+                permissions.add(STAFF_VIEW);
+                permissions.add(STAFF_MANAGE);
+                permissions.add(STAFF_DELETE);
+                permissions.add(PRODUCT_VIEW);
+                permissions.add(PRODUCT_MANAGE);
+                permissions.add(PAYMENT_VIEW_HISTORY);
+                permissions.add(PAYMENT_PROCESS);
+                permissions.add(PAYMENT_REFUND);
+                // No STRIPE_ONBOARDING_MANAGE for managers
                 break;
                 
             case "TEAM_MEMBER":
             case "STAFF":
                 // TEAM_MEMBER has limited permissions
-                permissions.add(VIEW_MEMBERS);
-                permissions.add(CREATE_MEMBERS);
-                permissions.add(EDIT_MEMBERS);
-                // No DELETE_MEMBERS for team members
-                permissions.add(VIEW_MEMBERSHIPS);
-                permissions.add(ASSIGN_MEMBERSHIPS);
+                permissions.add(MEMBER_VIEW);
+                permissions.add(MEMBER_CREATE);
+                permissions.add(MEMBER_EDIT);
+                // No MEMBER_DELETE for team members
+                permissions.add(MEMBERSHIP_VIEW);
+                permissions.add(MEMBERSHIP_ASSIGN);
                 // No CREATE/EDIT/DELETE memberships for team members
-                permissions.add(VIEW_SIMPLE_ANALYTICS); // Simple analytics only
+                permissions.add(ANALYTICS_VIEW_SIMPLE); // Simple analytics only
                 // No staff management for team members
-                permissions.add(VIEW_PRODUCTS);
+                permissions.add(PRODUCT_VIEW);
                 // No product management for team members
-                permissions.add(VIEW_PAYMENTS);
-                permissions.add(PROCESS_PAYMENTS);
+                permissions.add(PAYMENT_VIEW_HISTORY);
+                permissions.add(PAYMENT_PROCESS);
                 // No refunds for team members
                 break;
                 
             case "CLIENT":
                 // CLIENT (Owner) has all permissions like ADMIN
-                permissions.add(VIEW_MEMBERS);
-                permissions.add(CREATE_MEMBERS);
-                permissions.add(EDIT_MEMBERS);
-                permissions.add(DELETE_MEMBERS);
-                permissions.add(VIEW_MEMBERSHIPS);
-                permissions.add(CREATE_MEMBERSHIPS);
-                permissions.add(EDIT_MEMBERSHIPS);
-                permissions.add(DELETE_MEMBERSHIPS);
-                permissions.add(ASSIGN_MEMBERSHIPS);
-                permissions.add(VIEW_ANALYTICS);
-                permissions.add(VIEW_REVENUE);
-                permissions.add(VIEW_SIMPLE_ANALYTICS);
-                permissions.add(VIEW_STAFF);
-                permissions.add(CREATE_STAFF);
-                permissions.add(EDIT_STAFF);
-                permissions.add(DELETE_STAFF);
-                permissions.add(MANAGE_STAFF_ROLES);
-                permissions.add(VIEW_PRODUCTS);
-                permissions.add(CREATE_PRODUCTS);
-                permissions.add(EDIT_PRODUCTS);
-                permissions.add(DELETE_PRODUCTS);
-                permissions.add(VIEW_PAYMENTS);
-                permissions.add(PROCESS_PAYMENTS);
-                permissions.add(PROCESS_REFUNDS);
-                permissions.add(MANAGE_STRIPE);
-                permissions.add(MANAGE_BUSINESS_SETTINGS);
+                permissions.add(MEMBER_VIEW);
+                permissions.add(MEMBER_CREATE);
+                permissions.add(MEMBER_EDIT);
+                permissions.add(MEMBER_DELETE);
+                permissions.add(MEMBERSHIP_VIEW);
+                permissions.add(MEMBERSHIP_CREATE);
+                permissions.add(MEMBERSHIP_EDIT);
+                permissions.add(MEMBERSHIP_DELETE);
+                permissions.add(MEMBERSHIP_ASSIGN);
+                permissions.add(ANALYTICS_VIEW_SIMPLE);
+                permissions.add(ANALYTICS_VIEW_REVENUE);
+                permissions.add(STAFF_VIEW);
+                permissions.add(STAFF_MANAGE);
+                permissions.add(STAFF_DELETE);
+                permissions.add(PRODUCT_VIEW);
+                permissions.add(PRODUCT_MANAGE);
+                permissions.add(PAYMENT_VIEW_HISTORY);
+                permissions.add(PAYMENT_PROCESS);
+                permissions.add(PAYMENT_REFUND);
+                permissions.add(STRIPE_ONBOARDING_MANAGE);
                 break;
         }
         

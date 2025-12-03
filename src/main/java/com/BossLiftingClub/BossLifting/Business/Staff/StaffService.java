@@ -1,4 +1,4 @@
-package com.BossLiftingClub.BossLifting.Club.Staff;
+package com.BossLiftingClub.BossLifting.Business.Staff;
 
 import java.util.List;
 

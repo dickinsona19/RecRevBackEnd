@@ -7,12 +7,12 @@ import com.stripe.model.*;
 import com.stripe.param.InvoiceCreateParams;
 import com.stripe.param.InvoiceItemCreateParams;
 import com.stripe.param.PaymentIntentConfirmParams;
+import com.stripe.param.ProductCreateParams;
+import com.stripe.param.PriceCreateParams;
 import com.stripe.param.TransferCreateParams;
 import org.springframework.stereotype.Service;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 @Service
 public class ProductServiceImpl implements ProductService {
@@ -34,7 +34,39 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public Products addProduct(Products product) {
-        return productRepository.save(product); // Just save to DB
+        try {
+            // 1. Create Stripe Product
+            ProductCreateParams.Builder productParamsBuilder = ProductCreateParams.builder()
+                    .setName(product.getName());
+            
+            if (product.getDefinition() != null && !product.getDefinition().isEmpty()) {
+                productParamsBuilder.setDescription(product.getDefinition());
+            }
+            
+            if (product.getImageUrl() != null && !product.getImageUrl().isEmpty()) {
+                productParamsBuilder.addImage(product.getImageUrl());
+            }
+
+            com.stripe.model.Product stripeProduct = com.stripe.model.Product.create(productParamsBuilder.build());
+            product.setStripeProductId(stripeProduct.getId());
+
+            // 2. Create Stripe Price
+            if (product.getPrice() != null && product.getPrice() > 0) {
+                long priceInCents = (long) (product.getPrice() * 100);
+                PriceCreateParams priceParams = PriceCreateParams.builder()
+                        .setProduct(stripeProduct.getId())
+                        .setUnitAmount(priceInCents)
+                        .setCurrency("usd")
+                        .build();
+                Price stripePrice = Price.create(priceParams);
+                product.setStripePriceId(stripePrice.getId());
+            }
+
+        } catch (StripeException e) {
+            throw new RuntimeException("Failed to create Stripe product/price: " + e.getMessage());
+        }
+        
+        return productRepository.save(product);
     }
 
     @Override

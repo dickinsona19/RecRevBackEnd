@@ -14,15 +14,15 @@ import java.util.Optional;
 public interface RecentActivityRepository extends JpaRepository<RecentActivity, Long> {
 
     /**
-     * Find recent activities for a specific club, ordered by most recent first
+     * Find recent activities for a specific business, ordered by most recent first
      */
-    List<RecentActivity> findByClubIdOrderByCreatedAtDesc(Long clubId);
+    List<RecentActivity> findByBusinessIdOrderByCreatedAtDesc(Long businessId);
 
     /**
-     * Find recent activities for a specific club within a time range
+     * Find recent activities for a specific business within a time range
      */
-    @Query("SELECT ra FROM RecentActivity ra WHERE ra.clubId = :clubId AND ra.createdAt >= :since ORDER BY ra.createdAt DESC")
-    List<RecentActivity> findRecentByClubId(@Param("clubId") Long clubId, @Param("since") LocalDateTime since);
+    @Query("SELECT ra FROM RecentActivity ra WHERE ra.businessId = :businessId AND ra.createdAt >= :since ORDER BY ra.createdAt DESC")
+    List<RecentActivity> findRecentByBusinessId(@Param("businessId") Long businessId, @Param("since") LocalDateTime since);
 
     /**
      * Check if an event has already been processed (to prevent duplicates)
@@ -37,7 +37,7 @@ public interface RecentActivityRepository extends JpaRepository<RecentActivity, 
     int deleteOlderThan(@Param("cutoffDate") LocalDateTime cutoffDate);
 
     /**
-     * Count activities for a club
+     * Count activities for a business
      */
-    long countByClubId(Long clubId);
+    long countByBusinessId(Long businessId);
 }

@@ -27,6 +27,8 @@ public class BusinessDTO {
 
     private String stripeAccountId;
 
+    private String contactEmail;
+
     public static BusinessDTO mapToBusinessDTO(Business business) {
         BusinessDTO dto = new BusinessDTO();
         dto.setId(business.getId());
@@ -39,6 +41,7 @@ public class BusinessDTO {
         dto.setStaffId(business.getStaff() != null ? business.getStaff().getId() : null);
         dto.setOnboardingStatus(business.getOnboardingStatus());
         dto.setStripeAccountId(business.getStripeAccountId());
+        dto.setContactEmail(business.getContactEmail());
         return dto;
     }
 
@@ -120,6 +123,14 @@ public class BusinessDTO {
 
     public void setStripeAccountId(String stripeAccountId) {
         this.stripeAccountId = stripeAccountId;
+    }
+
+    public String getContactEmail() {
+        return contactEmail;
+    }
+
+    public void setContactEmail(String contactEmail) {
+        this.contactEmail = contactEmail;
     }
 }
 

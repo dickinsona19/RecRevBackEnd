@@ -7,9 +7,13 @@ public interface PromoService {
 
     List<PromoDTO> findAll();
 
+    List<PromoDTO> findAllByBusinessTag(String businessTag);
+
     Optional<PromoDTO> findById(Long id);
 
     Optional<PromoDTO> findByCodeToken(String codeToken);
+
+    PromoDTO createPromo(PromoCreateDTO createDTO);
 
     Promo save(Promo promo);
 

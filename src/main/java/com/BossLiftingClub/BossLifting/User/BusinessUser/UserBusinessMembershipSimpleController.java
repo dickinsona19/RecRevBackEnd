@@ -1,4 +1,4 @@
-package com.BossLiftingClub.BossLifting.User.ClubUser;
+package com.BossLiftingClub.BossLifting.User.BusinessUser;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -8,29 +8,54 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
- * Simplified controller for managing UserClubMembership with direct ID access
+ * Simplified controller for managing UserBusinessMembership with direct ID access
  */
 @RestController
-@RequestMapping("/api/user-club-memberships")
-public class UserClubMembershipSimpleController {
+@RequestMapping("/api/user-business-memberships")
+public class UserBusinessMembershipSimpleController {
 
     @Autowired
-    private UserClubService userClubService;
+    private UserBusinessService userBusinessService;
 
     @Autowired
-    private UserClubRepository userClubRepository;
+    private UserBusinessRepository userBusinessRepository;
 
     /**
-     * Add a new membership to a user's club relationship
-     * POST /api/user-club-memberships
+     * Apply a promo code to an existing membership
+     * POST /api/user-business-memberships/{id}/promo
+     * Request body: { "promoCode": "SAVE50" }
+     */
+    @PostMapping("/{id}/promo")
+    public ResponseEntity<?> applyPromoCode(@PathVariable Long id, @RequestBody Map<String, String> request) {
+        try {
+            String promoCode = request.get("promoCode");
+            if (promoCode == null || promoCode.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "promoCode is required"));
+            }
+
+            UserBusinessMembership updated = userBusinessService.applyPromoCodeToMembership(id, promoCode);
+            return ResponseEntity.ok(updated);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to apply promo code: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Add a new membership to a user's business relationship
+     * POST /api/user-business-memberships
      *
      * Request body:
      * {
-     *   "userClubId": 1,
+     *   "userBusinessId": 1,
      *   "membershipId": 2,
      *   "status": "ACTIVE"
      * }
@@ -39,9 +64,9 @@ public class UserClubMembershipSimpleController {
     public ResponseEntity<?> addMembership(@Valid @RequestBody MembershipAddRequest request) {
         try {
             // Validate required fields
-            if (request.getUserClubId() == null) {
+            if (request.getUserBusinessId() == null) {
                 return ResponseEntity.badRequest()
-                        .body(Map.of("error", "userClubId is required"));
+                        .body(Map.of("error", "userBusinessId is required"));
             }
             if (request.getMembershipId() == null) {
                 return ResponseEntity.badRequest()
@@ -51,16 +76,29 @@ public class UserClubMembershipSimpleController {
             // Parse anchor date from string (YYYY-MM-DD) to LocalDateTime
             LocalDateTime anchorDateTime = null;
             if (request.getAnchorDate() != null && !request.getAnchorDate().isEmpty()) {
-                anchorDateTime = java.time.LocalDate.parse(request.getAnchorDate()).atStartOfDay();
+                LocalDate requestedDate = java.time.LocalDate.parse(request.getAnchorDate());
+                if (requestedDate.equals(LocalDate.now())) {
+                    anchorDateTime = LocalDateTime.now();
+                } else {
+                    anchorDateTime = requestedDate.atStartOfDay();
+                }
             } else {
                 anchorDateTime = LocalDateTime.now();
             }
 
-            UserClubMembership membership = userClubService.addMembershipByUserClubId(
-                    request.getUserClubId(),
+            BigDecimal overridePrice = request.getCustomPrice() != null ? BigDecimal.valueOf(request.getCustomPrice()) : null;
+            if (overridePrice != null && overridePrice.compareTo(BigDecimal.ZERO) <= 0) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "customPrice must be greater than 0"));
+            }
+
+            UserBusinessMembership membership = userBusinessService.addMembershipByUserBusinessId(
+                    request.getUserBusinessId(),
                     request.getMembershipId(),
                     request.getStatus() != null ? request.getStatus() : "ACTIVE",
-                    anchorDateTime
+                    anchorDateTime,
+                    overridePrice,
+                    request.getPromoCode()
             );
 
             return ResponseEntity.status(HttpStatus.CREATED).body(membership);
@@ -75,7 +113,7 @@ public class UserClubMembershipSimpleController {
 
     /**
      * Update an existing membership by its ID
-     * PUT /api/user-club-memberships/{id}
+     * PUT /api/user-business-memberships/{id}
      */
     @PutMapping("/{id}")
     public ResponseEntity<?> updateMembership(
@@ -88,7 +126,7 @@ public class UserClubMembershipSimpleController {
                 anchorDateTime = java.time.LocalDate.parse(request.getAnchorDate()).atStartOfDay();
             }
 
-            UserClubMembership updated = userClubService.updateUserClubMembershipById(
+            UserBusinessMembership updated = userBusinessService.updateUserBusinessMembershipById(
                     id,
                     request.getStatus(),
                     anchorDateTime,
@@ -108,12 +146,12 @@ public class UserClubMembershipSimpleController {
 
     /**
      * Delete a membership by its ID (immediate cancellation)
-     * DELETE /api/user-club-memberships/{id}
+     * DELETE /api/user-business-memberships/{id}
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deleteMembership(@PathVariable Long id) {
         try {
-            userClubService.removeMembershipById(id, false); // false = cancel immediately
+            userBusinessService.removeMembershipById(id, false); // false = cancel immediately
 
             return ResponseEntity.ok(Map.of(
                     "message", "Membership cancelled successfully",
@@ -130,12 +168,12 @@ public class UserClubMembershipSimpleController {
 
     /**
      * Cancel a membership at the end of the billing period
-     * POST /api/user-club-memberships/{id}/cancel-at-period-end
+     * POST /api/user-business-memberships/{id}/cancel-at-period-end
      */
     @PostMapping("/{id}/cancel-at-period-end")
     public ResponseEntity<?> cancelMembershipAtPeriodEnd(@PathVariable Long id) {
         try {
-            UserClubMembership membership = userClubService.removeMembershipById(id, true); // true = cancel at period end
+            UserBusinessMembership membership = userBusinessService.removeMembershipById(id, true); // true = cancel at period end
 
             return ResponseEntity.ok(Map.of(
                     "message", "Membership will be cancelled at the end of the billing period",
@@ -153,12 +191,12 @@ public class UserClubMembershipSimpleController {
 
     /**
      * Get a specific membership by its ID
-     * GET /api/user-club-memberships/{id}
+     * GET /api/user-business-memberships/{id}
      */
     @GetMapping("/{id}")
     public ResponseEntity<?> getMembership(@PathVariable Long id) {
         try {
-            UserClubMembership membership = userClubService.getUserClubMembershipById(id);
+            UserBusinessMembership membership = userBusinessService.getUserBusinessMembershipById(id);
             return ResponseEntity.ok(membership);
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -171,7 +209,7 @@ public class UserClubMembershipSimpleController {
 
     /**
      * Pause a membership for a specified duration
-     * POST /api/user-club-memberships/{id}/pause
+     * POST /api/user-business-memberships/{id}/pause
      *
      * Request body:
      * {
@@ -188,7 +226,7 @@ public class UserClubMembershipSimpleController {
                         .body(Map.of("error", "pauseDurationWeeks must be a positive number"));
             }
 
-            UserClubMembership paused = userClubService.pauseMembership(id, request.getPauseDurationWeeks());
+            UserBusinessMembership paused = userBusinessService.pauseMembership(id, request.getPauseDurationWeeks());
             return ResponseEntity.ok(paused);
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -201,12 +239,12 @@ public class UserClubMembershipSimpleController {
 
     /**
      * Resume a paused membership
-     * POST /api/user-club-memberships/{id}/resume
+     * POST /api/user-business-memberships/{id}/resume
      */
     @PostMapping("/{id}/resume")
     public ResponseEntity<?> resumeMembership(@PathVariable Long id) {
         try {
-            UserClubMembership resumed = userClubService.resumeMembership(id);
+            UserBusinessMembership resumed = userBusinessService.resumeMembership(id);
             return ResponseEntity.ok(resumed);
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -219,22 +257,24 @@ public class UserClubMembershipSimpleController {
 
     // DTOs for request bodies
     public static class MembershipAddRequest {
-        @NotNull(message = "userClubId is required")
-        private Long userClubId;
+        @NotNull(message = "userBusinessId is required")
+        private Long userBusinessId;
         
         @NotNull(message = "membershipId is required")
         private Long membershipId;
         
         private String status;
         private String anchorDate;
+        private String promoCode;
+        private Double customPrice;
 
         // Getters and Setters
-        public Long getUserClubId() {
-            return userClubId;
+        public Long getUserBusinessId() {
+            return userBusinessId;
         }
 
-        public void setUserClubId(Long userClubId) {
-            this.userClubId = userClubId;
+        public void setUserBusinessId(Long userBusinessId) {
+            this.userBusinessId = userBusinessId;
         }
 
         public Long getMembershipId() {
@@ -260,6 +300,22 @@ public class UserClubMembershipSimpleController {
         public void setAnchorDate(String anchorDate) {
             this.anchorDate = anchorDate;
         }
+
+        public String getPromoCode() {
+            return promoCode;
+        }
+
+        public void setPromoCode(String promoCode) {
+            this.promoCode = promoCode;
+        }
+
+        public Double getCustomPrice() {
+            return customPrice;
+        }
+
+        public void setCustomPrice(Double customPrice) {
+            this.customPrice = customPrice;
+        }
     }
 
     public static class MembershipUpdateRequest {
@@ -267,6 +323,7 @@ public class UserClubMembershipSimpleController {
         private String anchorDate; // Changed to String to accept YYYY-MM-DD format
         private LocalDateTime endDate;
         private String stripeSubscriptionId;
+        private String promoCode;
 
         // Getters and Setters
         public String getStatus() {
@@ -299,6 +356,14 @@ public class UserClubMembershipSimpleController {
 
         public void setStripeSubscriptionId(String stripeSubscriptionId) {
             this.stripeSubscriptionId = stripeSubscriptionId;
+        }
+
+        public String getPromoCode() {
+            return promoCode;
+        }
+
+        public void setPromoCode(String promoCode) {
+            this.promoCode = promoCode;
         }
     }
 

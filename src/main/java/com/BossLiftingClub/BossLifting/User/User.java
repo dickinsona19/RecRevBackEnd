@@ -1,6 +1,6 @@
 package com.BossLiftingClub.BossLifting.User;
 
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
 import com.BossLiftingClub.BossLifting.User.UserTitles.UserTitles;
@@ -89,7 +89,7 @@ public class User {
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
-    private List<UserClub> userClubs = new ArrayList<>();
+    private List<UserBusiness> userBusinesses = new ArrayList<>();
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
@@ -137,7 +137,7 @@ public class User {
     // Constructor with fields (excluding id, which is auto-generated)
     public User(String firstName, String lastName, String password, String phoneNumber,
                 Boolean isInGoodStanding, String entryQrcodeToken, String userStripeMemberId,
-                UserTitles userTitles) {
+                UserTitles userTitles, String email) {
         this.firstName = firstName;
         this.lastName = lastName;
         this.password = password;
@@ -147,11 +147,12 @@ public class User {
         this.entryQrcodeToken = entryQrcodeToken;
         this.userStripeMemberId = userStripeMemberId;
         this.userTitles = userTitles;
+        this.email = email;
     }
 
-    public List<String> getClubTags() {
-        return userClubs.stream()
-                .map(userClub -> userClub.getBusiness().getBusinessTag() != null ? userClub.getBusiness().getBusinessTag() : "CLT_0001")
+    public List<String> getBusinessTags() {
+        return userBusinesses.stream()
+                .map(userBusiness -> userBusiness.getBusiness().getBusinessTag() != null ? userBusiness.getBusiness().getBusinessTag() : "CLT_0001")
                 .collect(Collectors.toList());
     }
 
@@ -341,12 +342,12 @@ public class User {
         this.signInLogs = signInLogs;
     }
 
-    public List<UserClub> getUserClubs() {
-        return userClubs;
+    public List<UserBusiness> getUserBusinesses() {
+        return userBusinesses;
     }
 
-    public void setUserClubs(List<UserClub> userClubs) {
-        this.userClubs = userClubs;
+    public void setUserBusinesses(List<UserBusiness> userBusinesses) {
+        this.userBusinesses = userBusinesses;
     }
 
     public String getEmail() {

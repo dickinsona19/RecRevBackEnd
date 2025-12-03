@@ -2,8 +2,8 @@ package com.BossLiftingClub.BossLifting.Business;
 
 
 import com.BossLiftingClub.BossLifting.Client.Client;
-import com.BossLiftingClub.BossLifting.Club.Staff.Staff;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
+import com.BossLiftingClub.BossLifting.Business.Staff.Staff;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
@@ -44,6 +44,9 @@ public class Business {
     @Column(name = "onboarding_status")
     private String onboardingStatus;
 
+    @Column(name = "contact_email")
+    private String contactEmail;
+
     @ManyToOne
     @JoinColumn(name = "client_id")
     @JsonBackReference
@@ -55,7 +58,7 @@ public class Business {
 
     @OneToMany(mappedBy = "business", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
-    private List<UserClub> userClubs = new ArrayList<>();
+    private List<UserBusiness> userBusinesses = new ArrayList<>();
 
     public Long getId() {
         return id;
@@ -121,12 +124,12 @@ public class Business {
         this.staff = staff;
     }
 
-    public List<UserClub> getUserClubs() {
-        return userClubs;
+    public List<UserBusiness> getUserBusinesses() {
+        return userBusinesses;
     }
 
-    public void setUserClubs(List<UserClub> userClubs) {
-        this.userClubs = userClubs;
+    public void setUserBusinesses(List<UserBusiness> userBusinesses) {
+        this.userBusinesses = userBusinesses;
     }
 
     public String getStripeAccountId() {
@@ -143,6 +146,14 @@ public class Business {
 
     public void setOnboardingStatus(String onboardingStatus) {
         this.onboardingStatus = onboardingStatus;
+    }
+
+    public String getContactEmail() {
+        return contactEmail;
+    }
+
+    public void setContactEmail(String contactEmail) {
+        this.contactEmail = contactEmail;
     }
 
 }

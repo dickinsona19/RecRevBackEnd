@@ -1,10 +1,9 @@
 package com.BossLiftingClub.BossLifting.Payment;
 
 import com.BossLiftingClub.BossLifting.Business.Business;
-import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
 import com.BossLiftingClub.BossLifting.Stripe.StripeService;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubRepository;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessRepository;
 import com.stripe.exception.StripeException;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
@@ -16,9 +15,9 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/payment")
@@ -28,40 +27,46 @@ public class PaymentController {
     private StripeService stripeService;
 
     @Autowired
-    private UserClubRepository userClubRepository;
-
-    @Autowired
-    private BusinessRepository businessRepository;
+    private UserBusinessRepository userBusinessRepository;
 
     @Autowired
     private JavaMailSender mailSender;
 
     @Autowired
     private ApplicationContext applicationContext;
+    
+    @Autowired
+    private com.BossLiftingClub.BossLifting.Payment.FailedPayment.FailedPaymentRetryService failedPaymentRetryService;
 
     /**
      * Check if a user has a default payment method
      */
     @GetMapping("/check-payment-method")
     public ResponseEntity<?> checkPaymentMethod(
-            @RequestParam Long userClubId
+            @RequestParam(required = false) Long userBusinessId,
+            @RequestParam(required = false) Long userClubId
     ) {
+        Long id = userBusinessId != null ? userBusinessId : userClubId;
+        if (id == null) {
+             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "userBusinessId (or userClubId) is required"));
+        }
         try {
-            UserClub userClub = userClubRepository.findById(userClubId)
-                    .orElseThrow(() -> new RuntimeException("UserClub not found"));
+            UserBusiness userBusiness = userBusinessRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("UserBusiness not found"));
 
-            String stripeCustomerId = userClub.getStripeId();
+            String stripeCustomerId = userBusiness.getStripeId();
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
                 return ResponseEntity.ok(Map.of("hasPaymentMethod", false));
             }
 
-            Business club = userClub.getBusiness();
-            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+            Business business = userBusiness.getBusiness();
+            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
             }
 
-            String stripeAccountId = club.getStripeAccountId();
+            String stripeAccountId = business.getStripeAccountId();
 
             boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
 
@@ -77,25 +82,31 @@ public class PaymentController {
      */
     @GetMapping("/payment-method-details")
     public ResponseEntity<?> getPaymentMethodDetails(
-            @RequestParam Long userClubId
+            @RequestParam(required = false) Long userBusinessId,
+            @RequestParam(required = false) Long userClubId
     ) {
+        Long id = userBusinessId != null ? userBusinessId : userClubId;
+        if (id == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "userBusinessId (or userClubId) is required"));
+        }
         try {
-            UserClub userClub = userClubRepository.findById(userClubId)
-                    .orElseThrow(() -> new RuntimeException("UserClub not found"));
+            UserBusiness userBusiness = userBusinessRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("UserBusiness not found"));
 
-            String stripeCustomerId = userClub.getStripeId();
+            String stripeCustomerId = userBusiness.getStripeId();
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(Map.of("error", "No Stripe customer ID found"));
             }
 
-            Business club = userClub.getBusiness();
-            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+            Business business = userBusiness.getBusiness();
+            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
             }
 
-            String stripeAccountId = club.getStripeAccountId();
+            String stripeAccountId = business.getStripeAccountId();
 
             Map<String, String> paymentMethodDetails = stripeService.getPaymentMethodDetails(stripeCustomerId, stripeAccountId);
 
@@ -112,7 +123,16 @@ public class PaymentController {
     @PostMapping("/update-payment-method")
     public ResponseEntity<?> updatePaymentMethod(@RequestBody Map<String, Object> request) {
         try {
-            Long userClubId = Long.parseLong(request.get("userClubId").toString());
+            Long userBusinessId;
+            if (request.get("userBusinessId") != null) {
+                userBusinessId = Long.parseLong(request.get("userBusinessId").toString());
+            } else if (request.get("userClubId") != null) {
+                userBusinessId = Long.parseLong(request.get("userClubId").toString());
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "userBusinessId (or userClubId) is required"));
+            }
+            
             String paymentMethodId = (String) request.get("paymentMethodId");
 
             if (paymentMethodId == null || paymentMethodId.isEmpty()) {
@@ -120,31 +140,31 @@ public class PaymentController {
                         .body(Map.of("error", "Payment method ID is required"));
             }
 
-            UserClub userClub = userClubRepository.findById(userClubId)
-                    .orElseThrow(() -> new RuntimeException("UserClub not found"));
+            UserBusiness userBusiness = userBusinessRepository.findById(userBusinessId)
+                    .orElseThrow(() -> new RuntimeException("UserBusiness not found"));
 
-            String stripeCustomerId = userClub.getStripeId();
+            String stripeCustomerId = userBusiness.getStripeId();
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "User does not have a Stripe customer ID"));
             }
 
-            Business club = userClub.getBusiness();
-            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+            Business business = userBusiness.getBusiness();
+            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
             }
 
-            if (club.getStripeAccountId() == null) {
+            if (business.getStripeAccountId() == null) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Club does not have Stripe configured"));
+                        .body(Map.of("error", "Business does not have Stripe configured"));
             }
 
             // Attach and set as default payment method
             stripeService.attachPaymentMethodOnConnectedAccount(
                     stripeCustomerId,
                     paymentMethodId,
-                    club.getStripeAccountId()
+                    business.getStripeAccountId()
             );
 
             return ResponseEntity.ok(Map.of(
@@ -166,33 +186,42 @@ public class PaymentController {
     @PostMapping("/create-checkout-session")
     public ResponseEntity<?> createCheckoutSession(@RequestBody Map<String, Object> request) {
         try {
-            Long userClubId = Long.parseLong(request.get("userClubId").toString());
+            Long userBusinessId;
+            if (request.get("userBusinessId") != null) {
+                userBusinessId = Long.parseLong(request.get("userBusinessId").toString());
+            } else if (request.get("userClubId") != null) {
+                userBusinessId = Long.parseLong(request.get("userClubId").toString());
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "userBusinessId (or userClubId) is required"));
+            }
+            
             String successUrl = (String) request.get("successUrl");
             String cancelUrl = (String) request.get("cancelUrl");
 
-            UserClub userClub = userClubRepository.findById(userClubId)
-                    .orElseThrow(() -> new RuntimeException("UserClub not found"));
+            UserBusiness userBusiness = userBusinessRepository.findById(userBusinessId)
+                    .orElseThrow(() -> new RuntimeException("UserBusiness not found"));
 
-            String stripeCustomerId = userClub.getStripeId();
+            String stripeCustomerId = userBusiness.getStripeId();
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "User does not have a Stripe customer ID"));
             }
 
-            Business club = userClub.getBusiness();
-            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+            Business business = userBusiness.getBusiness();
+            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
             }
 
-            if (club.getStripeAccountId() == null) {
+            if (business.getStripeAccountId() == null) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Club does not have Stripe configured"));
+                        .body(Map.of("error", "Business does not have Stripe configured"));
             }
 
             String checkoutUrl = stripeService.createPaymentMethodCheckoutSession(
                     stripeCustomerId,
-                    club.getStripeAccountId(),
+                    business.getStripeAccountId(),
                     successUrl,
                     cancelUrl
             );
@@ -213,44 +242,53 @@ public class PaymentController {
     @PostMapping("/send-payment-link")
     public ResponseEntity<?> sendPaymentLink(@RequestBody Map<String, Object> request) {
         try {
-            Long userClubId = Long.parseLong(request.get("userClubId").toString());
+            Long userBusinessId;
+            if (request.get("userBusinessId") != null) {
+                userBusinessId = Long.parseLong(request.get("userBusinessId").toString());
+            } else if (request.get("userClubId") != null) {
+                userBusinessId = Long.parseLong(request.get("userClubId").toString());
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "userBusinessId (or userClubId) is required"));
+            }
+            
             String successUrl = (String) request.get("successUrl");
             String cancelUrl = (String) request.get("cancelUrl");
 
-            UserClub userClub = userClubRepository.findById(userClubId)
-                    .orElseThrow(() -> new RuntimeException("UserClub not found"));
+            UserBusiness userBusiness = userBusinessRepository.findById(userBusinessId)
+                    .orElseThrow(() -> new RuntimeException("UserBusiness not found"));
 
-            String stripeCustomerId = userClub.getStripeId();
+            String stripeCustomerId = userBusiness.getStripeId();
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "User does not have a Stripe customer ID"));
             }
 
-            Business club = userClub.getBusiness();
-            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+            Business business = userBusiness.getBusiness();
+            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
             }
 
-            if (club.getStripeAccountId() == null) {
+            if (business.getStripeAccountId() == null) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Club does not have Stripe configured"));
+                        .body(Map.of("error", "Business does not have Stripe configured"));
             }
 
             // Create checkout session
             String checkoutUrl = stripeService.createPaymentMethodCheckoutSession(
                     stripeCustomerId,
-                    club.getStripeAccountId(),
+                    business.getStripeAccountId(),
                     successUrl,
                     cancelUrl
             );
 
             // Send email
-            String userEmail = userClub.getUser().getEmail();
-            String userName = userClub.getUser().getFirstName() + " " + userClub.getUser().getLastName();
-            String clubName = club.getTitle();
+            String userEmail = userBusiness.getUser().getEmail();
+            String userName = userBusiness.getUser().getFirstName() + " " + userBusiness.getUser().getLastName();
+            String businessName = business.getTitle();
 
-            sendPaymentMethodEmail(userEmail, userName, clubName, checkoutUrl);
+            sendPaymentMethodEmail(userEmail, userName, businessName, checkoutUrl);
 
             return ResponseEntity.ok(Map.of(
                     "success", true,
@@ -273,23 +311,31 @@ public class PaymentController {
      * GET /api/payment/payment-history?userClubId={id}
      */
     @GetMapping("/payment-history")
-    public ResponseEntity<?> getPaymentHistory(@RequestParam Long userClubId) {
+    public ResponseEntity<?> getPaymentHistory(
+            @RequestParam(required = false) Long userBusinessId,
+            @RequestParam(required = false) Long userClubId
+    ) {
+        Long id = userBusinessId != null ? userBusinessId : userClubId;
+        if (id == null) {
+             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "userBusinessId (or userClubId) is required"));
+        }
         try {
-            UserClub userClub = userClubRepository.findById(userClubId)
-                    .orElseThrow(() -> new RuntimeException("UserClub not found"));
+            UserBusiness userBusiness = userBusinessRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("UserBusiness not found"));
 
-            String stripeCustomerId = userClub.getStripeId();
+            String stripeCustomerId = userBusiness.getStripeId();
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
                 return ResponseEntity.ok(List.of()); // Return empty list if no Stripe customer
             }
 
-            Business club = userClub.getBusiness();
-            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+            Business business = userBusiness.getBusiness();
+            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
             }
 
-            String stripeAccountId = club.getStripeAccountId();
+            String stripeAccountId = business.getStripeAccountId();
 
             List<Map<String, Object>> paymentHistory = stripeService.getPaymentHistory(stripeCustomerId, stripeAccountId);
 
@@ -310,7 +356,16 @@ public class PaymentController {
     @PostMapping("/create-memberships-after-payment")
     public ResponseEntity<?> createMembershipsAfterPayment(@RequestBody Map<String, Object> request) {
         try {
-            Long userClubId = Long.parseLong(request.get("userClubId").toString());
+            Long userBusinessId;
+            if (request.get("userBusinessId") != null) {
+                userBusinessId = Long.parseLong(request.get("userBusinessId").toString());
+            } else if (request.get("userClubId") != null) {
+                userBusinessId = Long.parseLong(request.get("userClubId").toString());
+            } else {
+                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "userBusinessId (or userClubId) is required"));
+            }
+            
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> memberships = (List<Map<String, Object>>) request.get("memberships");
 
@@ -335,11 +390,22 @@ public class PaymentController {
                     anchorDate = java.time.LocalDateTime.now();
                 }
 
-                // Call the service to add membership (which will create subscription)
-                com.BossLiftingClub.BossLifting.User.ClubUser.UserClubService userClubService =
-                        applicationContext.getBean(com.BossLiftingClub.BossLifting.User.ClubUser.UserClubService.class);
+                String promoCode = (String) membership.get("promoCode");
+                BigDecimal overridePrice = null;
+                if (membership.get("customPrice") != null) {
+                    double customPriceVal = Double.parseDouble(membership.get("customPrice").toString());
+                    if (customPriceVal <= 0) {
+                        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                                .body(Map.of("error", "customPrice must be greater than 0"));
+                    }
+                    overridePrice = BigDecimal.valueOf(customPriceVal);
+                }
 
-                userClubService.addMembershipByUserClubId(userClubId, membershipId, status, anchorDate);
+                // Call the service to add membership (which will create subscription)
+                com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService =
+                        applicationContext.getBean(com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService.class);
+
+                userBusinessService.addMembershipByUserBusinessId(userBusinessId, membershipId, status, anchorDate, overridePrice, promoCode);
             }
 
             return ResponseEntity.ok(Map.of(
@@ -380,9 +446,9 @@ public class PaymentController {
 
             System.out.println("🔔 Event type: " + eventType);
 
-            // Get UserClubService
-            com.BossLiftingClub.BossLifting.User.ClubUser.UserClubService userClubService =
-                    applicationContext.getBean(com.BossLiftingClub.BossLifting.User.ClubUser.UserClubService.class);
+            // Get UserBusinessService
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService =
+                    applicationContext.getBean(com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService.class);
 
             switch (eventType) {
                 case "checkout.session.completed":
@@ -390,27 +456,27 @@ public class PaymentController {
                     break;
 
                 case "customer.subscription.updated":
-                    handleSubscriptionUpdated(event, userClubService);
+                    handleSubscriptionUpdated(event, userBusinessService);
                     break;
 
                 case "customer.subscription.deleted":
-                    handleSubscriptionDeleted(event, userClubService);
+                    handleSubscriptionDeleted(event, userBusinessService);
                     break;
 
                 case "customer.subscription.paused":
-                    handleSubscriptionPaused(event, userClubService);
+                    handleSubscriptionPaused(event, userBusinessService);
                     break;
 
                 case "customer.subscription.resumed":
-                    handleSubscriptionResumed(event, userClubService);
+                    handleSubscriptionResumed(event, userBusinessService);
                     break;
 
                 case "invoice.payment_failed":
-                    handlePaymentFailed(event, userClubService);
+                    handlePaymentFailed(event, userBusinessService);
                     break;
 
                 case "invoice.payment_succeeded":
-                    handlePaymentSucceeded(event, userClubService);
+                    handlePaymentSucceeded(event, userBusinessService);
                     break;
 
                 default:
@@ -460,7 +526,7 @@ public class PaymentController {
      * Handle customer.subscription.updated - Update membership status based on Stripe state
      */
     private void handleSubscriptionUpdated(com.stripe.model.Event event,
-            com.BossLiftingClub.BossLifting.User.ClubUser.UserClubService userClubService) {
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService) {
         try {
             com.stripe.model.Subscription subscription = (com.stripe.model.Subscription)
                     event.getDataObjectDeserializer().getObject().orElse(null);
@@ -473,7 +539,7 @@ public class PaymentController {
             System.out.println("📝 Subscription updated: " + subscriptionId + " -> " + status);
 
             // Find the membership by Stripe subscription ID
-            com.BossLiftingClub.BossLifting.User.ClubUser.UserClubMembership membership =
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership membership =
                     findMembershipByStripeSubscriptionId(subscriptionId);
 
             if (membership == null) {
@@ -490,7 +556,7 @@ public class PaymentController {
                     // Update status to PAUSED if it was PAUSE_SCHEDULED
                     if ("PAUSE_SCHEDULED".equalsIgnoreCase(membership.getStatus())) {
                         membership.setStatus("PAUSED");
-                        userClubService.updateUserClubMembershipById(
+                        userBusinessService.updateUserBusinessMembershipById(
                                 membership.getId(), "PAUSED", null, null, null);
                         System.out.println("✅ Membership " + membership.getId() + " status updated to PAUSED");
                     }
@@ -505,7 +571,7 @@ public class PaymentController {
                     java.time.LocalDateTime cancelDate = java.time.LocalDateTime.ofEpochSecond(
                             cancelAt, 0, java.time.ZoneOffset.UTC);
 
-                    userClubService.updateUserClubMembershipById(
+                    userBusinessService.updateUserBusinessMembershipById(
                             membership.getId(), "CANCELLING", null, cancelDate, null);
                     System.out.println("✅ Membership " + membership.getId() + " scheduled for cancellation at " + cancelDate);
                 }
@@ -513,7 +579,7 @@ public class PaymentController {
 
             // If subscription becomes active after being paused
             if ("active".equals(status) && "PAUSED".equalsIgnoreCase(membership.getStatus())) {
-                userClubService.updateUserClubMembershipById(
+                userBusinessService.updateUserBusinessMembershipById(
                         membership.getId(), "ACTIVE", null, null, null);
                 System.out.println("✅ Membership " + membership.getId() + " reactivated");
             }
@@ -528,7 +594,7 @@ public class PaymentController {
      * Handle customer.subscription.deleted - Remove membership from database
      */
     private void handleSubscriptionDeleted(com.stripe.model.Event event,
-            com.BossLiftingClub.BossLifting.User.ClubUser.UserClubService userClubService) {
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService) {
         try {
             com.stripe.model.Subscription subscription = (com.stripe.model.Subscription)
                     event.getDataObjectDeserializer().getObject().orElse(null);
@@ -539,14 +605,14 @@ public class PaymentController {
             System.out.println("🗑️  Subscription deleted: " + subscriptionId);
 
             // Find and delete the membership
-            com.BossLiftingClub.BossLifting.User.ClubUser.UserClubMembership membership =
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership membership =
                     findMembershipByStripeSubscriptionId(subscriptionId);
 
             if (membership != null) {
                 // Delete the membership from database since it's cancelled in Stripe
-                com.BossLiftingClub.BossLifting.User.ClubUser.UserClub userClub = membership.getUserClub();
-                userClub.removeMembership(membership);
-                userClubRepository.save(userClub);
+                com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness userBusiness = membership.getUserBusiness();
+                userBusiness.removeMembership(membership);
+                userBusinessRepository.save(userBusiness);
                 System.out.println("✅ Membership " + membership.getId() + " deleted from database");
             }
 
@@ -559,7 +625,7 @@ public class PaymentController {
      * Handle customer.subscription.paused - Update membership to PAUSED status
      */
     private void handleSubscriptionPaused(com.stripe.model.Event event,
-            com.BossLiftingClub.BossLifting.User.ClubUser.UserClubService userClubService) {
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService) {
         try {
             com.stripe.model.Subscription subscription = (com.stripe.model.Subscription)
                     event.getDataObjectDeserializer().getObject().orElse(null);
@@ -569,11 +635,11 @@ public class PaymentController {
             String subscriptionId = subscription.getId();
             System.out.println("⏸️  Subscription paused: " + subscriptionId);
 
-            com.BossLiftingClub.BossLifting.User.ClubUser.UserClubMembership membership =
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership membership =
                     findMembershipByStripeSubscriptionId(subscriptionId);
 
             if (membership != null && !"PAUSED".equalsIgnoreCase(membership.getStatus())) {
-                userClubService.updateUserClubMembershipById(
+                userBusinessService.updateUserBusinessMembershipById(
                         membership.getId(), "PAUSED", null, null, null);
                 System.out.println("✅ Membership " + membership.getId() + " status updated to PAUSED");
             }
@@ -587,7 +653,7 @@ public class PaymentController {
      * Handle customer.subscription.resumed - Update membership to ACTIVE status
      */
     private void handleSubscriptionResumed(com.stripe.model.Event event,
-            com.BossLiftingClub.BossLifting.User.ClubUser.UserClubService userClubService) {
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService) {
         try {
             com.stripe.model.Subscription subscription = (com.stripe.model.Subscription)
                     event.getDataObjectDeserializer().getObject().orElse(null);
@@ -597,14 +663,14 @@ public class PaymentController {
             String subscriptionId = subscription.getId();
             System.out.println("▶️  Subscription resumed: " + subscriptionId);
 
-            com.BossLiftingClub.BossLifting.User.ClubUser.UserClubMembership membership =
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership membership =
                     findMembershipByStripeSubscriptionId(subscriptionId);
 
             if (membership != null && !"ACTIVE".equalsIgnoreCase(membership.getStatus())) {
                 // Clear pause dates and set to active
                 membership.setPauseStartDate(null);
                 membership.setPauseEndDate(null);
-                userClubService.updateUserClubMembershipById(
+                userBusinessService.updateUserBusinessMembershipById(
                         membership.getId(), "ACTIVE", null, null, null);
                 System.out.println("✅ Membership " + membership.getId() + " resumed and set to ACTIVE");
             }
@@ -615,10 +681,10 @@ public class PaymentController {
     }
 
     /**
-     * Handle invoice.payment_failed - Mark membership as payment failed
+     * Handle invoice.payment_failed - Create failed payment attempt and schedule retries
      */
     private void handlePaymentFailed(com.stripe.model.Event event,
-            com.BossLiftingClub.BossLifting.User.ClubUser.UserClubService userClubService) {
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService) {
         try {
             com.stripe.model.Invoice invoice = (com.stripe.model.Invoice)
                     event.getDataObjectDeserializer().getObject().orElse(null);
@@ -626,27 +692,62 @@ public class PaymentController {
             if (invoice == null) return;
 
             String subscriptionId = invoice.getSubscription();
-            System.out.println("❌ Payment failed for subscription: " + subscriptionId);
+            String customerId = invoice.getCustomer();
+            String invoiceId = invoice.getId();
+            
+            System.out.println("❌ Payment failed for subscription: " + subscriptionId + ", invoice: " + invoiceId);
 
-            com.BossLiftingClub.BossLifting.User.ClubUser.UserClubMembership membership =
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership membership =
                     findMembershipByStripeSubscriptionId(subscriptionId);
 
             if (membership != null) {
-                // You could add a payment_failed status or send notification
-                System.out.println("⚠️  Payment failed for membership: " + membership.getId());
-                // Optionally: Update status or send email notification
+                com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness userBusiness = membership.getUserBusiness();
+                com.BossLiftingClub.BossLifting.User.User user = userBusiness.getUser();
+                Business business = userBusiness.getBusiness();
+                
+                // Get failure reason
+                String failureReason = "Payment failed";
+                if (invoice.getLastFinalizationError() != null && invoice.getLastFinalizationError().getMessage() != null) {
+                    failureReason = invoice.getLastFinalizationError().getMessage();
+                }
+                
+                // Calculate amount
+                double amount = 0.0;
+                if (invoice.getAmountDue() != null) {
+                    amount = invoice.getAmountDue() / 100.0;
+                } else if (invoice.getTotal() != null) {
+                    amount = invoice.getTotal() / 100.0;
+                }
+                
+                // Create or update failed payment attempt (tracks Stripe's retry attempts)
+                // This will send initial notification on first failure, or update retry count on subsequent failures
+                failedPaymentRetryService.createOrUpdateFailedPaymentAttempt(
+                    invoiceId,
+                    user.getId(),
+                    userBusiness.getId(),
+                    business.getId(),
+                    java.math.BigDecimal.valueOf(amount),
+                    failureReason,
+                    customerId,
+                    subscriptionId
+                );
+                
+                System.out.println("✅ Created/updated failed payment attempt for invoice: " + invoiceId + ", user: " + user.getId());
+            } else {
+                System.out.println("⚠️  No membership found for subscription: " + subscriptionId);
             }
 
         } catch (Exception e) {
             System.err.println("❌ Error in handlePaymentFailed: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
     /**
-     * Handle invoice.payment_succeeded - Confirm payment success
+     * Handle invoice.payment_succeeded - Mark failed payment attempt as succeeded (if it exists)
      */
     private void handlePaymentSucceeded(com.stripe.model.Event event,
-            com.BossLiftingClub.BossLifting.User.ClubUser.UserClubService userClubService) {
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService) {
         try {
             com.stripe.model.Invoice invoice = (com.stripe.model.Invoice)
                     event.getDataObjectDeserializer().getObject().orElse(null);
@@ -654,10 +755,15 @@ public class PaymentController {
             if (invoice == null) return;
 
             String subscriptionId = invoice.getSubscription();
-            System.out.println("✅ Payment succeeded for subscription: " + subscriptionId);
+            String invoiceId = invoice.getId();
+            System.out.println("✅ Payment succeeded for subscription: " + subscriptionId + ", invoice: " + invoiceId);
+
+            // Mark failed payment attempt as succeeded (if one exists)
+            // This handles cases where Stripe successfully retried a previously failed payment
+            failedPaymentRetryService.markPaymentSucceeded(invoiceId);
 
             // Ensure membership is active if payment succeeded
-            com.BossLiftingClub.BossLifting.User.ClubUser.UserClubMembership membership =
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership membership =
                     findMembershipByStripeSubscriptionId(subscriptionId);
 
             if (membership != null &&
@@ -665,7 +771,7 @@ public class PaymentController {
                 !"PAUSE_SCHEDULED".equalsIgnoreCase(membership.getStatus()) &&
                 !"CANCELLING".equalsIgnoreCase(membership.getStatus())) {
 
-                userClubService.updateUserClubMembershipById(
+                userBusinessService.updateUserBusinessMembershipById(
                         membership.getId(), "ACTIVE", null, null, null);
                 System.out.println("✅ Membership " + membership.getId() + " reactivated after successful payment");
             }
@@ -678,11 +784,11 @@ public class PaymentController {
     /**
      * Helper method to find a membership by Stripe subscription ID
      */
-    private com.BossLiftingClub.BossLifting.User.ClubUser.UserClubMembership findMembershipByStripeSubscriptionId(String subscriptionId) {
-        List<com.BossLiftingClub.BossLifting.User.ClubUser.UserClub> allUserClubs = userClubRepository.findAll();
+    private com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership findMembershipByStripeSubscriptionId(String subscriptionId) {
+        List<com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness> allUserBusinesses = userBusinessRepository.findAll();
 
-        for (com.BossLiftingClub.BossLifting.User.ClubUser.UserClub userClub : allUserClubs) {
-            for (com.BossLiftingClub.BossLifting.User.ClubUser.UserClubMembership membership : userClub.getUserClubMemberships()) {
+        for (com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness userBusiness : allUserBusinesses) {
+            for (com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership membership : userBusiness.getUserBusinessMemberships()) {
                 if (subscriptionId.equals(membership.getStripeSubscriptionId())) {
                     return membership;
                 }
@@ -700,9 +806,13 @@ public class PaymentController {
     public ResponseEntity<?> processRefund(@RequestBody Map<String, Object> request) {
         try {
             String chargeId = (String) request.get("chargeId");
-            Long userClubId = request.get("userClubId") != null ?
-                Long.parseLong(request.get("userClubId").toString()) : null;
-
+            Long userBusinessId = null;
+            if (request.get("userBusinessId") != null) {
+                userBusinessId = Long.parseLong(request.get("userBusinessId").toString());
+            } else if (request.get("userClubId") != null) {
+                userBusinessId = Long.parseLong(request.get("userClubId").toString());
+            }
+            
             // Amount in dollars from frontend - convert to cents
             Double amountInDollars = request.get("amount") != null ?
                 ((Number) request.get("amount")).doubleValue() : null;
@@ -714,17 +824,17 @@ public class PaymentController {
                         .body(Map.of("error", "Charge ID is required"));
             }
 
-            // Get stripe account ID from user club if provided
+            // Get stripe account ID from user business if provided
             String stripeAccountId = null;
-            if (userClubId != null) {
-                UserClub userClub = userClubRepository.findById(userClubId)
-                        .orElseThrow(() -> new RuntimeException("UserClub not found"));
-                Business club = userClub.getBusiness();
-                if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+            if (userBusinessId != null) {
+                UserBusiness userBusiness = userBusinessRepository.findById(userBusinessId)
+                        .orElseThrow(() -> new RuntimeException("UserBusiness not found"));
+                Business business = userBusiness.getBusiness();
+                if (!"COMPLETED".equals(business.getOnboardingStatus())) {
                     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                             .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
                 }
-                stripeAccountId = club.getStripeAccountId();
+                stripeAccountId = business.getStripeAccountId();
             }
 
             System.out.println("💰 Processing refund for charge: " + chargeId);
@@ -796,7 +906,16 @@ public class PaymentController {
     @PostMapping("/process-product-payment")
     public ResponseEntity<?> processProductPayment(@RequestBody Map<String, Object> request) {
         try {
-            Long userClubId = Long.parseLong(request.get("userClubId").toString());
+            Long userBusinessId;
+            if (request.get("userBusinessId") != null) {
+                userBusinessId = Long.parseLong(request.get("userBusinessId").toString());
+            } else if (request.get("userClubId") != null) {
+                userBusinessId = Long.parseLong(request.get("userClubId").toString());
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "userBusinessId (or userClubId) is required"));
+            }
+
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> items = (List<Map<String, Object>>) request.get("items");
 
@@ -805,28 +924,28 @@ public class PaymentController {
                         .body(Map.of("error", "No items in cart"));
             }
 
-            // Get user club
-            UserClub userClub = userClubRepository.findById(userClubId)
-                    .orElseThrow(() -> new RuntimeException("UserClub not found"));
+            // Get user business
+            UserBusiness userBusiness = userBusinessRepository.findById(userBusinessId)
+                    .orElseThrow(() -> new RuntimeException("UserBusiness not found"));
 
-            String stripeCustomerId = userClub.getStripeId();
+            String stripeCustomerId = userBusiness.getStripeId();
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "User does not have a Stripe customer ID"));
             }
 
-            Business club = userClub.getBusiness();
-            if (!"COMPLETED".equals(club.getOnboardingStatus())) {
+            Business business = userBusiness.getBusiness();
+            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
             }
 
-            if (club.getStripeAccountId() == null) {
+            if (business.getStripeAccountId() == null) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Club does not have Stripe configured"));
+                        .body(Map.of("error", "Business does not have Stripe configured"));
             }
 
-            String stripeAccountId = club.getStripeAccountId();
+            String stripeAccountId = business.getStripeAccountId();
 
             // Check if user has payment method
             boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
@@ -863,7 +982,7 @@ public class PaymentController {
             // Convert to cents for Stripe
             long amountInCents = Math.round(total * 100);
 
-            System.out.println("💳 Processing product payment for userClubId: " + userClubId);
+            System.out.println("💳 Processing product payment for userBusinessId: " + userBusinessId);
             System.out.println("💰 Amount: $" + total + " (" + amountInCents + " cents)");
             System.out.println("📝 Description: " + description);
 
@@ -936,6 +1055,87 @@ public class PaymentController {
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to process payment: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Charge a one-off amount using the customer's default payment method
+     */
+    @PostMapping("/one-off-charge")
+    public ResponseEntity<?> createOneOffCharge(@RequestBody Map<String, Object> request) {
+        try {
+            Long userBusinessId = null;
+            if (request.get("userBusinessId") != null) {
+                userBusinessId = Long.parseLong(request.get("userBusinessId").toString());
+            } else if (request.get("userClubId") != null) {
+                userBusinessId = Long.parseLong(request.get("userClubId").toString());
+            }
+
+            if (userBusinessId == null) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "userBusinessId (or userClubId) is required"));
+            }
+
+            Double amountValue = request.get("amount") != null
+                    ? ((Number) request.get("amount")).doubleValue()
+                    : null;
+
+            if (amountValue == null || amountValue <= 0) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "A positive amount is required."));
+            }
+
+            String description = (String) request.getOrDefault("description", "One-off charge");
+
+            UserBusiness userBusiness = userBusinessRepository.findById(userBusinessId)
+                    .orElseThrow(() -> new RuntimeException("UserBusiness not found"));
+
+            String stripeCustomerId = userBusiness.getStripeId();
+            if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "User does not have a Stripe customer ID"));
+            }
+
+            Business business = userBusiness.getBusiness();
+            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
+            }
+
+            String stripeAccountId = business.getStripeAccountId();
+            boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
+            if (!hasPaymentMethod) {
+                return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
+                        .body(Map.of(
+                                "error", "No payment method on file",
+                                "requiresPaymentMethod", true
+                        ));
+            }
+
+            long amountInCents = Math.round(amountValue * 100);
+
+            Map<String, Object> paymentResult = stripeService.createOneTimePayment(
+                    stripeCustomerId,
+                    amountInCents,
+                    "usd",
+                    description,
+                    stripeAccountId
+            );
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Charge processed successfully!",
+                    "payment", paymentResult
+            ));
+        } catch (StripeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of(
+                            "error", e.getMessage(),
+                            "stripeError", e.getCode() != null ? e.getCode() : "unknown"
+                    ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to process one-off charge: " + e.getMessage()));
         }
     }
 

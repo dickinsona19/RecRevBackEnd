@@ -1,7 +1,8 @@
 package com.BossLiftingClub.BossLifting.Business;
 
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubService;
+import com.BossLiftingClub.BossLifting.Email.EmailService;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService;
 import com.BossLiftingClub.BossLifting.User.UserDTO;
 import com.stripe.exception.StripeException;
 import jakarta.persistence.EntityNotFoundException;
@@ -25,7 +26,10 @@ public class BusinessController {
     private BusinessService businessService;
 
     @Autowired
-    private UserClubService userClubService;
+    private UserBusinessService userBusinessService;
+
+    @Autowired
+    private EmailService emailService;
 
     @PostMapping
     public ResponseEntity<?> createBusiness(@Valid @RequestBody BusinessDTO businessDTO) {
@@ -50,29 +54,36 @@ public class BusinessController {
     @GetMapping("/{businessTag}/members")
     public ResponseEntity<?> getMembersByBusinessTag(@PathVariable String businessTag) {
         try {
-            List<UserClub> userClubs = userClubService.getUsersByBusinessTag(businessTag);
+            List<UserBusiness> userBusinesses = userBusinessService.getUsersByBusinessTag(businessTag);
 
             // Map to DTOs with user information and multiple memberships
-            List<Map<String, Object>> members = userClubs.stream()
-                    .map(uc -> {
+            List<Map<String, Object>> members = userBusinesses.stream()
+                    .map(ub -> {
                         Map<String, Object> member = new java.util.HashMap<>();
-                        UserDTO userDTO = new UserDTO(uc.getUser());
+                        UserDTO userDTO = new UserDTO(ub.getUser());
 
-                        // Map memberships from UserClubMembership junction table
-                        List<Map<String, Object>> memberships = uc.getUserClubMemberships().stream()
-                                .map(ucm -> {
+                        // Map memberships from UserBusinessMembership junction table
+                        List<Map<String, Object>> memberships = ub.getUserBusinessMemberships().stream()
+                                .map(ubm -> {
                                     Map<String, Object> membershipData = new java.util.HashMap<>();
-                                    membershipData.put("id", ucm.getId());
-                                    membershipData.put("membershipId", ucm.getMembership().getId());
-                                    membershipData.put("title", ucm.getMembership().getTitle());
-                                    membershipData.put("price", ucm.getMembership().getPrice());
-                                    membershipData.put("chargeInterval", ucm.getMembership().getChargeInterval());
-                                    membershipData.put("status", ucm.getStatus());
-                                    membershipData.put("anchorDate", ucm.getAnchorDate());
-                                    membershipData.put("endDate", ucm.getEndDate());
-                                    membershipData.put("stripeSubscriptionId", ucm.getStripeSubscriptionId());
-                                    membershipData.put("pauseStartDate", ucm.getPauseStartDate());
-                                    membershipData.put("pauseEndDate", ucm.getPauseEndDate());
+                                    membershipData.put("id", ubm.getId());
+                                    membershipData.put("membershipId", ubm.getMembership().getId());
+                                    membershipData.put("title", ubm.getMembership().getTitle());
+                                    membershipData.put("price", ubm.getMembership().getPrice());
+                                    membershipData.put("chargeInterval", ubm.getMembership().getChargeInterval());
+                                    membershipData.put("status", ubm.getStatus());
+                                    membershipData.put("anchorDate", ubm.getAnchorDate());
+                                    membershipData.put("endDate", ubm.getEndDate());
+                                    membershipData.put("stripeSubscriptionId", ubm.getStripeSubscriptionId());
+                                    membershipData.put("pauseStartDate", ubm.getPauseStartDate());
+                                    membershipData.put("pauseEndDate", ubm.getPauseEndDate());
+                                    if (ubm.getActualPrice() != null) {
+                                        membershipData.put("actualPrice", ubm.getActualPrice());
+                                    }
+                                    Double planPrice = parsePriceToDouble(ubm.getMembership().getPrice());
+                                    if (planPrice != null) {
+                                        membershipData.put("planPrice", planPrice);
+                                    }
                                     return membershipData;
                                 })
                                 .collect(Collectors.toList());
@@ -100,10 +111,10 @@ public class BusinessController {
                         }
 
                         member.put("user", userDTO);
-                        member.put("userClubId", uc.getId());
+                        member.put("userBusinessId", ub.getId());
                         member.put("status", calculatedStatus);
-                        member.put("stripeId", uc.getStripeId() != null ? uc.getStripeId() : "");
-                        member.put("createdAt", uc.getCreatedAt());
+                        member.put("stripeId", ub.getStripeId() != null ? ub.getStripeId() : "");
+                        member.put("createdAt", ub.getCreatedAt());
                         return member;
                     })
                     .collect(Collectors.toList());
@@ -137,7 +148,7 @@ public class BusinessController {
                         .body(Map.of("error", "Invalid status. Must be one of: ACTIVE, INACTIVE, CANCELLED, PENDING"));
             }
 
-            UserClub updatedRelationship = userClubService.updateUserClubStatus(userId, businessTag, newStatus.toUpperCase());
+            UserBusiness updatedRelationship = userBusinessService.updateUserBusinessStatus(userId, businessTag, newStatus.toUpperCase());
 
             return ResponseEntity.ok(Map.of(
                     "message", "Member status updated successfully",
@@ -162,7 +173,7 @@ public class BusinessController {
             @PathVariable String businessTag,
             @PathVariable Long userId) {
         try {
-            userClubService.removeUserFromBusiness(userId, businessTag);
+            userBusinessService.removeUserFromBusiness(userId, businessTag);
 
             return ResponseEntity.ok(Map.of(
                     "message", "Member removed from business successfully",
@@ -245,39 +256,6 @@ public class BusinessController {
                     .body(Map.of("error", "Failed to create dashboard link: " + e.getMessage()));
         }
     }
-    
-    // Backward compatibility endpoints - map clubTag to businessTag
-    @GetMapping("/club/{clubTag}/members")
-    public ResponseEntity<?> getMembersByClubTagLegacy(@PathVariable String clubTag) {
-        return getMembersByBusinessTag(clubTag);
-    }
-    
-    @PutMapping("/club/{clubTag}/members/{userId}/status")
-    public ResponseEntity<?> updateMemberStatusLegacy(
-            @PathVariable String clubTag,
-            @PathVariable Long userId,
-            @RequestBody Map<String, String> request) {
-        return updateMemberStatus(clubTag, userId, request);
-    }
-    
-    @DeleteMapping("/club/{clubTag}/members/{userId}")
-    public ResponseEntity<?> removeMemberFromClubLegacy(
-            @PathVariable String clubTag,
-            @PathVariable Long userId) {
-        return removeMemberFromBusiness(clubTag, userId);
-    }
-    
-    @PostMapping("/club/{clubTag}/stripe-onboarding")
-    public ResponseEntity<?> createStripeOnboardingLinkLegacy(
-            @PathVariable String clubTag,
-            @RequestBody Map<String, String> request) {
-        return createStripeOnboardingLink(clubTag, request);
-    }
-    
-    @GetMapping("/club/{clubTag}/stripe-dashboard-link")
-    public ResponseEntity<?> getStripeDashboardLinkLegacy(@PathVariable String clubTag) {
-        return getStripeDashboardLink(clubTag);
-    }
 
     @GetMapping("/id/{id}")
     public ResponseEntity<?> getBusinessById(@PathVariable Long id) {
@@ -300,9 +278,212 @@ public class BusinessController {
                     .body(Map.of("error", e.getMessage()));
         }
     }
+
+    /**
+     * Send a white-labeled email to a specific member.
+     */
+    @PostMapping("/{businessTag}/email/send-single")
+    public ResponseEntity<?> sendSingleEmail(
+            @PathVariable String businessTag,
+            @RequestBody EmailRequest request) {
+        try {
+            if (request.getUserBusinessId() == null) {
+                return ResponseEntity.badRequest().body(Map.of("error", "userBusinessId is required"));
+            }
+            if (request.getSubject() == null || request.getSubject().trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "subject is required"));
+            }
+            if (request.getBody() == null || request.getBody().trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "body is required"));
+            }
+
+            // 1. Retrieve UserBusiness to get both User and Business context
+            UserBusiness userBusiness = userBusinessService.getUserBusinessById(request.getUserBusinessId())
+                    .orElseThrow(() -> new EntityNotFoundException("Member not found with ID: " + request.getUserBusinessId()));
+
+            // 2. Verify business tag matches (security check)
+            if (!userBusiness.getBusiness().getBusinessTag().equals(businessTag)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Member does not belong to this business"));
+            }
+
+            // 3. Get recipient email
+            String recipientEmail = userBusiness.getUser().getEmail();
+            if (recipientEmail == null || recipientEmail.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Member has no email address"));
+            }
+
+            // 4. Get Business white-label details
+            Business business = userBusiness.getBusiness();
+            String businessName = business.getTitle();
+            String businessReplyTo = business.getContactEmail();
+
+            // Fallback if contact email is not set
+            if (businessReplyTo == null || businessReplyTo.isEmpty()) {
+                 // Optional: use a default or fail. For now, let's use a noreply or just proceed with caution
+                 // But sendBlastEmail might require it. Let's use system default or throw error.
+                 // Better to require it, but for now let's use a placeholder or the business tag constructed email if valid
+                 // businessReplyTo = "support@" + businessTag + ".com"; // Risky if not real.
+                 // Let's require it for white labeling, or fallback to system default logic in EmailService if we allowed nulls there (we didn't).
+                 // Assuming BusinessService ensures it or we check here.
+                 // Let's fallback to a generic one if missing to prevent crash, or error out.
+                 // Erroring out encourages them to set it up.
+                 // But wait, older businesses might not have it.
+                 // Let's check if we can use a default.
+                 businessReplyTo = "noreply@recrev.com"; // Safe fallback?
+            }
+
+            // 5. Send email
+            emailService.sendBlastEmail(recipientEmail, request.getSubject(), request.getBody(), businessName, businessReplyTo);
+
+            return ResponseEntity.ok(Map.of("message", "Email sent successfully to " + recipientEmail));
+
+        } catch (EntityNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "Failed to send email: " + e.getMessage()));
+        }
+    }
+
+    // Request DTO
+    public static class EmailRequest {
+        private Long userBusinessId;
+        private String subject;
+        private String body;
+
+        public Long getUserBusinessId() {
+            return userBusinessId;
+        }
+
+        public void setUserBusinessId(Long userBusinessId) {
+            this.userBusinessId = userBusinessId;
+        }
+
+        public String getSubject() {
+            return subject;
+        }
+
+        public void setSubject(String subject) {
+            this.subject = subject;
+        }
+
+        public String getBody() {
+            return body;
+        }
+
+        public void setBody(String body) {
+            this.body = body;
+        }
+    }
+
+    /**
+     * Send white-labeled emails to multiple members.
+     */
+    @PostMapping("/{businessTag}/email/send-bulk")
+    public ResponseEntity<?> sendBulkEmail(
+            @PathVariable String businessTag,
+            @RequestBody BulkEmailRequest request) {
+        try {
+            if (request.getUserBusinessIds() == null || request.getUserBusinessIds().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "userBusinessIds list is required"));
+            }
+            if (request.getSubject() == null || request.getSubject().trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "subject is required"));
+            }
+            if (request.getBody() == null || request.getBody().trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "body is required"));
+            }
+
+            int successCount = 0;
+            int failCount = 0;
+            List<String> failedEmails = new java.util.ArrayList<>();
+
+            // Get business details once
+            BusinessDTO businessDTO = businessService.getBusinessByTag(businessTag);
+            String businessName = businessDTO.getTitle();
+            String businessReplyTo = businessDTO.getContactEmail();
+
+            if (businessReplyTo == null || businessReplyTo.isEmpty()) {
+                businessReplyTo = "noreply@recrev.com"; 
+            }
+
+            for (Long userBusinessId : request.getUserBusinessIds()) {
+                try {
+                    UserBusiness userBusiness = userBusinessService.getUserBusinessById(userBusinessId)
+                            .orElseThrow(() -> new EntityNotFoundException("Member not found with ID: " + userBusinessId));
+
+                    if (!userBusiness.getBusiness().getBusinessTag().equals(businessTag)) {
+                        failCount++;
+                        continue;
+                    }
+
+                    String recipientEmail = userBusiness.getUser().getEmail();
+                    if (recipientEmail == null || recipientEmail.isEmpty()) {
+                        failCount++;
+                        continue;
+                    }
+
+                    emailService.sendBlastEmail(recipientEmail, request.getSubject(), request.getBody(), businessName, businessReplyTo);
+                    successCount++;
+                } catch (Exception e) {
+                    failCount++;
+                    failedEmails.add("ID " + userBusinessId + ": " + e.getMessage());
+                }
+            }
+
+            return ResponseEntity.ok(Map.of(
+                    "message", "Bulk email processing completed",
+                    "sent", successCount,
+                    "failed", failCount,
+                    "failedDetails", failedEmails
+            ));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "Failed to process bulk email: " + e.getMessage()));
+        }
+    }
+
+    public static class BulkEmailRequest {
+        private List<Long> userBusinessIds;
+        private String subject;
+        private String body;
+
+        public List<Long> getUserBusinessIds() {
+            return userBusinessIds;
+        }
+
+        public void setUserBusinessIds(List<Long> userBusinessIds) {
+            this.userBusinessIds = userBusinessIds;
+        }
+
+        public String getSubject() {
+            return subject;
+        }
+
+        public void setSubject(String subject) {
+            this.subject = subject;
+        }
+
+        public String getBody() {
+            return body;
+        }
+
+        public void setBody(String body) {
+            this.body = body;
+        }
+    }
+
+    private Double parsePriceToDouble(String price) {
+        if (price == null || price.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            String normalized = price.replaceAll("[^0-9.]", "");
+            if (normalized.isEmpty()) {
+                return null;
+            }
+            return Double.parseDouble(normalized);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
 }
-
-
-
-
-

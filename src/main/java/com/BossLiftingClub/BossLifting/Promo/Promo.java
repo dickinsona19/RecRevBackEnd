@@ -1,5 +1,6 @@
 package com.BossLiftingClub.BossLifting.Promo;
 
+import com.BossLiftingClub.BossLifting.Business.Business;
 import com.BossLiftingClub.BossLifting.User.User;
 import jakarta.persistence.*;
 
@@ -17,8 +18,30 @@ public class Promo {
     @Column(name = "name")
     private String name;
 
-    @Column(name = "code_token")
+    @Column(name = "code_token", unique = true)
     private String codeToken;
+
+    @ManyToOne
+    @JoinColumn(name = "business_id")
+    private Business business;
+
+    @Column(name = "stripe_promo_code_id")
+    private String stripePromoCodeId;
+
+    @Column(name = "stripe_coupon_id")
+    private String stripeCouponId;
+
+    @Column(name = "discount_value")
+    private Double discountValue;
+
+    @Column(name = "discount_type")
+    private String discountType; // 'percent' or 'amount'
+
+    @Column(name = "duration")
+    private String duration; // 'forever', 'once', 'repeating'
+
+    @Column(name = "duration_in_months")
+    private Integer durationInMonths;
 
     @ManyToMany
     @JoinTable(
@@ -57,6 +80,62 @@ public class Promo {
 
     public void setCodeToken(String codeToken) {
         this.codeToken = codeToken;
+    }
+
+    public Business getBusiness() {
+        return business;
+    }
+
+    public void setBusiness(Business business) {
+        this.business = business;
+    }
+
+    public String getStripePromoCodeId() {
+        return stripePromoCodeId;
+    }
+
+    public void setStripePromoCodeId(String stripePromoCodeId) {
+        this.stripePromoCodeId = stripePromoCodeId;
+    }
+
+    public String getStripeCouponId() {
+        return stripeCouponId;
+    }
+
+    public void setStripeCouponId(String stripeCouponId) {
+        this.stripeCouponId = stripeCouponId;
+    }
+
+    public Double getDiscountValue() {
+        return discountValue;
+    }
+
+    public void setDiscountValue(Double discountValue) {
+        this.discountValue = discountValue;
+    }
+
+    public String getDiscountType() {
+        return discountType;
+    }
+
+    public void setDiscountType(String discountType) {
+        this.discountType = discountType;
+    }
+
+    public String getDuration() {
+        return duration;
+    }
+
+    public void setDuration(String duration) {
+        this.duration = duration;
+    }
+
+    public Integer getDurationInMonths() {
+        return durationInMonths;
+    }
+
+    public void setDurationInMonths(Integer durationInMonths) {
+        this.durationInMonths = durationInMonths;
     }
 
     public List<User> getUsers() {

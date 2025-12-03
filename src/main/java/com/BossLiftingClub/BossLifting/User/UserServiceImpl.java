@@ -3,10 +3,10 @@ package com.BossLiftingClub.BossLifting.User;
 import com.BossLiftingClub.BossLifting.Business.Business;
 import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
 import com.BossLiftingClub.BossLifting.Stripe.StripeService;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubMembership;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubRepository;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserCreateDTO;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessRepository;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessCreateDTO;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.Membership.MembershipRepository;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
@@ -25,6 +25,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -49,7 +51,7 @@ public class UserServiceImpl implements UserService {
     private BusinessRepository businessRepository;
 
     @Autowired
-    private UserClubRepository userClubRepository;
+    private UserBusinessRepository userBusinessRepository;
 
     @Autowired
     private MembershipRepository membershipRepository;
@@ -87,18 +89,18 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    public User handleNewClub(UserCreateDTO userDTO) throws Exception {
-        logger.info("=== STARTING handleNewClub ===");
-        logger.info("UserDTO: email={}, firstName={}, lastName={}, paymentMethodId={}, clubId={}", 
+    public User handleNewBusiness(UserBusinessCreateDTO userDTO) throws Exception {
+        logger.info("=== STARTING handleNewBusiness ===");
+        logger.info("UserDTO: email={}, firstName={}, lastName={}, paymentMethodId={}, businessId={}", 
                 userDTO.getEmail(), userDTO.getFirstName(), userDTO.getLastName(), 
-                userDTO.getPaymentMethodId(), userDTO.getClubMembership() != null ? userDTO.getClubMembership().getClubId() : "null");
+                userDTO.getPaymentMethodId(), userDTO.getBusinessMembership() != null ? userDTO.getBusinessMembership().getBusinessId() : "null");
         
         // Validate input
         if (userDTO.getEmail() == null || userDTO.getEmail().trim().isEmpty()) {
             logger.error("Validation failed: Email is required");
             throw new IllegalArgumentException("Email is required");
         }
-        if (userDTO.getClubMembership() == null || userDTO.getClubMembership().getClubId() == null) {
+        if (userDTO.getBusinessMembership() == null || userDTO.getBusinessMembership().getBusinessId() == null) {
             logger.error("Validation failed: Business membership is required");
             throw new IllegalArgumentException("Business membership is required");
         }
@@ -108,7 +110,7 @@ public class UserServiceImpl implements UserService {
         User user;
 
         // Fetch the business (common for both branches)
-        Long businessId = userDTO.getClubMembership().getClubId();
+        Long businessId = userDTO.getBusinessMembership().getBusinessId();
         Business business = businessRepository.findById(businessId)
                 .orElseThrow(() -> {
                     logger.error("Business not found with ID: {}", businessId);
@@ -124,25 +126,25 @@ public class UserServiceImpl implements UserService {
             user = existingUserOpt.get();
 
             // Check if user is already a member of this business
-            if (userClubRepository.existsByUser_IdAndBusiness_Id(user.getId(), business.getId())) {
+            if (userBusinessRepository.existsByUser_IdAndBusiness_Id(user.getId(), business.getId())) {
                 throw new IllegalArgumentException("User with email " + userDTO.getEmail() + " is already a member of this business");
             }
 
             // Add new business membership
-            List<UserClub> userClubs = user.getUserClubs();
-            if (userClubs == null) {
-                userClubs = new ArrayList<>();
-                user.setUserClubs(userClubs);
+            List<UserBusiness> userBusinesses = user.getUserBusinesses();
+            if (userBusinesses == null) {
+                userBusinesses = new ArrayList<>();
+                user.setUserBusinesses(userBusinesses);
             }
 
-            // Create UserClub entry
-            UserClub userClub = new UserClub();
-            userClub.setUser(user);
-            userClub.setBusiness(business);
-            userClub.setStatus(userDTO.getClubMembership().getStatus() != null ? userDTO.getClubMembership().getStatus() : "ACTIVE");
+            // Create UserBusiness entry
+            UserBusiness userBusiness = new UserBusiness();
+            userBusiness.setUser(user);
+            userBusiness.setBusiness(business);
+            userBusiness.setStatus(userDTO.getBusinessMembership().getStatus() != null ? userDTO.getBusinessMembership().getStatus() : "ACTIVE");
 
             // Create Stripe customer on the connected account if not provided
-            String stripeCustomerId = userDTO.getClubMembership().getStripeId();
+            String stripeCustomerId = userDTO.getBusinessMembership().getStripeId();
             logger.info("Existing Stripe customer ID from DTO (existing user path): {}", stripeCustomerId);
             
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
@@ -172,11 +174,11 @@ public class UserServiceImpl implements UserService {
                     throw new Exception("Failed to create Stripe customer: " + e.getMessage(), e);
                 }
             }
-            userClub.setStripeId(stripeCustomerId != null ? stripeCustomerId : "");
-            logger.info("UserClub stripeId set to (existing user path): {}", userClub.getStripeId());
+            userBusiness.setStripeId(stripeCustomerId != null ? stripeCustomerId : "");
+            logger.info("UserBusiness stripeId set to (existing user path): {}", userBusiness.getStripeId());
 
-            // Save the UserClub first before processing memberships
-            userClubs.add(userClub);
+            // Save the UserBusiness first before processing memberships
+            userBusinesses.add(userBusiness);
             user = userRepository.save(user);
 
             // If payment method is provided, attach it immediately
@@ -217,28 +219,29 @@ public class UserServiceImpl implements UserService {
 
             // Create memberships immediately if payment method was provided
             if (userDTO.getPaymentMethodId() != null && !userDTO.getPaymentMethodId().isEmpty() && userDTO.getMemberships() != null) {
-                UserClub savedUserClub = user.getUserClubs().stream()
-                    .filter(uc -> uc.getBusiness().getId().equals(business.getId()))
+                UserBusiness savedUserBusiness = user.getUserBusinesses().stream()
+                    .filter(ub -> ub.getBusiness().getId().equals(business.getId()))
                     .findFirst()
-                    .orElseThrow(() -> new IllegalStateException("UserClub not found after save"));
+                    .orElseThrow(() -> new IllegalStateException("UserBusiness not found after save"));
 
-                for (UserCreateDTO.MembershipRequestDTO membershipRequest : userDTO.getMemberships()) {
+                for (UserBusinessCreateDTO.MembershipRequestDTO membershipRequest : userDTO.getMemberships()) {
                     Membership membership = membershipRepository.findById(membershipRequest.getMembershipId())
                         .orElseThrow(() -> new IllegalArgumentException("Invalid membership ID: " + membershipRequest.getMembershipId()));
 
-                    UserClubMembership userClubMembership = new UserClubMembership();
-                    userClubMembership.setUserClub(savedUserClub);
-                    userClubMembership.setMembership(membership);
-                    userClubMembership.setStatus(membershipRequest.getStatus() != null ? membershipRequest.getStatus() : "ACTIVE");
-                    userClubMembership.setAnchorDate(membershipRequest.getAnchorDate() != null ? membershipRequest.getAnchorDate() : LocalDateTime.now());
+                    UserBusinessMembership userBusinessMembership = new UserBusinessMembership();
+                    userBusinessMembership.setUserBusiness(savedUserBusiness);
+                    userBusinessMembership.setMembership(membership);
+                    userBusinessMembership.setStatus(membershipRequest.getStatus() != null ? membershipRequest.getStatus() : "ACTIVE");
+                    userBusinessMembership.setAnchorDate(membershipRequest.getAnchorDate() != null ? membershipRequest.getAnchorDate() : LocalDateTime.now());
+                    userBusinessMembership.setActualPrice(parsePrice(membership.getPrice()));
 
                     // Create Stripe subscription
-                    createStripeSubscriptionForMembership(userClubMembership, business);
+                    createStripeSubscriptionForMembership(userBusinessMembership, business);
 
-                    if (savedUserClub.getUserClubMemberships() == null) {
-                        savedUserClub.setUserClubMemberships(new ArrayList<>());
+                    if (savedUserBusiness.getUserBusinessMemberships() == null) {
+                        savedUserBusiness.setUserBusinessMemberships(new ArrayList<>());
                     }
-                    savedUserClub.getUserClubMemberships().add(userClubMembership);
+                    savedUserBusiness.getUserBusinessMemberships().add(userBusinessMembership);
                 }
             }
         } else {
@@ -257,14 +260,14 @@ public class UserServiceImpl implements UserService {
             // Save user first to generate ID (this calls the overridden save() which encodes password and generates tokens)
             user = save(user);
 
-            // Create UserClub entry
-            UserClub userClub = new UserClub();
-            userClub.setUser(user);
-            userClub.setBusiness(business);
-            userClub.setStatus(userDTO.getClubMembership().getStatus() != null ? userDTO.getClubMembership().getStatus() : "ACTIVE");
+            // Create UserBusiness entry
+            UserBusiness userBusiness = new UserBusiness();
+            userBusiness.setUser(user);
+            userBusiness.setBusiness(business);
+            userBusiness.setStatus(userDTO.getBusinessMembership().getStatus() != null ? userDTO.getBusinessMembership().getStatus() : "ACTIVE");
 
             // Create Stripe customer on the connected account if not provided
-            String stripeCustomerId = userDTO.getClubMembership().getStripeId();
+            String stripeCustomerId = userDTO.getBusinessMembership().getStripeId();
             logger.info("Existing Stripe customer ID from DTO (new user path): {}", stripeCustomerId);
             
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
@@ -294,10 +297,10 @@ public class UserServiceImpl implements UserService {
                     throw new Exception("Failed to create Stripe customer: " + e.getMessage(), e);
                 }
             }
-            userClub.setStripeId(stripeCustomerId != null ? stripeCustomerId : "");
-            logger.info("UserClub stripeId set to (new user path): {}", userClub.getStripeId());
+            userBusiness.setStripeId(stripeCustomerId != null ? stripeCustomerId : "");
+            logger.info("UserBusiness stripeId set to (new user path): {}", userBusiness.getStripeId());
 
-            user.setUserClubs(new ArrayList<>(List.of(userClub)));
+            user.setUserBusinesses(new ArrayList<>(List.of(userBusiness)));
 
             // Save user first to get IDs
             user = userRepository.save(user);
@@ -340,32 +343,33 @@ public class UserServiceImpl implements UserService {
 
             // Create memberships immediately if payment method was provided
             if (userDTO.getPaymentMethodId() != null && !userDTO.getPaymentMethodId().isEmpty() && userDTO.getMemberships() != null) {
-                UserClub savedUserClub = user.getUserClubs().get(0);
+                UserBusiness savedUserBusiness = user.getUserBusinesses().get(0);
 
-                for (UserCreateDTO.MembershipRequestDTO membershipRequest : userDTO.getMemberships()) {
+                for (UserBusinessCreateDTO.MembershipRequestDTO membershipRequest : userDTO.getMemberships()) {
                     Membership membership = membershipRepository.findById(membershipRequest.getMembershipId())
                         .orElseThrow(() -> new IllegalArgumentException("Invalid membership ID: " + membershipRequest.getMembershipId()));
 
-                    UserClubMembership userClubMembership = new UserClubMembership();
-                    userClubMembership.setUserClub(savedUserClub);
-                    userClubMembership.setMembership(membership);
-                    userClubMembership.setStatus(membershipRequest.getStatus() != null ? membershipRequest.getStatus() : "ACTIVE");
-                    userClubMembership.setAnchorDate(membershipRequest.getAnchorDate() != null ? membershipRequest.getAnchorDate() : LocalDateTime.now());
+                    UserBusinessMembership userBusinessMembership = new UserBusinessMembership();
+                    userBusinessMembership.setUserBusiness(savedUserBusiness);
+                    userBusinessMembership.setMembership(membership);
+                    userBusinessMembership.setStatus(membershipRequest.getStatus() != null ? membershipRequest.getStatus() : "ACTIVE");
+                    userBusinessMembership.setAnchorDate(membershipRequest.getAnchorDate() != null ? membershipRequest.getAnchorDate() : LocalDateTime.now());
+                    userBusinessMembership.setActualPrice(parsePrice(membership.getPrice()));
 
                     // Create Stripe subscription
-                    createStripeSubscriptionForMembership(userClubMembership, business);
+                    createStripeSubscriptionForMembership(userBusinessMembership, business);
 
-                    if (savedUserClub.getUserClubMemberships() == null) {
-                        savedUserClub.setUserClubMemberships(new ArrayList<>());
+                    if (savedUserBusiness.getUserBusinessMemberships() == null) {
+                        savedUserBusiness.setUserBusinessMemberships(new ArrayList<>());
                     }
-                    savedUserClub.getUserClubMemberships().add(userClubMembership);
+                    savedUserBusiness.getUserBusinessMemberships().add(userBusinessMembership);
                 }
             }
         }
 
-        // Save the updated user (cascades to UserClub due to @OneToMany cascade)
+        // Save the updated user (cascades to UserBusiness due to @OneToMany cascade)
         User savedUser = userRepository.save(user);
-        logger.info("=== COMPLETED handleNewClub successfully ===");
+        logger.info("=== COMPLETED handleNewBusiness successfully ===");
         logger.info("User ID: {}, Email: {}, Business: {}", savedUser.getId(), savedUser.getEmail(), business.getBusinessTag());
         return savedUser;
     }
@@ -618,18 +622,18 @@ public class UserServiceImpl implements UserService {
 
     /**
      * Helper method to create Stripe subscription for a membership
-     * @param userClubMembership The UserClubMembership to create a subscription for
+     * @param userBusinessMembership The UserBusinessMembership to create a subscription for
      * @param business The business the user belongs to
      */
-    private void createStripeSubscriptionForMembership(UserClubMembership userClubMembership, Business business) {
+    private void createStripeSubscriptionForMembership(UserBusinessMembership userBusinessMembership, Business business) {
         try {
             // Skip if subscription ID is already provided
-            if (userClubMembership.getStripeSubscriptionId() != null && !userClubMembership.getStripeSubscriptionId().isEmpty()) {
-                System.out.println("Stripe subscription ID already exists: " + userClubMembership.getStripeSubscriptionId());
+            if (userBusinessMembership.getStripeSubscriptionId() != null && !userBusinessMembership.getStripeSubscriptionId().isEmpty()) {
+                System.out.println("Stripe subscription ID already exists: " + userBusinessMembership.getStripeSubscriptionId());
                 return;
             }
 
-            Membership membership = userClubMembership.getMembership();
+            Membership membership = userBusinessMembership.getMembership();
             String stripePriceId = membership.getStripePriceId();
 
             // Skip if membership doesn't have a Stripe Price ID
@@ -645,33 +649,60 @@ public class UserServiceImpl implements UserService {
                 return;
             }
 
-            // Get the customer's Stripe ID from UserClub
-            UserClub userClub = userClubMembership.getUserClub();
-            String stripeCustomerId = userClub.getStripeId();
+            // Get the customer's Stripe ID from UserBusiness
+            UserBusiness userBusiness = userBusinessMembership.getUserBusiness();
+            String stripeCustomerId = userBusiness.getStripeId();
 
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
-                System.err.println("No Stripe customer ID found for UserClub. Cannot create subscription.");
+                System.err.println("No Stripe customer ID found for UserBusiness. Cannot create subscription.");
                 return;
             }
 
             // Create the Stripe subscription
-            LocalDateTime anchorDate = userClubMembership.getAnchorDate();
+            LocalDateTime anchorDate = userBusinessMembership.getAnchorDate();
+            BigDecimal actualPrice = determineActualPrice(userBusinessMembership);
             Subscription subscription = stripeService.createSubscription(
                     stripeCustomerId,
                     stripePriceId,
                     stripeAccountId,
-                    anchorDate
+                    anchorDate,
+                    null,
+                    actualPrice
             );
 
             // Store the subscription ID
-            userClubMembership.setStripeSubscriptionId(subscription.getId());
+            userBusinessMembership.setStripeSubscriptionId(subscription.getId());
             System.out.println("Created Stripe subscription: " + subscription.getId() + " for membership " + membership.getId());
 
         } catch (StripeException e) {
-            System.err.println("Failed to create Stripe subscription for membership " + userClubMembership.getId() + ": " + e.getMessage());
+            System.err.println("Failed to create Stripe subscription for membership " + userBusinessMembership.getId() + ": " + e.getMessage());
             // Don't throw - allow the user creation to continue even if Stripe fails
         } catch (Exception e) {
             System.err.println("Unexpected error creating Stripe subscription: " + e.getMessage());
+        }
+    }
+
+    private BigDecimal determineActualPrice(UserBusinessMembership membership) {
+        BigDecimal price = membership.getActualPrice();
+        if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
+            price = parsePrice(membership.getMembership().getPrice());
+            membership.setActualPrice(price);
+        }
+        return price;
+    }
+
+    private BigDecimal parsePrice(String priceStr) {
+        if (priceStr == null || priceStr.isEmpty()) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        String normalized = priceStr.replaceAll("[^0-9.]", "");
+        if (normalized.isEmpty()) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        try {
+            return new BigDecimal(normalized).setScale(2, RoundingMode.HALF_UP);
+        } catch (NumberFormatException e) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
     }
 }

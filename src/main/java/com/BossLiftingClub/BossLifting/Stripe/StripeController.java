@@ -2,25 +2,24 @@ package com.BossLiftingClub.BossLifting.Stripe;
 
 import com.BossLiftingClub.BossLifting.Analytics.RecentActivity;
 import com.BossLiftingClub.BossLifting.Analytics.RecentActivityRepository;
+import com.BossLiftingClub.BossLifting.Business.BusinessDTO;
 import com.BossLiftingClub.BossLifting.Business.BusinessService;
+import com.BossLiftingClub.BossLifting.Email.EmailService;
 import com.BossLiftingClub.BossLifting.Promo.PromoDTO;
 import com.BossLiftingClub.BossLifting.Promo.PromoService;
 import com.BossLiftingClub.BossLifting.Stripe.ProcessedEvent.EventService;
-import com.BossLiftingClub.BossLifting.Stripe.RequestsAndResponses.*;
 import com.BossLiftingClub.BossLifting.Stripe.Transfers.TransferService;
 import com.BossLiftingClub.BossLifting.User.*;
-import com.BossLiftingClub.BossLifting.User.Membership.Membership;
-import com.BossLiftingClub.BossLifting.User.Membership.MembershipRepository;
 import com.BossLiftingClub.BossLifting.User.UserTitles.UserTitles;
 import com.BossLiftingClub.BossLifting.User.UserTitles.UserTitlesRepository;
-import com.stripe.Stripe;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.exception.StripeException;
 import com.stripe.model.*;
 import com.stripe.model.checkout.Session;
 import com.stripe.net.Webhook;
 import com.stripe.param.*;
-import com.stripe.param.checkout.SessionCreateParams;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.servlet.http.HttpServletRequest;
@@ -40,8 +39,6 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @RestController
 public class StripeController {
@@ -49,32 +46,47 @@ public class StripeController {
     private final String webhookSecret;
     private final UserService userService;
     private final UserTitlesRepository userTitlesRepository;
-    private final MembershipRepository membershipRepository;
     private final UserRepository userRepository;
     private final String webhookSubscriptionSecret;
     private final EventService eventService;
-    private final TransferService transferService;
     private final PromoService promoService;
     private final RecentActivityRepository recentActivityRepository;
     private final BusinessService businessService;
+    private final UserBusinessService userBusinessService;
+    private final JavaMailSender mailSender;
+    private final EmailService emailService;
+
     @Autowired
-    private JavaMailSender mailSender;
-    public StripeController(EventService eventService, TransferService transferService, UserService userService, StripeService stripeService, @Value("${stripe.webhook.secret:}") String webhookSecret, @Value("${stripe.webhook.subscriptionSecret:}") String webhookSubscriptionSecret, UserTitlesRepository userTitlesRepository, MembershipRepository membershipRepository, UserRepository userRepository, PromoService promoService, RecentActivityRepository recentActivityRepository, BusinessService businessService) {
+    public StripeController(EventService eventService, 
+                            TransferService transferService, 
+                            UserService userService, 
+                            StripeService stripeService, 
+                            @Value("${stripe.webhook.secret:}") String webhookSecret, 
+                            @Value("${stripe.webhook.subscriptionSecret:}") String webhookSubscriptionSecret, 
+                            UserTitlesRepository userTitlesRepository, 
+                            UserRepository userRepository, 
+                            PromoService promoService, 
+                            RecentActivityRepository recentActivityRepository, 
+                            BusinessService businessService,
+                            UserBusinessService userBusinessService,
+                            JavaMailSender mailSender,
+                            EmailService emailService) {
         this.eventService = eventService;
         this.stripeService = stripeService;
         this.webhookSecret = webhookSecret;
         this.userService = userService;
         this.userTitlesRepository = userTitlesRepository;
-        this.membershipRepository = membershipRepository;
         this.userRepository = userRepository;
         this.webhookSubscriptionSecret = webhookSubscriptionSecret;
-        this.transferService = transferService;
         this.promoService = promoService;
         this.recentActivityRepository = recentActivityRepository;
         this.businessService = businessService;
+        this.userBusinessService = userBusinessService;
+        this.mailSender = mailSender;
+        this.emailService = emailService;
     }
 
-    public void sendOnboardingEmail(String customerId) throws StripeException, MessagingException {
+    public void sendOnboardingEmail(String customerId) throws StripeException {
         // Fetch customer details from Stripe
         Customer customer = Customer.retrieve(customerId);
         String email = customer.getEmail();
@@ -95,25 +107,34 @@ public class StripeController {
             throw new IllegalArgumentException("No email found for customer ID: " + customerId);
         }
 
-        String subject = "Welcome to CLT Lifting Club!";
+        // Default branding (fallback)
+        String businessName = "CLT Lifting Club";
+        String businessContactEmail = "contact@cltliftingclub.com";
+
+        String subject = "Welcome to " + businessName + "!";
         String message = String.format(
-                "Hey %s %s,\n\n" +
-                        "Welcome to the CLT Lifting Club! 💪\n\n" +
-                        "You're all set to start tracking your progress and hitting your goals.\n\n" +
-                        "👉 Download the app here: https://apps.apple.com/us/app/clt-lifting-club/id6744620860\n\n" +
-                        "Log in using your phone number and password you signed up with.\n\n" +
-                        "Let’s get stronger together!\n\n" +
-                        "- The CLT Lifting Club Team",
-                firstName, lastName
+                "<p>Hey %s %s,</p>" +
+                        "<p>Welcome to the %s! 💪</p>" +
+                        "<p>You're all set to start tracking your progress and hitting your goals.</p>" +
+                        "<p>👉 Download the app here: <a href=\"https://apps.apple.com/us/app/clt-lifting-club/id6744620860\">Download on App Store</a></p>" +
+                        "<p>Log in using your phone number and password you signed up with.</p>" +
+                        "<p>Let’s get stronger together!</p>" +
+                        "<p>- The %s Team</p>",
+                firstName, lastName, businessName, businessName
         );
 
-        SimpleMailMessage emailMessage = new SimpleMailMessage();
-        emailMessage.setTo(email);
-        emailMessage.setSubject(subject);
-        emailMessage.setText(message);
-
-        mailSender.send(emailMessage);
-        System.out.println("Onboarding email sent to: " + email);
+        try {
+            emailService.sendBlastEmail(email, subject, message, businessName, businessContactEmail);
+            System.out.println("Onboarding email sent to: " + email);
+        } catch (Exception e) {
+            System.err.println("Failed to send onboarding email via EmailService: " + e.getMessage());
+            // We don't rethrow here to avoid failing the whole process if email fails, 
+            // or we could rethrow unchecked if critical. The original code threw Exception.
+            // Let's just log it for now as it's wrapped in try/catch in webhook anyway?
+            // Actually original threw MessagingException. 
+            // Let's just let it be swallowed with log or rethrow unchecked.
+            throw new RuntimeException("Failed to send onboarding email", e);
+        }
     }
 
     @PostMapping("/webhook")
@@ -273,9 +294,6 @@ public class StripeController {
         user.setIsInGoodStanding(false);
         UserTitles foundingUserTitle = userTitlesRepository.findByTitle(metadata.get("userTitle"))
                 .orElseThrow(() -> new RuntimeException("Founding user title not found in database"));
-//        Membership membership = membershipRepository.findByTitle(metadata.get("membership"))
-//                .orElseThrow(() -> new RuntimeException("Membership not found in database"));
-//        user.setMembership(membership);
         user.setUserTitles(foundingUserTitle);
         user.setUserStripeMemberId(customerId);
         System.out.println("userLog: " + user);
@@ -306,8 +324,6 @@ public class StripeController {
             // Step 2: Fetch the "founding_user" title and membership from the database
             UserTitles foundingUserTitle = userTitlesRepository.findByTitle("Founding User")
                     .orElseThrow(() -> new RuntimeException("Founding user title not found in database"));
-//            Membership membership = membershipRepository.findByTitle(userRequest.getMembershipName())
-//                    .orElseThrow(() -> new RuntimeException("Membership not found in database"));
 
             // Step 3: Create Stripe customer (we'll clean up in webhook if no payment info)
             String customerId = stripeService.createCustomer(
@@ -323,7 +339,6 @@ public class StripeController {
             metadata.put("phoneNumber", userRequest.getPhoneNumber());
             metadata.put("password", userRequest.getPassword()); // Consider hashing if sensitive
             metadata.put("userTitle", foundingUserTitle.getTitle());
-//            metadata.put("membership", membership.getTitle());
             metadata.put("lockedInRate",userRequest.getLockedInRate());
             if (userRequest.getReferralId() != null) {
                 String referredId = userRequest.getReferralId().toString();
@@ -380,57 +395,6 @@ public class StripeController {
                 return new ResponseEntity<>("Event already processed", HttpStatus.OK);
             }
 
-            // Handle invoice.paid (transfer 4% fee to Connected Account)
-//            if ("invoice.paid".equals(eventType)) {
-//                Invoice invoice = (Invoice) dataObjectDeserializer.getObject().orElse(null);
-//                if (invoice != null && invoice.getSubscription() != null && invoice.getCharge() != null) {                    String chargeId = invoice.getCharge();
-//                    // Check if a transfer already exists for this charge
-//                    if (transferService.hasProcessedCharge(chargeId)) {
-//                        System.out.println("Transfer already exists for charge " + chargeId + ", skipping.");
-//                        return new ResponseEntity<>("Webhook processed", HttpStatus.OK);
-//                    }
-//
-//                    Charge charge = Charge.retrieve(chargeId);
-//                    if (charge != null && "succeeded".equals(charge.getStatus())) {
-//                        Subscription subscription = Subscription.retrieve(invoice.getSubscription());
-//                        long feeCents = calculateFeeCents(subscription);
-//                        if (feeCents > 0) {
-//                            try {
-//                                // Check available balance before transfer
-//                                Balance balance = Balance.retrieve();
-//                                long availableBalance = balance.getAvailable().stream()
-//                                        .filter(b -> "usd".equals(b.getCurrency()))
-//                                        .mapToLong(Balance.Available::getAmount)
-//                                        .sum();
-//                                if (availableBalance < feeCents) {
-//                                    System.err.println("Insufficient balance: " + (availableBalance / 100.0) + " USD, needed: " + (feeCents / 100.0));
-//                                    return new ResponseEntity<>("Insufficient balance", HttpStatus.INTERNAL_SERVER_ERROR);
-//                                }
-//
-//                                TransferCreateParams transferParams = TransferCreateParams.builder()
-//                                        .setAmount(feeCents)
-//                                        .setCurrency("usd")
-//                                        .setDestination("acct_1RDvRj4gikNsBARu")
-//                                        .setSourceTransaction(chargeId)
-//                                        .build();
-//                                Transfer transfer = Transfer.create(transferParams);
-//                                System.out.println("Transferred " + (feeCents / 100.0) + " to Connected Account for invoice " + invoice.getId());
-//                                // Store transfer record
-//                                transferService.saveTransfer(chargeId, invoice.getId(), transfer.getId());
-//                            } catch (StripeException e) {
-//                                System.err.println("Transfer failed for invoice " + invoice.getId() + ": " + e.getMessage());
-//                                return new ResponseEntity<>("Transfer error: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
-//                            }
-//                        }
-//                        // Update user status
-//                        userService.updateUserAfterPayment(invoice.getCustomer(), true);
-//                    } else {
-//                        System.out.println("Charge was not successful. Skipping fee transfer for invoice " + invoice.getId());
-//                    }
-//                }
-//            }
-
-
             // Handle other event types
             switch (eventType) {
                 case "customer.subscription.created":
@@ -447,22 +411,24 @@ public class StripeController {
                             Customer newCustomer = Customer.retrieve(newCustomerId);
                             String customerName = newCustomer.getName() != null ? newCustomer.getName() : "New Member";
 
-                            // TODO: Determine clubId based on your business logic
-                            // For now, using a placeholder. You may need to:
-                            // 1. Add clubId to subscription metadata
-                            // 2. Look up user by customerId and find their club association
-                            // 3. Use a default club for your single-club setup
-                            Long clubId = 1L; // PLACEHOLDER - Replace with actual club lookup logic
+                            Long businessId = 1L; // Default business ID
+                            String stripeAccountId = event.getAccount();
+                            if (stripeAccountId != null) {
+                                Optional<BusinessDTO> businessOpt = businessService.findByStripeAccountId(stripeAccountId);
+                                if (businessOpt.isPresent()) {
+                                    businessId = businessOpt.get().getId();
+                                }
+                            }
 
                             RecentActivity activity = new RecentActivity();
-                            activity.setClubId(clubId);
+                            activity.setBusinessId(businessId);
                             activity.setActivityType("NEW_MEMBER");
-                            activity.setDescription(customerName + " joined the club");
+                            activity.setDescription(customerName + " joined the business");
                             activity.setCustomerName(customerName);
                             activity.setStripeEventId(eventId);
                             recentActivityRepository.save(activity);
 
-                            System.out.println("Created NEW_MEMBER activity for customer: " + customerName);
+                            System.out.println("Created NEW_MEMBER activity for customer: " + customerName + " in business ID: " + businessId);
                         }
                     } catch (Exception e) {
                         System.err.println("Failed to create NEW_MEMBER activity: " + e.getMessage());
@@ -490,15 +456,17 @@ public class StripeController {
                             Customer chargeCustomer = Customer.retrieve(chargeCustomerId);
                             String payerName = chargeCustomer.getName() != null ? chargeCustomer.getName() : "Customer";
 
-                            // TODO: Determine clubId based on your business logic
-                            // For connected accounts, you may be able to extract it from:
-                            // 1. request.getHeader("Stripe-Account")
-                            // 2. charge.getMetadata().get("clubId")
-                            // 3. Look up client by stripeAccountId and get associated club
-                            Long clubId = 1L; // PLACEHOLDER - Replace with actual club lookup logic
+                            Long businessId = 1L; // Default
+                            String stripeAccountId = event.getAccount();
+                            if (stripeAccountId != null) {
+                                Optional<BusinessDTO> businessOpt = businessService.findByStripeAccountId(stripeAccountId);
+                                if (businessOpt.isPresent()) {
+                                    businessId = businessOpt.get().getId();
+                                }
+                            }
 
                             RecentActivity activity = new RecentActivity();
-                            activity.setClubId(clubId);
+                            activity.setBusinessId(businessId);
                             activity.setActivityType("PAYMENT");
                             activity.setDescription("Payment received from " + payerName);
                             activity.setAmount(amount);
@@ -506,7 +474,7 @@ public class StripeController {
                             activity.setStripeEventId(eventId);
                             recentActivityRepository.save(activity);
 
-                            System.out.println("Created PAYMENT activity: $" + amount + " from " + payerName);
+                            System.out.println("Created PAYMENT activity: $" + amount + " from " + payerName + " in business ID: " + businessId);
                         }
                     } catch (Exception e) {
                         System.err.println("Failed to create PAYMENT activity: " + e.getMessage());
@@ -565,9 +533,6 @@ public class StripeController {
             return new ResponseEntity<>("Webhook processed", HttpStatus.OK);
         } catch (SignatureVerificationException e) {
             return new ResponseEntity<>("Invalid signature", HttpStatus.BAD_REQUEST);
-        } catch (StripeException e) {
-            System.err.println("Stripe API error: " + e.getMessage());
-            return new ResponseEntity<>("Stripe error: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
         } catch (Exception e) {
             System.err.println("Unexpected error: " + e.getMessage());
             return new ResponseEntity<>("Webhook error: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
@@ -592,19 +557,15 @@ public class StripeController {
 
         // Map membershipPrice to Price IDs
         String mainPriceId;
-        String mainFeePriceId;
         switch (membershipPrice) {
             case "89.99":
                 mainPriceId = "price_1R6aIfGHcVHSTvgIlwN3wmyD";
-                mainFeePriceId = "price_1RF4FpGHcVHSTvgIKM8Jilwl"; // $3.60
                 break;
             case "99.99":
                 mainPriceId = "price_1RF313GHcVHSTvgI4HXgjwOA";
-                mainFeePriceId = "price_1RF4GlGHcVHSTvgIVojlVrn7"; // $4.00
                 break;
             case "109.99":
                 mainPriceId = "price_1RF31hGHcVHSTvgIbTnGo4vT";
-                mainFeePriceId = "price_1RF4IsGHcVHSTvgIYOoYfxb9"; // $4.40
                 break;
             case "948.00":
                 mainPriceId = "price_1RJJuTGHcVHSTvgI2pVN6hfx";
@@ -687,7 +648,7 @@ public class StripeController {
                     .setQuantity(1L)
                     .build();
 
-            InvoiceItem invoiceItem = InvoiceItem.create(invoiceItemParams);
+            InvoiceItem.create(invoiceItemParams);
 
             Invoice invoice = Invoice.create(
                     InvoiceCreateParams.builder()
@@ -709,8 +670,6 @@ public class StripeController {
         }
 
         try {
-
-
             // Fetch customer email from Stripe
             Customer customer = Customer.retrieve(cusId);
             String toEmail = customer.getEmail();
@@ -718,45 +677,51 @@ public class StripeController {
                 return ResponseEntity.badRequest().body("No email found for customer ID: " + cusId);
             }
 
-            // Prepare and send email
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true);
+            // Determine Business Context
+            String businessName = "CLT Lifting Club";
+            String businessContactEmail = "contact@cltliftingclub.com";
+            
+            // Try to look up user's business
+            Long longUserId = Long.valueOf(userId);
+            List<UserBusiness> businesses = userBusinessService.getBusinessesForUser(longUserId);
+            if (businesses != null && !businesses.isEmpty()) {
+                // Use the first business found (or prioritize active ones if possible)
+                UserBusiness primaryBusiness = businesses.get(0);
+                businessName = primaryBusiness.getBusiness().getTitle();
+                if (primaryBusiness.getBusiness().getContactEmail() != null) {
+                    businessContactEmail = primaryBusiness.getBusiness().getContactEmail();
+                }
+            }
 
             // Hardcoded password reset link with userId
+            // Note: This link points to the platform domain. If white-label domains are used, this needs updating.
             String resetLink = "https://www.cltliftingclub.com/reset-password?id=" + userId;
 
-            // Professional email content for Clt Lifting
-            String subject = "Password Reset Request for Clt Lifting";
+            String subject = "Password Reset Request for " + businessName;
             String htmlContent = """
                 <html>
                 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
                     <h2>Password Reset Request</h2>
                     <p>Dear Member,</p>
-                    <p>We received a request to reset your password for your CLT Lifting Club LLC account. Click the link below to reset your password:</p>
+                    <p>We received a request to reset your password for your %s account. Click the link below to reset your password:</p>
                     <p><a href="%s" style="background-color: #28a745; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reset Your Password</a></p>
-                    <p>If you did not request a password reset, please ignore this email or contact our support team at support@cltlifting.com.</p>
-                    <p>Thank you for choosing CLT Lifting Club LLC!</p>
-                    <p>Best regards,<br>The CLT Lifting Team</p>
-                    <hr>
-                    <p style="font-size: 12px; color: #777;">CLT Lifting Club LLC, 3100 South Blvd, Charlotte, NC, USA</p>
+                    <p>If you did not request a password reset, please ignore this email or contact our support team at %s.</p>
+                    <p>Thank you for choosing %s!</p>
+                    <p>Best regards,<br>The %s Team</p>
                 </body>
                 </html>
-                """.formatted(resetLink);
+                """.formatted(businessName, resetLink, businessContactEmail, businessName, businessName);
 
-            helper.setTo(toEmail);
-            helper.setSubject(subject);
-            helper.setText(htmlContent, true);
-            helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
-
-            mailSender.send(message);
+            emailService.sendBlastEmail(toEmail, subject, htmlContent, businessName, businessContactEmail);
 
             return ResponseEntity.ok("Password reset email sent to " + toEmail);
         } catch (StripeException e) {
             return ResponseEntity.status(400).body("Stripe error: " + e.getMessage());
-        } catch (MessagingException e) {
+        } catch (Exception e) {
             return ResponseEntity.status(500).body("Failed to send email: " + e.getMessage());
         }
     }
+    
     @PostMapping("/{userId}/sendAndroidEmail")
     public ResponseEntity<String> sendTestEmail(@PathVariable Long userId) {
         // Fetch user from database
@@ -781,24 +746,32 @@ public class StripeController {
             return ResponseEntity.status(400).body("Stripe error: " + e.getMessage());
         }
 
+        // Determine Business Context
+        String businessName = "CLT Lifting Club";
+        String businessContactEmail = "contact@cltliftingclub.com";
+        
+        List<UserBusiness> businesses = userBusinessService.getBusinessesForUser(userId);
+        if (businesses != null && !businesses.isEmpty()) {
+            UserBusiness primaryBusiness = businesses.get(0);
+            businessName = primaryBusiness.getBusiness().getTitle();
+            if (primaryBusiness.getBusiness().getContactEmail() != null) {
+                businessContactEmail = primaryBusiness.getBusiness().getContactEmail();
+            }
+        }
+
         // Prepare and send email
         try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true);
-
             // Testing link and feedback form link (replace with actual URLs)
             String testingLink = "https://play.google.com/store/apps/details?id=com.adickinson.CltLiftingClub";
             String internalTestingLink = "https://play.google.com/apps/internaltest/4700609801587188644";
 
-            String contact = "contact@cltliftingclub.com";
-
-            // Professional HTML email content for CLT Lifting Club
+            // Professional HTML email content
             String htmlContent = """
                 <html>
                 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                    <h2>Test the CLT Lifting Club App</h2>
+                    <h2>Test the %s App</h2>
                     <p>Dear Member,</p>
-                    <p>You’re invited to test the CLT Lifting Club app, launching on the Play Store soon!</p>
+                    <p>You’re invited to test the %s app, launching on the Play Store soon!</p>
                     <p><a href="%s" style="background-color: #28a745; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Join the Test Now</a></p>
                     <p><a href="%s" style="background-color: #28a745; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Join the Internal Test Now</a></p>
                     <p>Steps:<br>
@@ -806,23 +779,16 @@ public class StripeController {
                     2. Install the app from the Play Store (no “Unknown Sources” needed).<br>
                     3. Log in with your membership credentials (contact %s if unsure).<br>
                     4. Requires Android 8.0+.<br>
-                    <p>Thank you for choosing CLT Lifting Club LLC!</p>
-                    <p>Best regards,<br>The CLT Lifting Team</p>
-                    <hr>
-                    <p style="font-size: 12px; color: #777;">CLT Lifting Club LLC, 3100 South Blvd, Charlotte, NC, USA</p>
+                    <p>Thank you for choosing %s!</p>
+                    <p>Best regards,<br>The %s Team</p>
                 </body>
                 </html>
-                """.formatted(testingLink, internalTestingLink, contact);
+                """.formatted(businessName, businessName, testingLink, internalTestingLink, businessContactEmail, businessName, businessName);
 
-            helper.setTo(toEmail);
-            helper.setSubject("Test the CLT Lifting Club App for Play Store Launch – Join Now!");
-            helper.setText(htmlContent, true);
-            helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
-
-            mailSender.send(message);
+            emailService.sendBlastEmail(toEmail, "Test the App for Play Store Launch – Join Now!", htmlContent, businessName, businessContactEmail);
 
             return ResponseEntity.ok("Test email sent to " + toEmail);
-        } catch (MessagingException e) {
+        } catch (Exception e) {
             return ResponseEntity.status(500).body("Failed to send email: " + e.getMessage());
         }
     }
@@ -904,7 +870,7 @@ public class StripeController {
                 }
 
                 // Create new subscription with aligned billing cycle anchor and trial
-                Subscription subscription = Subscription.create(
+                Subscription.create(
                         SubscriptionCreateParams.builder()
                                 .setCustomer(StripeCusId)
                                 .addItem(
@@ -935,14 +901,23 @@ public class StripeController {
 
 
         try {
-
-
-            // Prepare and send email
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true);
-
             // Hardcoded password reset link with userId
             String inviteLink = "https://www.cltliftingclub.com/signup?contract=Family&userId=" + userId;
+            
+            // Default branding
+            String businessName = "CLT Lifting Club";
+            String businessContactEmail = "contact@cltliftingclub.com";
+            
+            // Try to infer business from user
+            Long longUserId = Long.valueOf(userId);
+            List<UserBusiness> businesses = userBusinessService.getBusinessesForUser(longUserId);
+            if (businesses != null && !businesses.isEmpty()) {
+                UserBusiness primaryBusiness = businesses.get(0);
+                businessName = primaryBusiness.getBusiness().getTitle();
+                if (primaryBusiness.getBusiness().getContactEmail() != null) {
+                    businessContactEmail = primaryBusiness.getBusiness().getContactEmail();
+                }
+            }
 
             // Professional email content for Clt Lifting
             String subject = "Add to Family plan";
@@ -950,34 +925,27 @@ public class StripeController {
 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
     <h2>You’ve Been Invited to Join a Family Plan</h2>
     <p>Dear Member,</p>
-    <p>You’ve been invited to join a family plan for your CLT Lifting Club LLC account. To accept the invitation and activate your membership, click the link below:</p>
+    <p>You’ve been invited to join a family plan for your %s account. To accept the invitation and activate your membership, click the link below:</p>
     <p><a href="%s" style="background-color: #007bff; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Join the Family Plan</a></p>
-    <p>If you were not expecting this invitation or believe it was sent in error, please ignore this email or contact our support team at support@cltlifting.com.</p>
-    <p>We’re excited to have you as part of the CLT Lifting Club family!</p>
-    <p>Best regards,<br>The CLT Lifting Team</p>
-    <hr>
-    <p style="font-size: 12px; color: #777;">CLT Lifting Club LLC, 3100 South Blvd, Charlotte, NC, USA</p>
+    <p>If you were not expecting this invitation or believe it was sent in error, please ignore this email or contact our support team at %s.</p>
+    <p>We’re excited to have you as part of the %s family!</p>
+    <p>Best regards,<br>The %s Team</p>
 </body>
 </html>
-""".formatted(inviteLink);
+""".formatted(businessName, inviteLink, businessContactEmail, businessName, businessName);
 
-            helper.setTo(newCusEmail);
-            helper.setSubject(subject);
-            helper.setText(htmlContent, true);
-            helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
+            emailService.sendBlastEmail(newCusEmail, subject, htmlContent, businessName, businessContactEmail);
 
-            mailSender.send(message);
+            return ResponseEntity.ok("Family invite email sent to " + newCusEmail);
 
-            return ResponseEntity.ok("Password reset email sent to " + newCusEmail);
-
-        } catch (MessagingException e) {
+        } catch (Exception e) {
             return ResponseEntity.status(500).body("Failed to send email: " + e.getMessage());
         }
     }
 
 
     @PostMapping("/cancel-subscriptions/{customerId}")
-    public String cancelSubscriptions(@PathVariable String customerId) throws StripeException, MessagingException {
+    public String cancelSubscriptions(@PathVariable String customerId) throws StripeException {
         // Retrieve customer details from Stripe
         Customer customer = Customer.retrieve(customerId);
         String customerEmail = customer.getEmail();
@@ -1050,18 +1018,15 @@ public class StripeController {
         return result.toString();
     }
 
-    private void sendCancellationEmail(String toEmail, String customerName, SubscriptionCollection subscriptions) throws MessagingException {
-        MimeMessage message = mailSender.createMimeMessage();
-        MimeMessageHelper helper = new MimeMessageHelper(message, true);
-
-        helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
-        helper.setTo(toEmail);
-        helper.setSubject("Sorry to See You Go - Why’d You Leave?");
-
+    private void sendCancellationEmail(String toEmail, String customerName, SubscriptionCollection subscriptions) {
+        // Default branding
+        String businessName = "CLT Lifting Club";
+        String businessContactEmail = "contact@cltliftingclub.com";
+        
         // Build email body
         StringBuilder emailBody = new StringBuilder();
         emailBody.append("<p>Hi ").append(customerName).append(",</p>")
-                .append("<p>Sorry to hear you’re leaving CLT Lifting Club. As per our cancellation policy, your membership(s) will be canceled at the end of the current or upcoming billing period, as listed below. You’ll continue to have access to your membership benefits until the cancellation date(s).</p>")
+                .append("<p>Sorry to hear you’re leaving " + businessName + ". As per our cancellation policy, your membership(s) will be canceled at the end of the current or upcoming billing period, as listed below. You’ll continue to have access to your membership benefits until the cancellation date(s).</p>")
                 .append("<ul>");
 
         for (Subscription sub : subscriptions.getData()) {
@@ -1082,10 +1047,14 @@ public class StripeController {
 
         emailBody.append("</ul>")
                 .append("<p>Do you mind telling us why you’re stepping away? Feel free to come back for a free day pass and feel free to bring a friend.</p>")
-                .append("<p>Best,<br>The CLT Lifting Club Team</p>");
+                .append("<p>Best,<br>The " + businessName + " Team</p>");
 
-        helper.setText(emailBody.toString(), true); // true indicates HTML content
-        mailSender.send(message);
+        try {
+            emailService.sendBlastEmail(toEmail, "Sorry to See You Go - Why’d You Leave?", emailBody.toString(), businessName, businessContactEmail);
+        } catch (Exception e) {
+            // Log but don't fail the cancellation
+            System.err.println("Failed to send cancellation email: " + e.getMessage());
+        }
     }
 
     private static final String NEW_CONTACT_EMAIL = "contact@cltliftingclub.com";
@@ -1095,6 +1064,11 @@ public class StripeController {
         List<String> failures = new ArrayList<>();
 
         List<User> users = userRepository.findAll();
+        
+        // Note: This is a bulk email and might need to be careful about "UserBusiness" context
+        // For now, assuming "CLT Lifting Club" default as this seems specific to an event
+        String businessName = "CLT Lifting Club";
+        String businessContactEmail = "contact@cltliftingclub.com";
 
         for (User user : users) {
             String stripeMemberId = user.getUserStripeMemberId();
@@ -1112,12 +1086,6 @@ public class StripeController {
                     continue;
                 }
 
-                // Send email
-                MimeMessage mimeMessage = mailSender.createMimeMessage();
-                MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-                helper.setTo(email);
-                helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
-                helper.setSubject("Don’t Miss This! – CLT Lifting Club x Kingdom Kickbacks Social Event");
                 String htmlContent = """
 <!DOCTYPE html>
 <html>
@@ -1145,10 +1113,10 @@ public class StripeController {
 <body>
     <div class="container">
         <div class="header">
-            <h2>CLT Lifting Club</h2>
+            <h2>%s</h2>
         </div>
         <div class="content">
-            <p>CLT Lifting Club is teaming up with Kingdom Kickbacks for an epic Open Gym Social — a day packed with fitness, connections, and memories you won’t want to miss.</p>
+            <p>%s is teaming up with Kingdom Kickbacks for an epic Open Gym Social — a day packed with fitness, connections, and memories you won’t want to miss.</p>
             <p><strong>Here’s what’s going down:</strong></p>
             <ul>
                 <li>Food Truck: Smart Eats</li>
@@ -1164,23 +1132,22 @@ public class StripeController {
             <p><strong>Bonus:</strong> Post a workout or event hype photo/video on August 16th using #CLTLiftingClub and tag @CLTLiftingClub for your chance to win a free CLT tee.</p>
             <p><a href="https://www.evite.com/signup-sheet/6025706806444032/?utm_campaign=send_sharable_link&utm_source=evitelink&utm_medium=sharable_invite" class="button">RSVP NOW</a> to let us know you’re coming, walk-ins are still welcome!</p>
             <p>Let’s make this the best South End community event of the summer.</p>
-            <p>See you there,<br>The CLT Lifting Club Team</p>
+            <p>See you there,<br>The %s Team</p>
         </div>
         <div class="footer">
-            <p>CLT Lifting Club | %s</p>
+            <p>%s | %s</p>
         </div>
     </div>
 </body>
 </html>
-""".formatted(NEW_CONTACT_EMAIL);
-                helper.setText(htmlContent, true);
-                mailSender.send(mimeMessage);
+""".formatted(businessName, businessName, businessName, businessName, businessContactEmail);
 
+                emailService.sendBlastEmail(email, "Don’t Miss This! – " + businessName + " x Kingdom Kickbacks Social Event", htmlContent, businessName, businessContactEmail);
 
                 successes.add("User ID " + user.getId() + ": Email sent to " + email);
             } catch (StripeException e) {
                 failures.add("User ID " + user.getId() + ": Stripe error for " + stripeMemberId + " - " + e.getMessage());
-            } catch (MessagingException e) {
+            } catch (RuntimeException e) {
                 failures.add("User ID " + user.getId() + ": Email sending failed for " + stripeMemberId + " - " + e.getMessage());
             }
         }
@@ -1191,4 +1158,3 @@ public class StripeController {
         return ResponseEntity.ok(response);
     }
 }
-

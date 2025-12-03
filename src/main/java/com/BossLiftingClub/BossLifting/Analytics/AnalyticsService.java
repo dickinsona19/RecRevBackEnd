@@ -3,9 +3,9 @@ package com.BossLiftingClub.BossLifting.Analytics;
 import com.BossLiftingClub.BossLifting.Business.Business;
 import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
 import com.BossLiftingClub.BossLifting.Stripe.StripeService;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClub;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubMembership;
-import com.BossLiftingClub.BossLifting.User.ClubUser.UserClubRepository;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessRepository;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.Membership.MembershipRepository;
 import com.stripe.exception.StripeException;
@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 public class AnalyticsService {
 
     @Autowired
-    private UserClubRepository userClubRepository;
+    private UserBusinessRepository userBusinessRepository;
 
     @Autowired
     private MembershipRepository membershipRepository;
@@ -61,7 +61,7 @@ public class AnalyticsService {
         AnalyticsDTO.DashboardMetrics metrics = new AnalyticsDTO.DashboardMetrics();
 
         // Get all members for this business
-        List<UserClub> allMembers = userClubRepository.findAllByBusinessTag(businessTag);
+        List<UserBusiness> allMembers = userBusinessRepository.findAllByBusinessTag(businessTag);
 
         // Calculate member metrics
         calculateMemberMetrics(metrics, allMembers, startDate, endDate);
@@ -90,12 +90,12 @@ public class AnalyticsService {
     /**
      * Calculate member-related metrics
      */
-    private void calculateMemberMetrics(AnalyticsDTO.DashboardMetrics metrics, List<UserClub> allMembers,
+    private void calculateMemberMetrics(AnalyticsDTO.DashboardMetrics metrics, List<UserBusiness> allMembers,
                                        LocalDateTime startDate, LocalDateTime endDate) {
         // Active members: members with all memberships active OR no memberships
         int activeMembers = (int) allMembers.stream()
                 .filter(uc -> {
-                    List<UserClubMembership> memberships = uc.getUserClubMemberships();
+                    List<UserBusinessMembership> memberships = uc.getUserBusinessMemberships();
                     if (memberships == null || memberships.isEmpty()) {
                         return true; // No memberships = active
                     }
@@ -122,7 +122,7 @@ public class AnalyticsService {
             int previousActiveMembers = (int) allMembers.stream()
                     .filter(uc -> uc.getCreatedAt().isBefore(previousPeriodEnd))
                     .filter(uc -> {
-                        List<UserClubMembership> memberships = uc.getUserClubMemberships();
+                        List<UserBusinessMembership> memberships = uc.getUserBusinessMemberships();
                         if (memberships == null || memberships.isEmpty()) return true;
                         return memberships.stream().allMatch(m -> "ACTIVE".equalsIgnoreCase(m.getStatus()));
                     })
@@ -253,21 +253,13 @@ public class AnalyticsService {
     /**
      * Calculate Monthly Recurring Revenue (MRR)
      */
-    private void calculateMRR(AnalyticsDTO.DashboardMetrics metrics, List<UserClub> allMembers) {
+    private void calculateMRR(AnalyticsDTO.DashboardMetrics metrics, List<UserBusiness> allMembers) {
         BigDecimal mrr = BigDecimal.ZERO;
 
-        for (UserClub userClub : allMembers) {
-            for (UserClubMembership membership : userClub.getUserClubMemberships()) {
+        for (UserBusiness userBusiness : allMembers) {
+            for (UserBusinessMembership membership : userBusiness.getUserBusinessMemberships()) {
                 if ("ACTIVE".equalsIgnoreCase(membership.getStatus())) {
-                    String priceStr = membership.getMembership().getPrice();
-                    if (priceStr != null && !priceStr.isEmpty()) {
-                        try {
-                            BigDecimal price = new BigDecimal(priceStr);
-                            mrr = mrr.add(price);
-                        } catch (NumberFormatException e) {
-                            // Skip invalid price
-                        }
-                    }
+                    mrr = mrr.add(resolveActualPrice(membership));
                 }
             }
         }
@@ -280,7 +272,7 @@ public class AnalyticsService {
     /**
      * Calculate churn rate and count
      */
-    private void calculateChurn(AnalyticsDTO.DashboardMetrics metrics, List<UserClub> allMembers,
+    private void calculateChurn(AnalyticsDTO.DashboardMetrics metrics, List<UserBusiness> allMembers,
                                LocalDateTime startDate, LocalDateTime endDate) {
         if (startDate == null) {
             metrics.setChurnRate(BigDecimal.ZERO);
@@ -290,7 +282,7 @@ public class AnalyticsService {
 
         int churnedMembers = (int) allMembers.stream()
                 .filter(uc -> {
-                    return uc.getUserClubMemberships().stream()
+                    return uc.getUserBusinessMemberships().stream()
                             .anyMatch(m -> {
                                 String status = m.getStatus();
                                 LocalDateTime endDateMembership = m.getEndDate();
@@ -322,7 +314,7 @@ public class AnalyticsService {
     /**
      * Calculate average Lifetime Value (LTV)
      */
-    private void calculateLTV(AnalyticsDTO.DashboardMetrics metrics, List<UserClub> allMembers,
+    private void calculateLTV(AnalyticsDTO.DashboardMetrics metrics, List<UserBusiness> allMembers,
                              String stripeAccountId) {
         try {
             // Simple LTV = total lifetime revenue / total members
@@ -341,7 +333,7 @@ public class AnalyticsService {
     /**
      * Get membership breakdown by type
      */
-    private List<AnalyticsDTO.MembershipBreakdown> getMembershipBreakdown(String businessTag, List<UserClub> allMembers,
+    private List<AnalyticsDTO.MembershipBreakdown> getMembershipBreakdown(String businessTag, List<UserBusiness> allMembers,
                                                                           String stripeAccountId) {
         List<Membership> allMemberships = membershipRepository.findByBusinessTag(businessTag);
         List<AnalyticsDTO.MembershipBreakdown> breakdown = new ArrayList<>();
@@ -350,11 +342,11 @@ public class AnalyticsService {
             int memberCount = 0;
             int activeMemberCount = 0;
 
-            for (UserClub userClub : allMembers) {
-                boolean hasMembership = userClub.getUserClubMemberships().stream()
+            for (UserBusiness userBusiness : allMembers) {
+                boolean hasMembership = userBusiness.getUserBusinessMemberships().stream()
                         .anyMatch(m -> m.getMembership().getId().equals(membership.getId()));
 
-                boolean hasActiveMembership = userClub.getUserClubMemberships().stream()
+                boolean hasActiveMembership = userBusiness.getUserBusinessMemberships().stream()
                         .anyMatch(m -> m.getMembership().getId().equals(membership.getId())
                                 && "ACTIVE".equalsIgnoreCase(m.getStatus()));
 
@@ -363,16 +355,16 @@ public class AnalyticsService {
             }
 
             // Parse price from String to BigDecimal
-            BigDecimal price = BigDecimal.ZERO;
-            try {
-                if (membership.getPrice() != null && !membership.getPrice().isEmpty()) {
-                    price = new BigDecimal(membership.getPrice());
+            BigDecimal price = parsePrice(membership.getPrice());
+            BigDecimal totalRevenue = BigDecimal.ZERO;
+            for (UserBusiness userBusiness : allMembers) {
+                for (UserBusinessMembership userMembership : userBusiness.getUserBusinessMemberships()) {
+                    if (userMembership.getMembership().getId().equals(membership.getId())
+                            && "ACTIVE".equalsIgnoreCase(userMembership.getStatus())) {
+                        totalRevenue = totalRevenue.add(resolveActualPrice(userMembership));
+                    }
                 }
-            } catch (NumberFormatException e) {
-                // Use zero if price is invalid
             }
-
-            BigDecimal totalRevenue = price.multiply(BigDecimal.valueOf(activeMemberCount));
             BigDecimal avgRevenue = activeMemberCount > 0
                     ? totalRevenue.divide(BigDecimal.valueOf(activeMemberCount), 2, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
@@ -389,6 +381,29 @@ public class AnalyticsService {
         }
 
         return breakdown;
+    }
+
+    private BigDecimal resolveActualPrice(UserBusinessMembership membership) {
+        BigDecimal actual = membership.getActualPrice();
+        if (actual != null && actual.compareTo(BigDecimal.ZERO) > 0) {
+            return actual.setScale(2, RoundingMode.HALF_UP);
+        }
+        return parsePrice(membership.getMembership().getPrice());
+    }
+
+    private BigDecimal parsePrice(String price) {
+        if (price == null || price.isEmpty()) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        String normalized = price.replaceAll("[^0-9.]", "");
+        if (normalized.isEmpty()) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        try {
+            return new BigDecimal(normalized).setScale(2, RoundingMode.HALF_UP);
+        } catch (NumberFormatException e) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
     }
 
     /**

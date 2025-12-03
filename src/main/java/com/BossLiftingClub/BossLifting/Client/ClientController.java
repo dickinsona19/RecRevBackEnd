@@ -5,10 +5,10 @@ import com.BossLiftingClub.BossLifting.Auth.AuthResponse;
 import com.BossLiftingClub.BossLifting.Auth.LoginRequest;
 import com.BossLiftingClub.BossLifting.Auth.RefreshTokenRequest;
 import com.BossLiftingClub.BossLifting.Client.Requests.ClientSignUpRequest;
-import com.BossLiftingClub.BossLifting.Club.Staff.Staff;
-import com.BossLiftingClub.BossLifting.Club.Staff.StaffDTO;
-import com.BossLiftingClub.BossLifting.Club.Staff.StaffRepository;
-import com.BossLiftingClub.BossLifting.Club.Staff.StaffServiceImpl;
+import com.BossLiftingClub.BossLifting.Business.Staff.Staff;
+import com.BossLiftingClub.BossLifting.Business.Staff.StaffDTO;
+import com.BossLiftingClub.BossLifting.Business.Staff.StaffRepository;
+import com.BossLiftingClub.BossLifting.Business.Staff.StaffServiceImpl;
 import com.BossLiftingClub.BossLifting.User.PasswordAuth.JwtUtil;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -76,7 +76,7 @@ public class ClientController {
         System.out.println("Login attempt for email: " + loginRequest.getEmail());
         
         // Try STAFF authentication first
-        List<Staff> staffList = staffRepository.findByEmailAndIsActiveTrue(loginRequest.getEmail());
+        List<Staff> staffList = staffRepository.findByEmailAndIsActiveTrueWithBusiness(loginRequest.getEmail());
         System.out.println("Found " + staffList.size() + " active staff with email: " + loginRequest.getEmail());
         
         if (!staffList.isEmpty()) {
@@ -108,7 +108,7 @@ public class ClientController {
                 String token = jwtUtil.generateStaffToken(staff.getEmail(), staff.getId(), role, businessId);
                 String refreshToken = jwtUtil.generateStaffRefreshToken(staff.getEmail(), staff.getId(), role, businessId);
                 
-                // Convert to DTO
+                // Convert to DTO - business is already loaded from the query
                 StaffDTO staffDTO = staffService.getStaffById(staff.getId());
                 System.out.println("StaffDTO created: " + staffDTO.getEmail() + ", businessId: " + staffDTO.getBusinessId());
                 

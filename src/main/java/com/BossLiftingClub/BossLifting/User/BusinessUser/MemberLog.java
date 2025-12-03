@@ -1,11 +1,11 @@
-package com.BossLiftingClub.BossLifting.User.ClubUser;
+package com.BossLiftingClub.BossLifting.User.BusinessUser;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 /**
- * Entity representing a log entry for a member (UserClub).
+ * Entity representing a log entry for a member (UserBusiness).
  * Admins can create and edit these logs to track events or notes about specific members.
  */
 @Entity
@@ -17,9 +17,9 @@ public class MemberLog {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_club_id", nullable = false)
+    @JoinColumn(name = "user_business_id", nullable = false)
     @JsonIgnore
-    private UserClub userClub;
+    private UserBusiness userBusiness;
 
     @Column(name = "log_text", columnDefinition = "TEXT", nullable = false)
     private String logText;
@@ -42,8 +42,8 @@ public class MemberLog {
         this.updatedAt = LocalDateTime.now();
     }
 
-    public MemberLog(UserClub userClub, String logText, String createdBy) {
-        this.userClub = userClub;
+    public MemberLog(UserBusiness userBusiness, String logText, String createdBy) {
+        this.userBusiness = userBusiness;
         this.logText = logText;
         this.createdBy = createdBy;
         this.createdAt = LocalDateTime.now();
@@ -71,12 +71,12 @@ public class MemberLog {
         this.id = id;
     }
 
-    public UserClub getUserClub() {
-        return userClub;
+    public UserBusiness getUserBusiness() {
+        return userBusiness;
     }
 
-    public void setUserClub(UserClub userClub) {
-        this.userClub = userClub;
+    public void setUserBusiness(UserBusiness userBusiness) {
+        this.userBusiness = userBusiness;
     }
 
     public String getLogText() {

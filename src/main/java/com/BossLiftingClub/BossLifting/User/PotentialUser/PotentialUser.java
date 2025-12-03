@@ -1,20 +1,18 @@
 package com.BossLiftingClub.BossLifting.User.PotentialUser;
 
+import com.BossLiftingClub.BossLifting.Email.EmailService;
 import com.BossLiftingClub.BossLifting.Promo.Promo;
 import com.BossLiftingClub.BossLifting.Promo.PromoRepository;
 import com.BossLiftingClub.BossLifting.User.FirebaseService;
 import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
 import jakarta.persistence.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.http.HttpStatus;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Nullable;
@@ -24,7 +22,7 @@ import java.util.*;
 // Entity
 @Entity
 @Table(name = "potential_user") // Explicitly specify the table name
-public class PotentialUser {
+class PotentialUser {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -161,12 +159,13 @@ class PotentialUserController {
     private final FirebaseService firebaseService;
 
     @Autowired
-    private JavaMailSender mailSender;
+    private EmailService emailService;
 
     @Autowired
     private PotentialUserRepository potentialUserRepository;
 
     private static final String NEW_CONTACT_EMAIL = "contact@cltliftingclub.com";
+    
     public PotentialUserController(PotentialUserService potentialUserService, FirebaseService firebaseService) {
         this.service = potentialUserService;
         this.firebaseService = firebaseService;
@@ -217,6 +216,10 @@ class PotentialUserController {
         List<String> failures = new ArrayList<>();
 
         List<PotentialUser> potentialUsers = potentialUserRepository.findAll();
+        
+        // Default branding for potential users
+        String businessName = "CLT Lifting Club";
+        String businessContactEmail = "contact@cltliftingclub.com";
 
         for (PotentialUser potentialUser : potentialUsers) {
             String email = potentialUser.getEmail();
@@ -226,17 +229,6 @@ class PotentialUserController {
             }
 
             try {
-                // Send email
-                MimeMessage mimeMessage = mailSender.createMimeMessage();
-                MimeMessageHelper helper = null;
-                try {
-                    helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-                } catch (MessagingException e) {
-                    throw new RuntimeException(e);
-                }
-                helper.setTo(email);
-                helper.setFrom("CLT Lifting Club <contact@cltliftingclub.com>");
-                helper.setSubject("Don’t Miss This! – CLT Lifting Club x Kingdom Kickbacks Social Event");
                 String htmlContent = """
     <!DOCTYPE html>
     <html>
@@ -264,10 +256,10 @@ class PotentialUserController {
     <body>
         <div class="container">
             <div class="header">
-                <h2>CLT Lifting Club</h2>
+                <h2>%s</h2>
             </div>
             <div class="content">
-                <p>CLT Lifting Club is teaming up with Kingdom Kickbacks for an epic Open Gym Social — a day packed with fitness, connections, and memories you won’t want to miss.</p>
+                <p>%s is teaming up with Kingdom Kickbacks for an epic Open Gym Social — a day packed with fitness, connections, and memories you won’t want to miss.</p>
                 <p><strong>Here’s what’s going down:</strong></p>
                 <ul>
                     <li>Food Truck: Smart Eats</li>
@@ -283,21 +275,20 @@ class PotentialUserController {
                 <p><strong>Bonus:</strong> Post a workout or event hype photo/video on August 16th using #CLTLiftingClub and tag @CLTLiftingClub for your chance to win a free CLT tee.</p>
                 <p><a href="https://www.evite.com/signup-sheet/6025706806444032/?utm_campaign=send_sharable_link&utm_source=evitelink&utm_medium=sharable_invite" class="button">RSVP NOW</a> to let us know you’re coming, walk-ins are still welcome!</p>
                 <p>Let’s make this the best South End community event of the summer.</p>
-                <p>See you there,<br>The CLT Lifting Club Team</p>
+                <p>See you there,<br>The %s Team</p>
             </div>
             <div class="footer">
-                <p>CLT Lifting Club | %s</p>
+                <p>%s | %s</p>
             </div>
         </div>
     </body>
     </html>
-    """.formatted(NEW_CONTACT_EMAIL);
-                helper.setText(htmlContent, true);
-                mailSender.send(mimeMessage);
+    """.formatted(businessName, businessName, businessName, businessName, businessContactEmail);
 
+                emailService.sendBlastEmail(email, "Don’t Miss This! – " + businessName + " x Kingdom Kickbacks Social Event", htmlContent, businessName, businessContactEmail);
 
                 successes.add("PotentialUser ID " + potentialUser.getId() + ": Email sent to " + email);
-            } catch (MessagingException e) {
+            } catch (Exception e) {
                 failures.add("PotentialUser ID " + potentialUser.getId() + ": Email sending failed for " + email + " - " + e.getMessage());
             }
         }

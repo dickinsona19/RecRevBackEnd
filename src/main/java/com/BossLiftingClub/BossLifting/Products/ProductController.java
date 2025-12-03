@@ -59,8 +59,8 @@ public class ProductController {
                 .map(ProductsDTO::fromEntity)
                 .collect(Collectors.toList());
     }
-    
-    // Backward compatibility - clubTag maps to businessTag
+
+    // Backward compatibility
     @GetMapping("/by-club-tag/{clubTag}")
     public List<ProductsDTO> getProductsByClubTag(@PathVariable String clubTag) {
         return getProductsByBusinessTag(clubTag);

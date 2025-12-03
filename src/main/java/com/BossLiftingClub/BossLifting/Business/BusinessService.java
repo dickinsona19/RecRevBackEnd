@@ -16,6 +16,7 @@ public interface BusinessService {
     String createStripeOnboardingLink(String businessTag, String returnUrl, String refreshUrl) throws StripeException;
     String createStripeDashboardLink(String businessTag) throws StripeException;
     void updateOnboardingStatus(String stripeAccountId, String status);
+    java.util.Optional<BusinessDTO> findByStripeAccountId(String stripeAccountId);
 }
 
 

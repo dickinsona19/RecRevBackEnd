@@ -1,10 +1,7 @@
-package com.BossLiftingClub.BossLifting.User.ClubUser;
-
+package com.BossLiftingClub.BossLifting.User.BusinessUser;
 
 import com.BossLiftingClub.BossLifting.Business.Business;
-import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.User;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
@@ -13,8 +10,8 @@ import java.util.List;
 import java.util.Objects;
 
 @Entity
-@Table(name = "user_clubs")
-public class UserClub {
+@Table(name = "user_business")
+public class UserBusiness {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -28,16 +25,10 @@ public class UserClub {
     @JoinColumn(name = "business_id", nullable = false)
     private Business business;
 
-    // Deprecated: Kept for backward compatibility, use userClubMemberships instead
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "membership_id")
-    @Deprecated
-    private Membership membership;
+    @OneToMany(mappedBy = "userBusiness", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    private List<UserBusinessMembership> userBusinessMemberships = new ArrayList<>();
 
-    @OneToMany(mappedBy = "userClub", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
-    private List<UserClubMembership> userClubMemberships = new ArrayList<>();
-
-    @OneToMany(mappedBy = "userClub", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "userBusiness", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<MemberLog> memberLogs = new ArrayList<>();
 
     @Column(name = "stripe_id")
@@ -52,14 +43,13 @@ public class UserClub {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
-    public UserClub() {
+    public UserBusiness() {
         this.createdAt = LocalDateTime.now();
     }
 
-    public UserClub(User user, Business business, Membership membership, String stripeId, String status) {
+    public UserBusiness(User user, Business business, String stripeId, String status) {
         this.user = user;
         this.business = business;
-        this.membership = membership;
         this.stripeId = stripeId;
         this.status = status;
         this.createdAt = LocalDateTime.now();
@@ -106,14 +96,6 @@ public class UserClub {
         this.status = status;
     }
 
-    public Membership getMembership() {
-        return membership;
-    }
-
-    public void setMembership(Membership membership) {
-        this.membership = membership;
-    }
-
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -122,12 +104,12 @@ public class UserClub {
         this.createdAt = createdAt;
     }
 
-    public List<UserClubMembership> getUserClubMemberships() {
-        return userClubMemberships;
+    public List<UserBusinessMembership> getUserBusinessMemberships() {
+        return userBusinessMemberships;
     }
 
-    public void setUserClubMemberships(List<UserClubMembership> userClubMemberships) {
-        this.userClubMemberships = userClubMemberships;
+    public void setUserBusinessMemberships(List<UserBusinessMembership> userBusinessMemberships) {
+        this.userBusinessMemberships = userBusinessMemberships;
     }
 
     public String getNotes() {
@@ -138,14 +120,14 @@ public class UserClub {
         this.notes = notes;
     }
 
-    public void addMembership(UserClubMembership membership) {
-        userClubMemberships.add(membership);
-        membership.setUserClub(this);
+    public void addMembership(UserBusinessMembership membership) {
+        userBusinessMemberships.add(membership);
+        membership.setUserBusiness(this);
     }
 
-    public void removeMembership(UserClubMembership membership) {
-        userClubMemberships.remove(membership);
-        membership.setUserClub(null);
+    public void removeMembership(UserBusinessMembership membership) {
+        userBusinessMemberships.remove(membership);
+        membership.setUserBusiness(null);
     }
 
     public List<MemberLog> getMemberLogs() {
@@ -158,20 +140,20 @@ public class UserClub {
 
     public void addMemberLog(MemberLog log) {
         memberLogs.add(log);
-        log.setUserClub(this);
+        log.setUserBusiness(this);
     }
 
     public void removeMemberLog(MemberLog log) {
         memberLogs.remove(log);
-        log.setUserClub(null);
+        log.setUserBusiness(null);
     }
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        UserClub userClub = (UserClub) o;
-        return user != null && business != null && user.equals(userClub.user) && business.equals(userClub.business);
+        UserBusiness that = (UserBusiness) o;
+        return user != null && business != null && user.equals(that.user) && business.equals(that.business);
     }
 
     @Override

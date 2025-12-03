@@ -33,8 +33,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
         SELECT u
         FROM User u
         LEFT JOIN FETCH u.membership
-        JOIN FETCH u.userClubs uc
-        JOIN FETCH uc.business b
+        JOIN FETCH u.userBusinesses ub
+        JOIN FETCH ub.business b
         WHERE b.businessTag = :clubTag
     """)
     List<User> findUsersWithMembershipByClubTag(@Param("clubTag") String clubTag);
