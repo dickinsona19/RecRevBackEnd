@@ -28,6 +28,7 @@ public class UserDTO {
     private String lockedInRate;
     private String signatureData;
     private LocalDateTime waiverSignedDate;
+    private UserType userType;
     private String profilePictureUrl;
     private Long parentId;
     private Set<UserDTO> childrenDto;
@@ -57,6 +58,7 @@ public class UserDTO {
         this.lockedInRate = user.getLockedInRate();
         this.signatureData = user.getSignatureData();
         this.waiverSignedDate = user.getWaiverSignedDate();
+        this.userType = user.getUserType();
         this.profilePictureUrl = user.getProfilePictureUrl();
         this.parentId = user.getParent() != null ? user.getParent().getId() : null;
         this.childrenDto = user.getChildrenDto();

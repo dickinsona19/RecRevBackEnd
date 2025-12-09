@@ -16,6 +16,7 @@ public interface UserService {
     User updateUserPaymentFailed(String stripeCustomerId);
     Optional<User> getUserByPhoneNumber(String phoneNumber);
     Optional<User> deleteUserWithPhoneNumber(String PhoneNumber);
+    Optional<User> deleteUserByIdOrPhone(Long userId, String phoneNumber);
     User signIn(Map<String, String> requestBody) throws Exception;
     User signInWithPhoneNumber(String phoneNumber, String password) throws Exception;
     Optional<User> updateProfilePicture(Long id, String profilePicture);

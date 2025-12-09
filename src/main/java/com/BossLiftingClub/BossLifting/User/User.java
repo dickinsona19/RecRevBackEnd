@@ -4,6 +4,8 @@ import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
 import com.BossLiftingClub.BossLifting.User.UserTitles.UserTitles;
+import com.BossLiftingClub.BossLifting.User.Waiver.UserWaiver;
+import com.BossLiftingClub.BossLifting.User.Waiver.WaiverStatus;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
@@ -65,6 +67,10 @@ public class User {
     @Column(name = "waiver_signed_date")
     private LocalDateTime waiverSignedDate;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "waiver_status", nullable = false)
+    private WaiverStatus waiverStatus = WaiverStatus.NOT_SIGNED;
+
     @Column(name = "profile_picture_url")
     private String profilePictureUrl;
 
@@ -87,6 +93,10 @@ public class User {
     @JoinColumn(name = "referred_by_id")
     private User referredBy;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "user_type", nullable = false)
+    private UserType userType = UserType.REGULAR;
+
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private List<UserBusiness> userBusinesses = new ArrayList<>();
@@ -97,6 +107,10 @@ public class User {
 
     @OneToMany(mappedBy = "referredBy", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<User> referredMembers = new HashSet<>();
+
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
+    private List<UserWaiver> waiverRecords = new ArrayList<>();
 
     @Transient
     private Set<ReferredUserDto> referredMembersDto;
@@ -258,6 +272,14 @@ public class User {
         this.waiverSignedDate = waiverSignedDate;
     }
 
+    public WaiverStatus getWaiverStatus() {
+        return waiverStatus;
+    }
+
+    public void setWaiverStatus(WaiverStatus waiverStatus) {
+        this.waiverStatus = waiverStatus;
+    }
+
     public Membership getMembership() {
         return membership;
     }
@@ -272,6 +294,14 @@ public class User {
 
     public void setReferralCode(String referralCode) {
         this.referralCode = referralCode;
+    }
+
+    public UserType getUserType() {
+        return userType;
+    }
+
+    public void setUserType(UserType userType) {
+        this.userType = userType;
     }
 
     public User getReferredBy() {
@@ -312,6 +342,14 @@ public class User {
 
     public void setChildren(Set<User> children) {
         this.children = children;
+    }
+
+    public List<UserWaiver> getWaiverRecords() {
+        return waiverRecords;
+    }
+
+    public void setWaiverRecords(List<UserWaiver> waiverRecords) {
+        this.waiverRecords = waiverRecords;
     }
 
     public void setId(Long id) {

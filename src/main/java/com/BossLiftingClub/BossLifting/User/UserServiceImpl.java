@@ -469,6 +469,32 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    public Optional<User> deleteUserByIdOrPhone(Long userId, String phoneNumber) {
+        Optional<User> userOpt = Optional.empty();
+
+        if (userId != null) {
+            userOpt = userRepository.findById(userId);
+        }
+
+        if (userOpt.isEmpty() && phoneNumber != null && !phoneNumber.isBlank()) {
+            userOpt = userRepository.findByPhoneNumber(phoneNumber);
+        }
+
+        if (userOpt.isPresent()) {
+            User user = userOpt.get();
+            if (user.getParent() != null) {
+                User parent = user.getParent();
+                parent.getChildren().remove(user);
+                userRepository.save(parent);
+            }
+            userRepository.delete(user);
+            return Optional.of(user);
+        }
+
+        return Optional.empty();
+    }
+
+    @Override
     public User updateUserPaymentFailed(String stripeCustomerId) {
         Optional<User> optionalUser = userRepository.findByUserStripeMemberId(stripeCustomerId);
         if (optionalUser.isPresent()) {

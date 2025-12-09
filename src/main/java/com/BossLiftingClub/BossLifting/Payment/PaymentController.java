@@ -405,7 +405,7 @@ public class PaymentController {
                 com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService =
                         applicationContext.getBean(com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService.class);
 
-                userBusinessService.addMembershipByUserBusinessId(userBusinessId, membershipId, status, anchorDate, overridePrice, promoCode);
+                userBusinessService.addMembershipByUserBusinessId(userBusinessId, membershipId, status, anchorDate, overridePrice, promoCode, null, null);
             }
 
             return ResponseEntity.ok(Map.of(

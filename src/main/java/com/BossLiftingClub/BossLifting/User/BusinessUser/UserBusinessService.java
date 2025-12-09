@@ -304,7 +304,7 @@ public class UserBusinessService {
      * Add a membership to a user using the UserBusiness ID directly
      */
     @Transactional
-    public UserBusinessMembership addMembershipByUserBusinessId(Long userBusinessId, Long membershipId, String status, LocalDateTime anchorDate, BigDecimal overridePrice, String promoCode) {
+    public UserBusinessMembership addMembershipByUserBusinessId(Long userBusinessId, Long membershipId, String status, LocalDateTime anchorDate, BigDecimal overridePrice, String promoCode, String signatureDataUrl, String signerName) {
         // Get the user-business relationship by ID
         UserBusiness userBusiness = userBusinessRepository.findById(userBusinessId)
                 .orElseThrow(() -> new RuntimeException("UserBusiness relationship not found with id: " + userBusinessId));
@@ -380,6 +380,15 @@ public class UserBusinessService {
         );
         userBusinessMembership.setStripeSubscriptionId(stripeSubscriptionId);
         userBusinessMembership.setActualPrice(actualPrice);
+        
+        // Set signature data if provided
+        if (signatureDataUrl != null && !signatureDataUrl.isEmpty()) {
+            userBusinessMembership.setSignatureDataUrl(signatureDataUrl);
+            userBusinessMembership.setSignedAt(LocalDateTime.now());
+            if (signerName != null && !signerName.isEmpty()) {
+                userBusinessMembership.setSignerName(signerName);
+            }
+        }
 
         // Add to the UserBusiness (this will cascade save)
         userBusiness.addMembership(userBusinessMembership);

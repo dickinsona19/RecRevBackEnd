@@ -145,18 +145,39 @@ public class UserController {
             throw e;
         }
     }
-    //Delete User given Phone Number
+    // Delete User given userId or Phone Number
     @DeleteMapping("/delete-user")
-    public ResponseEntity<Map<String, Object>> deleteUser(@RequestBody Map<String, String> request) {
-        String phoneNumber = request.get("phoneNumber");
-        Optional<User> deletedUser = userService.deleteUserWithPhoneNumber(phoneNumber);
+    public ResponseEntity<Map<String, Object>> deleteUser(@RequestBody Map<String, Object> request) {
+        Long userId = null;
+        String phoneNumber = null;
+
+        if (request.containsKey("userId")) {
+            try {
+                Object idObj = request.get("userId");
+                if (idObj instanceof Number) {
+                    userId = ((Number) idObj).longValue();
+                } else if (idObj instanceof String) {
+                    userId = Long.parseLong((String) idObj);
+                }
+            } catch (NumberFormatException ignored) {}
+        }
+
+        if (request.containsKey("phoneNumber")) {
+            Object phoneObj = request.get("phoneNumber");
+            if (phoneObj != null) {
+                phoneNumber = phoneObj.toString();
+            }
+        }
+
+        Optional<User> deletedUser = userService.deleteUserByIdOrPhone(userId, phoneNumber);
 
         Map<String, Object> response = new HashMap<>();
         if (deletedUser.isPresent()) {
             response.put("message", "User with ID " + deletedUser.get().getId() + " was deleted successfully.");
             return ResponseEntity.ok(response);
         } else {
-            response.put("error", "User with phone number " + phoneNumber + " not found.");
+            String ref = userId != null ? "ID " + userId : "phone number " + phoneNumber;
+            response.put("error", "User with " + ref + " not found.");
             return ResponseEntity.status(404).body(response);
         }
     }

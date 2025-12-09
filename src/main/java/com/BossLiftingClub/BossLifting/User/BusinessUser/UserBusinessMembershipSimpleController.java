@@ -98,7 +98,9 @@ public class UserBusinessMembershipSimpleController {
                     request.getStatus() != null ? request.getStatus() : "ACTIVE",
                     anchorDateTime,
                     overridePrice,
-                    request.getPromoCode()
+                    request.getPromoCode(),
+                    request.getSignatureDataUrl(),
+                    request.getSignerName()
             );
 
             return ResponseEntity.status(HttpStatus.CREATED).body(membership);
@@ -267,6 +269,8 @@ public class UserBusinessMembershipSimpleController {
         private String anchorDate;
         private String promoCode;
         private Double customPrice;
+        private String signatureDataUrl; // Base64 signature image
+        private String signerName; // Name of person who signed
 
         // Getters and Setters
         public Long getUserBusinessId() {
@@ -315,6 +319,22 @@ public class UserBusinessMembershipSimpleController {
 
         public void setCustomPrice(Double customPrice) {
             this.customPrice = customPrice;
+        }
+
+        public String getSignatureDataUrl() {
+            return signatureDataUrl;
+        }
+
+        public void setSignatureDataUrl(String signatureDataUrl) {
+            this.signatureDataUrl = signatureDataUrl;
+        }
+
+        public String getSignerName() {
+            return signerName;
+        }
+
+        public void setSignerName(String signerName) {
+            this.signerName = signerName;
         }
     }
 

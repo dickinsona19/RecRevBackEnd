@@ -31,6 +31,38 @@ public class MemberNotesAndLogsController {
     @Autowired
     private SignInLogRepository signInLogRepository;
 
+    /**
+     * Get business ID for a user
+     * GET /api/user-businesses/user/{userId}
+     */
+    @GetMapping("/user/{userId}")
+    public ResponseEntity<?> getUserBusinesses(@PathVariable Long userId) {
+        try {
+            List<UserBusiness> userBusinesses = userBusinessRepository.findAllByUserId(userId);
+            if (userBusinesses.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "User not found or not associated with any business"));
+            }
+
+            // Return the first business (or all if needed)
+            List<Map<String, Object>> businesses = userBusinesses.stream()
+                    .map(ub -> {
+                        Map<String, Object> businessMap = new java.util.HashMap<>();
+                        businessMap.put("id", ub.getId());
+                        businessMap.put("businessId", ub.getBusiness().getId());
+                        businessMap.put("businessTag", ub.getBusiness().getBusinessTag() != null ? ub.getBusiness().getBusinessTag() : "");
+                        businessMap.put("businessTitle", ub.getBusiness().getTitle() != null ? ub.getBusiness().getTitle() : "");
+                        return businessMap;
+                    })
+                    .collect(Collectors.toList());
+
+            return ResponseEntity.ok(businesses);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to retrieve user businesses: " + e.getMessage()));
+        }
+    }
+
     // ===== Notes Endpoints =====
 
     /**

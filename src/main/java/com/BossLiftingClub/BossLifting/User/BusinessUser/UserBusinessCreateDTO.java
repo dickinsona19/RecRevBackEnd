@@ -7,6 +7,8 @@ import jakarta.validation.constraints.NotNull;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.BossLiftingClub.BossLifting.User.UserType;
+
 public class UserBusinessCreateDTO {
     @NotBlank(message = "First name is required")
     private String firstName;
@@ -19,6 +21,8 @@ public class UserBusinessCreateDTO {
     private String email;
     
     private String paymentMethodId; // Stripe payment method token
+
+    private UserType userType = UserType.REGULAR;
 
     // Deprecated: Use memberships instead
     @Deprecated
@@ -75,6 +79,9 @@ public class UserBusinessCreateDTO {
     public void setEmail(String email) { this.email = email; }
     public String getPaymentMethodId() { return paymentMethodId; }
     public void setPaymentMethodId(String paymentMethodId) { this.paymentMethodId = paymentMethodId; }
+
+    public UserType getUserType() { return userType; }
+    public void setUserType(UserType userType) { this.userType = userType; }
 
     @Deprecated
     public Long getMembershipId() { return membershipId; }

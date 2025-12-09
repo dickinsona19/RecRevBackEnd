@@ -54,6 +54,15 @@ public class UserBusinessMembership {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Column(name = "signature_data_url", length = 1000)
+    private String signatureDataUrl; // Base64 signature image
+
+    @Column(name = "signed_at")
+    private LocalDateTime signedAt; // When the signature was captured
+
+    @Column(name = "signer_name", length = 255)
+    private String signerName; // Name of person who signed
+
     // Constructors
     public UserBusinessMembership() {
         this.createdAt = LocalDateTime.now();
@@ -171,6 +180,30 @@ public class UserBusinessMembership {
 
     public void setActualPrice(BigDecimal actualPrice) {
         this.actualPrice = actualPrice;
+    }
+
+    public String getSignatureDataUrl() {
+        return signatureDataUrl;
+    }
+
+    public void setSignatureDataUrl(String signatureDataUrl) {
+        this.signatureDataUrl = signatureDataUrl;
+    }
+
+    public LocalDateTime getSignedAt() {
+        return signedAt;
+    }
+
+    public void setSignedAt(LocalDateTime signedAt) {
+        this.signedAt = signedAt;
+    }
+
+    public String getSignerName() {
+        return signerName;
+    }
+
+    public void setSignerName(String signerName) {
+        this.signerName = signerName;
     }
 
     @PreUpdate

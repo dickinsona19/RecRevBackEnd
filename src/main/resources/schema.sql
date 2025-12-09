@@ -61,11 +61,13 @@ CREATE TABLE IF NOT EXISTS users (
     "lockedInRate" VARCHAR(50),
     signature_data TEXT,
     waiver_signed_date DATETIME,
+    user_type VARCHAR(32) NOT NULL DEFAULT 'REGULAR',
     profile_picture_url VARCHAR(500),
     referral_code VARCHAR(50) UNIQUE,
     parent_id BIGINT,
     referred_by_id BIGINT,
     membership_id BIGINT,
+    waiver_status VARCHAR(32) NOT NULL DEFAULT 'NOT_SIGNED',
     FOREIGN KEY (user_title_id) REFERENCES user_titles(id),
     FOREIGN KEY (parent_id) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (referred_by_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -90,6 +92,35 @@ CREATE TABLE IF NOT EXISTS staff (
     created_at DATETIME,
     last_login_at DATETIME,
     FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE SET NULL
+);
+
+-- Waiver templates table
+CREATE TABLE IF NOT EXISTS waiver_template (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    business_id BIGINT NOT NULL,
+    file_url VARCHAR(500) NOT NULL,
+    version INT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (business_id, version),
+    FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+);
+
+-- User waiver signatures table
+CREATE TABLE IF NOT EXISTS user_waiver (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    business_id BIGINT NOT NULL,
+    waiver_template_id BIGINT NOT NULL,
+    signed_at DATETIME NOT NULL,
+    signature_image_url VARCHAR(500),
+    final_pdf_url VARCHAR(500),
+    signer_ip VARCHAR(64),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, waiver_template_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
+    FOREIGN KEY (waiver_template_id) REFERENCES waiver_template(id) ON DELETE CASCADE
 );
 
 -- Failed Payment Attempts table - tracks retry attempts for failed payments
@@ -145,6 +176,9 @@ CREATE TABLE IF NOT EXISTS user_business_membership (
     pause_start_date DATETIME,
     pause_end_date DATETIME,
     actual_price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    signature_data_url VARCHAR(1000),
+    signed_at DATETIME,
+    signer_name VARCHAR(255),
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     FOREIGN KEY (user_business_id) REFERENCES user_business(id) ON DELETE CASCADE,
@@ -239,7 +273,7 @@ ON DUPLICATE KEY UPDATE title = VALUES(title);
 
 -- Insert clients
 INSERT INTO clients (id, email, password, created_at, status) VALUES
-(1, 'anndreuis@gmail.com', '$2a$10$hjxdcTpSSMIzYVc4ajNWsurcT2vf7CUJuqqMAHLvFAQr8nmQbXLHm', '2025-08-19 11:00:00', 'ACTIVE'),
+(1, 'anndreuis@gmail.com', '$2a$10$DwmUDtXsKsCL7sa1VdCSBuBDRbKY4qltEwId8yCvWovb8I26VZwG.', '2025-08-19 11:00:00', 'ACTIVE'),
 (2, 'jane.smith@example.com', '$2a$10$hjxdcTpSSMIzYVc4ajNWsurcT2vf7CUJuqqMAHLvFAQr8nmQbXLHm', '2025-08-18 09:30:00', 'INACTIVE'),
 (3, 'bob.jones@example.com', '$2a$10$hjxdcTpSSMIzYVc4ajNWsurcT2vf7CUJuqqMAHLvFAQr8nmQbXLHm', '2025-08-17 14:15:00', 'ACTIVE')
 ON DUPLICATE KEY UPDATE email = VALUES(email);

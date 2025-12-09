@@ -52,15 +52,35 @@ public class FirebaseService {
     }
 
     public String uploadImage(MultipartFile file) throws IOException {
-        String fileName = "profile_pictures/" + UUID.randomUUID() + "-" + file.getOriginalFilename();
+        return uploadFile(file, "profile_pictures");
+    }
 
-        // Explicitly specify the bucket name
-        Bucket bucket = StorageClient.getInstance().bucket(bucketName);
-        Blob blob = bucket.create(fileName, file.getBytes(), file.getContentType());
+    public String uploadFile(MultipartFile file, String directory) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("File cannot be empty");
+        }
 
-        // Make the file public
+        String resolvedDirectory = (directory == null || directory.isBlank())
+                ? ""
+                : directory.replaceAll("^/+", "").replaceAll("/+$", "") + "/";
+
+        String fileName = resolvedDirectory + UUID.randomUUID() + "-" + file.getOriginalFilename();
+
+        Bucket bucket = resolveBucket();
+        Blob blob = bucket.create(fileName, file.getBytes(), determineContentType(file));
         blob.createAcl(Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
 
         return String.format("https://storage.googleapis.com/%s/%s", bucket.getName(), fileName);
+    }
+
+    private Bucket resolveBucket() {
+        if (FirebaseApp.getApps().isEmpty()) {
+            throw new IllegalStateException("Firebase is not configured. Provide FIREBASE_SERVICE_ACCOUNT_JSON.");
+        }
+        return StorageClient.getInstance().bucket(bucketName);
+    }
+
+    private String determineContentType(MultipartFile file) {
+        return file.getContentType() != null ? file.getContentType() : "application/octet-stream";
     }
 }
