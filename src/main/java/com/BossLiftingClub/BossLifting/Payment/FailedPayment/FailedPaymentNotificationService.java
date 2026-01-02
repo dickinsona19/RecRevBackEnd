@@ -41,7 +41,7 @@ public class FailedPaymentNotificationService {
             String subject = "Payment Failed - Action Required";
             String body = buildInitialFailureEmail(user, business, attempt);
             
-            emailService.sendEmail(user.getEmail(), subject, body);
+            emailService.sendEmail(user.getEmail(), subject, body, business.getContactEmail());
             logger.info("Sent initial failure notification to user: {}", user.getEmail());
         } catch (Exception e) {
             logger.error("Failed to send initial failure notification: {}", e.getMessage(), e);
@@ -73,7 +73,7 @@ public class FailedPaymentNotificationService {
             String subject = "Payment Successful - Thank You!";
             String body = buildRetrySuccessEmail(user, business, attempt);
             
-            emailService.sendEmail(user.getEmail(), subject, body);
+            emailService.sendEmail(user.getEmail(), subject, body, business.getContactEmail());
             logger.info("Sent retry success notification to user: {}", user.getEmail());
         } catch (Exception e) {
             logger.error("Failed to send retry success notification: {}", e.getMessage(), e);
@@ -94,7 +94,7 @@ public class FailedPaymentNotificationService {
             String subject = "Urgent: Payment Failed - Membership at Risk";
             String body = buildRetryExhaustedEmail(user, business, attempt);
             
-            emailService.sendEmail(user.getEmail(), subject, body);
+            emailService.sendEmail(user.getEmail(), subject, body, business.getContactEmail());
             logger.info("Sent retry exhausted notification to user: {}", user.getEmail());
         } catch (Exception e) {
             logger.error("Failed to send retry exhausted notification: {}", e.getMessage(), e);

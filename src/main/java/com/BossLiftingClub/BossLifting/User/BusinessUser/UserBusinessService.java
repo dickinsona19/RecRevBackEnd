@@ -2,6 +2,7 @@ package com.BossLiftingClub.BossLifting.User.BusinessUser;
 
 import com.BossLiftingClub.BossLifting.Business.Business;
 import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
+import com.BossLiftingClub.BossLifting.Email.EmailService;
 import com.BossLiftingClub.BossLifting.Stripe.StripeService;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.Membership.MembershipRepository;
@@ -12,6 +13,7 @@ import com.stripe.exception.StripeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +26,7 @@ import java.util.Optional;
 @Service
 public class UserBusinessService {
 
+    private static final Logger logger = LoggerFactory.getLogger(UserBusinessService.class);
     private static final BigDecimal ZERO_DOLLARS = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
 
     @Autowired
@@ -43,6 +46,12 @@ public class UserBusinessService {
 
     @Autowired
     private MemberLogRepository memberLogRepository;
+
+    @Autowired
+    private EmailService emailService;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     /**
      * Create a new user-business relationship
@@ -73,7 +82,13 @@ public class UserBusinessService {
             // For now, we'll set it later
         }
 
-        return userBusinessRepository.save(userBusiness);
+        userBusiness = userBusinessRepository.save(userBusiness);
+        
+        // Calculate initial status and user type
+        calculateAndUpdateStatus(userBusiness);
+        
+        // Reload to get updated calculated fields
+        return userBusinessRepository.findById(userBusiness.getId()).orElse(userBusiness);
     }
 
     /**
@@ -304,34 +319,20 @@ public class UserBusinessService {
      * Add a membership to a user using the UserBusiness ID directly
      */
     @Transactional
-    public UserBusinessMembership addMembershipByUserBusinessId(Long userBusinessId, Long membershipId, String status, LocalDateTime anchorDate, BigDecimal overridePrice, String promoCode, String signatureDataUrl, String signerName) {
+    public UserBusinessMembership addMembershipByUserBusinessId(Long userBusinessId, Long membershipId, String status, LocalDateTime anchorDate, BigDecimal overridePrice, String promoCode, String signatureDataUrl, String signerName, Boolean sendOnboardingEmail, Long referredById) {
         // Get the user-business relationship by ID
         UserBusiness userBusiness = userBusinessRepository.findById(userBusinessId)
                 .orElseThrow(() -> new RuntimeException("UserBusiness relationship not found with id: " + userBusinessId));
-
-        // Check if user has a payment method
-        String stripeCustomerId = userBusiness.getStripeId();
-        if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
-            throw new RuntimeException("User must have a payment method before adding a membership. Please add payment method first.");
-        }
-
-        // Check onboarding status
-        Business business = userBusiness.getBusiness();
-        if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-            throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
-        }
-
-        // Verify payment method exists in Stripe
-        String stripeAccountId = business.getStripeAccountId();
-
-        try {
-            boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
-            if (!hasPaymentMethod) {
-                throw new RuntimeException("User must have a valid payment method before adding a membership. Please add payment method first.");
+        
+        // Set referredBy if provided
+        if (referredById != null) {
+            User user = userBusiness.getUser();
+            if (user != null) {
+                User referrer = userRepository.findById(referredById)
+                        .orElseThrow(() -> new RuntimeException("Referrer not found with id: " + referredById));
+                user.setReferredBy(referrer);
+                userRepository.save(user);
             }
-        } catch (StripeException e) {
-            System.err.println("Error checking payment method: " + e.getMessage());
-            throw new RuntimeException("Failed to verify payment method: " + e.getMessage());
         }
 
         // Get the membership plan
@@ -341,44 +342,107 @@ public class UserBusinessService {
         // Check if user already has this membership
         boolean alreadyHasMembership = userBusiness.getUserBusinessMemberships().stream()
                 .anyMatch(ucm -> ucm.getMembership().getId().equals(membershipId)
-                        && "ACTIVE".equalsIgnoreCase(ucm.getStatus()));
+                        && ("ACTIVE".equalsIgnoreCase(ucm.getStatus()) || "PENDING".equalsIgnoreCase(ucm.getStatus())));
 
         if (alreadyHasMembership) {
-            throw new RuntimeException("User already has an active membership with id: " + membershipId);
+            throw new RuntimeException("User already has an active or pending membership with id: " + membershipId);
         }
 
-        // Create Stripe subscription
-        String stripePriceId = membership.getStripePriceId();
-        if (stripePriceId == null || stripePriceId.isEmpty()) {
-            throw new RuntimeException("Membership does not have a valid Stripe price ID configured");
-        }
+        // Get business for later use
+        Business business = userBusiness.getBusiness();
 
-        String stripeSubscriptionId;
+        // Determine if membership should be activated immediately (only if signature is provided)
+        boolean shouldActivateNow = signatureDataUrl != null && !signatureDataUrl.isEmpty();
+        String finalStatus = shouldActivateNow ? (status != null ? status.toUpperCase() : "ACTIVE") : "PENDING";
+        
         BigDecimal actualPrice = resolveActualPrice(membership, overridePrice);
-        try {
-            com.stripe.model.Subscription subscription = stripeService.createSubscription(
-                    stripeCustomerId,
-                    stripePriceId,
-                    stripeAccountId,
-                    anchorDate != null ? anchorDate : LocalDateTime.now(),
-                    promoCode,
-                    actualPrice
-            );
-            stripeSubscriptionId = subscription.getId();
-            System.out.println("Created Stripe subscription: " + stripeSubscriptionId + " for membership " + membershipId);
-        } catch (StripeException e) {
-            System.err.println("Failed to create Stripe subscription: " + e.getMessage());
-            throw new RuntimeException("Failed to create Stripe subscription: " + e.getMessage());
+        String stripeSubscriptionId = null;
+
+        // Only create Stripe subscription if signature is provided (membership is being activated)
+        // For PENDING memberships, subscription will be created when user signs
+        if (shouldActivateNow) {
+            // Check onboarding status and payment method only when activating
+            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
+                throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
+            }
+
+            // Check if user has a payment method
+            String stripeCustomerId = userBusiness.getStripeId();
+            if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
+                throw new RuntimeException("User must have a payment method before activating a membership. Please add payment method first.");
+            }
+
+            // Verify payment method exists in Stripe
+            String stripeAccountId = business.getStripeAccountId();
+            try {
+                boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
+                if (!hasPaymentMethod) {
+                    throw new RuntimeException("User must have a valid payment method before activating a membership. Please add payment method first.");
+                }
+            } catch (StripeException e) {
+                System.err.println("Error checking payment method: " + e.getMessage());
+                throw new RuntimeException("Failed to verify payment method: " + e.getMessage());
+            }
+
+            // Create Stripe subscription only when signature is provided (activating)
+            String stripePriceId = membership.getStripePriceId();
+            if (stripePriceId == null || stripePriceId.isEmpty()) {
+                throw new RuntimeException("Membership does not have a valid Stripe price ID configured");
+            }
+
+            // Apply referral discount if user was referred
+            String finalPromoCode = promoCode;
+            if (referredById != null && business.getReferredUserDiscountMonths() != null && business.getReferredUserDiscountMonths() > 0) {
+                try {
+                    // Create a referral discount coupon: 100% off for the specified number of months
+                    String referralCouponCode = "REFERRAL_" + referredById + "_" + System.currentTimeMillis();
+                    stripeService.createPromoCode(
+                            referralCouponCode,
+                            "percent",
+                            100.0, // 100% off
+                            "repeating",
+                            business.getReferredUserDiscountMonths(),
+                            stripeAccountId
+                    );
+                    // Use the referral promo code if no other promo code was provided
+                    if (finalPromoCode == null || finalPromoCode.trim().isEmpty()) {
+                        finalPromoCode = referralCouponCode;
+                        logger.info("Applied referral discount: {} months free for referred user", business.getReferredUserDiscountMonths());
+                    }
+                } catch (Exception e) {
+                    logger.error("Failed to create referral discount coupon: {}", e.getMessage());
+                    // Don't fail the subscription creation if coupon creation fails
+                }
+            }
+
+            try {
+                com.stripe.model.Subscription subscription = stripeService.createSubscription(
+                        stripeCustomerId,
+                        stripePriceId,
+                        stripeAccountId,
+                        anchorDate != null ? anchorDate : LocalDateTime.now(),
+                        finalPromoCode,
+                        actualPrice
+                );
+                stripeSubscriptionId = subscription.getId();
+                System.out.println("Created Stripe subscription: " + stripeSubscriptionId + " for membership " + membershipId);
+            } catch (StripeException e) {
+                System.err.println("Failed to create Stripe subscription: " + e.getMessage());
+                throw new RuntimeException("Failed to create Stripe subscription: " + e.getMessage());
+            }
         }
 
-        // Create the new UserBusinessMembership with Stripe subscription ID
+        // Create the new UserBusinessMembership
         UserBusinessMembership userBusinessMembership = new UserBusinessMembership(
                 userBusiness,
                 membership,
-                status != null ? status.toUpperCase() : "ACTIVE",
+                finalStatus,
                 anchorDate != null ? anchorDate : LocalDateTime.now()
         );
-        userBusinessMembership.setStripeSubscriptionId(stripeSubscriptionId);
+        
+        if (stripeSubscriptionId != null) {
+            userBusinessMembership.setStripeSubscriptionId(stripeSubscriptionId);
+        }
         userBusinessMembership.setActualPrice(actualPrice);
         
         // Set signature data if provided
@@ -392,10 +456,125 @@ public class UserBusinessService {
 
         // Add to the UserBusiness (this will cascade save)
         userBusiness.addMembership(userBusinessMembership);
+        
+        // Mark that this user has ever had a membership
+        userBusiness.setHasEverHadMembership(true);
 
         // Save and return
         userBusinessRepository.save(userBusiness);
+        
+        // Check if user needs onboarding email (if they agreed to sign up and don't have an account)
+        if (sendOnboardingEmail != null && sendOnboardingEmail) {
+            User user = userBusiness.getUser();
+            if (user != null && !hasAccount(user)) {
+                try {
+                    sendOnboardingEmail(user, business);
+                } catch (Exception e) {
+                    logger.error("Failed to send onboarding email to user {}: {}", user.getId(), e.getMessage());
+                    // Don't fail the membership creation if email fails
+                }
+            }
+        }
+        
+        // Recalculate status and user type after membership is added
+        calculateAndUpdateStatus(userBusiness);
+        
         return userBusinessMembership;
+    }
+    
+    /**
+     * Check if user has an account (password is not the default "userpass1")
+     */
+    public boolean hasAccount(User user) {
+        if (user.getPassword() == null) {
+            return false;
+        }
+        // Check if password is the default temporary password
+        // We need to check if it matches the encoded version of "userpass1"
+        try {
+            // Try to match against the encoded default password
+            String defaultPassword = "userpass1";
+            // If password matches the encoded default, user doesn't have an account
+            return !passwordEncoder.matches(defaultPassword, user.getPassword());
+        } catch (Exception e) {
+            logger.error("Error checking user account status: {}", e.getMessage());
+            // If we can't check, assume they don't have an account to be safe
+            return false;
+        }
+    }
+    
+    /**
+     * Send onboarding email with account credentials
+     */
+    private void sendOnboardingEmail(User user, Business business) {
+        if (user.getEmail() == null || user.getEmail().isEmpty()) {
+            logger.warn("Cannot send onboarding email: user {} has no email address", user.getId());
+            return;
+        }
+        
+        String businessName = business.getTitle() != null ? business.getTitle() : "CLT Lifting Club";
+        String businessContactEmail = business.getContactEmail() != null ? business.getContactEmail() : "contact@cltliftingclub.com";
+        
+        // Generate a temporary password (user can change it later)
+        String tempPassword = "userpass1"; // This is the default password they already have
+        
+        String subject = "Welcome to " + businessName + " - Your Account Details";
+        String htmlContent = String.format(
+            "<!DOCTYPE html>" +
+            "<html>" +
+            "<head>" +
+            "<style>" +
+            "body { font-family: Arial, sans-serif; color: #333; line-height: 1.6; }" +
+            ".container { max-width: 600px; margin: 0 auto; padding: 20px; }" +
+            ".header { background-color: #f8f8f8; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }" +
+            ".content { padding: 20px; background-color: #fff; border: 1px solid #ddd; border-top: none; }" +
+            ".credentials { background-color: #f0f0f0; padding: 15px; border-radius: 5px; margin: 20px 0; }" +
+            ".credential-item { margin: 10px 0; }" +
+            ".label { font-weight: bold; color: #555; }" +
+            ".value { color: #333; font-family: monospace; }" +
+            ".button { display: inline-block; padding: 12px 24px; background-color: #007BFF; color: white !important; text-decoration: none; border-radius: 5px; font-weight: bold; margin: 20px 0; }" +
+            ".footer { font-size: 12px; color: #777; text-align: center; margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd; }" +
+            "</style>" +
+            "</head>" +
+            "<body>" +
+            "<div class=\"container\">" +
+            "<div class=\"header\">" +
+            "<h2>Welcome to %s!</h2>" +
+            "</div>" +
+            "<div class=\"content\">" +
+            "<p>Hello %s,</p>" +
+            "<p>Your account has been created! Here are your login credentials:</p>" +
+            "<div class=\"credentials\">" +
+            "<div class=\"credential-item\">" +
+            "<span class=\"label\">Email:</span> <span class=\"value\">%s</span>" +
+            "</div>" +
+            "<div class=\"credential-item\">" +
+            "<span class=\"label\">Password:</span> <span class=\"value\">%s</span>" +
+            "</div>" +
+            "%s" + // Phone number if available
+            "</div>" +
+            "<p><strong>Important:</strong> Please change your password after your first login for security.</p>" +
+            "<p>You can now log in to your account and manage your membership.</p>" +
+            "<p>If you have any questions, please contact us at %s.</p>" +
+            "<p>Welcome aboard!</p>" +
+            "</div>" +
+            "<div class=\"footer\">" +
+            "<p>This is an automated message. Please do not reply to this email.</p>" +
+            "</div>" +
+            "</div>" +
+            "</body>" +
+            "</html>",
+            businessName,
+            user.getFirstName() != null ? user.getFirstName() : "Member",
+            user.getEmail(),
+            tempPassword,
+            user.getPhoneNumber() != null ? 
+                String.format("<div class=\"credential-item\"><span class=\"label\">Phone:</span> <span class=\"value\">%s</span></div>", user.getPhoneNumber()) : "",
+            businessContactEmail
+        );
+        
+        emailService.sendBlastEmail(user.getEmail(), subject, htmlContent, businessName, businessContactEmail, businessContactEmail);
+        logger.info("Onboarding email sent to user {} ({})", user.getId(), user.getEmail());
     }
 
     /**
@@ -464,6 +643,10 @@ public class UserBusinessService {
         // Save and return (find the parent UserBusiness to save)
         UserBusiness userBusiness = membership.getUserBusiness();
         userBusinessRepository.save(userBusiness);
+        
+        // Recalculate status and user type after membership status changes
+        calculateAndUpdateStatus(userBusiness);
+        
         return membership;
     }
 
@@ -757,5 +940,161 @@ public class UserBusinessService {
         UserBusiness userBusiness = log.getUserBusiness();
         userBusiness.removeMemberLog(log);
         userBusinessRepository.save(userBusiness);
+    }
+
+    /**
+     * Calculate and update the status and user type for a UserBusiness relationship
+     * This method implements the same logic as the frontend calculateMemberStatus function
+     * 
+     * Rules:
+     * 1. Waiver Required: Always override if waiver not signed
+     * 2. Cancelled: All memberships cancelled (takes precedence over everything except waiver)
+     * 3. Free Pass User: NO card AND waiver signed AND no memberships = Inactive
+     * 4. Pending: Has card + No memberships + Never had memberships
+     * 5. Paused: Any membership is paused
+     * 6. Delinquent: isDelinquent = true AND has memberships
+     * 7. Active: Has active membership(s)
+     * 8. Inactive: Default fallback
+     */
+    @Transactional
+    public void calculateAndUpdateStatus(UserBusiness userBusiness) {
+        User user = userBusiness.getUser();
+        
+        // Check if user has a card/payment method (using stripeId as proxy)
+        boolean hasCard = userBusiness.getStripeId() != null && 
+                         !userBusiness.getStripeId().isEmpty() && 
+                         !userBusiness.getStripeId().equals("null");
+        
+        // Check if waiver is signed
+        boolean hasWaiver = user.getWaiverSignedDate() != null;
+        
+        // Get memberships
+        List<UserBusinessMembership> memberships = userBusiness.getUserBusinessMemberships();
+        boolean hasMemberships = memberships != null && !memberships.isEmpty();
+        
+        // Get flags
+        Boolean hasEverHadMembership = userBusiness.getHasEverHadMembership();
+        boolean hasEverHadMembershipFlag = hasEverHadMembership != null && hasEverHadMembership;
+        Boolean isDelinquent = userBusiness.getIsDelinquent();
+        boolean isDelinquentFlag = isDelinquent != null && isDelinquent;
+        
+        String calculatedStatus;
+        String calculatedUserType;
+        
+        // RULE 1: Check waiver first - if no waiver, ALWAYS show "Waiver Required"
+        if (!hasWaiver) {
+            calculatedStatus = "Waiver Required";
+            calculatedUserType = !hasCard ? "Free Pass User" : "Member";
+            userBusiness.setCalculatedStatus(calculatedStatus);
+            userBusiness.setCalculatedUserType(calculatedUserType);
+            userBusinessRepository.save(userBusiness);
+            return;
+        }
+        
+        // Waiver is signed - continue with status determination
+        
+        // RULE 2: Check if all memberships are cancelled FIRST
+        if (hasMemberships && memberships != null) {
+            boolean allCanceled = memberships.stream()
+                    .allMatch(m -> "CANCELLED".equalsIgnoreCase(m.getStatus()) || 
+                                 "CANCELED".equalsIgnoreCase(m.getStatus()));
+            
+            if (allCanceled) {
+                calculatedStatus = "Canceled";
+                calculatedUserType = "Member";
+                userBusiness.setCalculatedStatus(calculatedStatus);
+                userBusiness.setCalculatedUserType(calculatedUserType);
+                userBusinessRepository.save(userBusiness);
+                return;
+            }
+        }
+        
+        // RULE 3: Free Pass User - NO card AND waiver signed AND no memberships
+        if (!hasCard && !hasMemberships) {
+            calculatedStatus = "Inactive";
+            calculatedUserType = "Free Pass User";
+            userBusiness.setCalculatedStatus(calculatedStatus);
+            userBusiness.setCalculatedUserType(calculatedUserType);
+            userBusinessRepository.save(userBusiness);
+            return;
+        }
+        
+        // Has card but NO membership
+        if (hasCard && !hasMemberships) {
+            // RULE 4: Pending - Has card + No memberships + Never had memberships
+            if (!hasEverHadMembershipFlag) {
+                calculatedStatus = "Pending";
+                calculatedUserType = "Member";
+                userBusiness.setCalculatedStatus(calculatedStatus);
+                userBusiness.setCalculatedUserType(calculatedUserType);
+                userBusinessRepository.save(userBusiness);
+                return;
+            }
+            
+            // Had memberships before but all are cancelled/removed
+            calculatedStatus = "Inactive";
+            calculatedUserType = "Member";
+            userBusiness.setCalculatedStatus(calculatedStatus);
+            userBusiness.setCalculatedUserType(calculatedUserType);
+            userBusinessRepository.save(userBusiness);
+            return;
+        }
+        
+        // Has card and memberships - check other membership statuses
+        if (hasCard && hasMemberships && memberships != null) {
+            // RULE 5: Check if any membership is paused
+            boolean hasPausedMembership = memberships.stream()
+                    .anyMatch(m -> "PAUSED".equalsIgnoreCase(m.getStatus()) || 
+                                 "PAUSE_SCHEDULED".equalsIgnoreCase(m.getStatus()));
+            
+            if (hasPausedMembership) {
+                calculatedStatus = "Paused / On Hold";
+                calculatedUserType = "Member";
+                userBusiness.setCalculatedStatus(calculatedStatus);
+                userBusiness.setCalculatedUserType(calculatedUserType);
+                userBusinessRepository.save(userBusiness);
+                return;
+            }
+            
+            // RULE 6: Check if user is delinquent
+            if (isDelinquentFlag) {
+                calculatedStatus = "Delinquent";
+                calculatedUserType = "Member";
+                userBusiness.setCalculatedStatus(calculatedStatus);
+                userBusiness.setCalculatedUserType(calculatedUserType);
+                userBusinessRepository.save(userBusiness);
+                return;
+            }
+            
+            // RULE 7: Has active membership(s)
+            boolean hasActiveMembership = memberships.stream()
+                    .anyMatch(m -> "ACTIVE".equalsIgnoreCase(m.getStatus()));
+            
+            if (hasActiveMembership) {
+                calculatedStatus = "Active";
+                calculatedUserType = "Member";
+                userBusiness.setCalculatedStatus(calculatedStatus);
+                userBusiness.setCalculatedUserType(calculatedUserType);
+                userBusinessRepository.save(userBusiness);
+                return;
+            }
+        }
+        
+        // Default fallback
+        calculatedStatus = "Inactive";
+        calculatedUserType = hasCard ? "Member" : "Free Pass User";
+        userBusiness.setCalculatedStatus(calculatedStatus);
+        userBusiness.setCalculatedUserType(calculatedUserType);
+        userBusinessRepository.save(userBusiness);
+    }
+    
+    /**
+     * Convenience method to recalculate status for a UserBusiness by ID
+     */
+    @Transactional
+    public void recalculateStatus(Long userBusinessId) {
+        UserBusiness userBusiness = userBusinessRepository.findById(userBusinessId)
+                .orElseThrow(() -> new RuntimeException("UserBusiness not found with id: " + userBusinessId));
+        calculateAndUpdateStatus(userBusiness);
     }
 }

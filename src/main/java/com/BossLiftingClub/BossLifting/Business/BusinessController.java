@@ -2,8 +2,11 @@ package com.BossLiftingClub.BossLifting.Business;
 
 import com.BossLiftingClub.BossLifting.Email.EmailService;
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessRepository;
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService;
+import com.BossLiftingClub.BossLifting.User.User;
 import com.BossLiftingClub.BossLifting.User.UserDTO;
+import com.BossLiftingClub.BossLifting.User.UserRepository;
 import com.stripe.exception.StripeException;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.Valid;
@@ -16,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @RestController
@@ -30,6 +34,12 @@ public class BusinessController {
 
     @Autowired
     private EmailService emailService;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private UserBusinessRepository userBusinessRepository;
 
     @PostMapping
     public ResponseEntity<?> createBusiness(@Valid @RequestBody BusinessDTO businessDTO) {
@@ -49,9 +59,27 @@ public class BusinessController {
     }
 
     /**
+     * Update a business by ID
+     */
+    @PutMapping("/{id}")
+    public ResponseEntity<?> updateBusiness(@PathVariable Long id, @Valid @RequestBody BusinessDTO businessDTO) {
+        try {
+            BusinessDTO updatedBusiness = businessService.updateBusiness(id, businessDTO);
+            return ResponseEntity.ok(updatedBusiness);
+        } catch (EntityNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to update business: " + e.getMessage()));
+        }
+    }
+
+    /**
      * Get all members (users) for a specific business by businessTag
      */
     @GetMapping("/{businessTag}/members")
+    @org.springframework.transaction.annotation.Transactional // Allow writes to calculate status if needed
     public ResponseEntity<?> getMembersByBusinessTag(@PathVariable String businessTag) {
         try {
             List<UserBusiness> userBusinesses = userBusinessService.getUsersByBusinessTag(businessTag);
@@ -61,6 +89,28 @@ public class BusinessController {
                     .map(ub -> {
                         Map<String, Object> member = new java.util.HashMap<>();
                         UserDTO userDTO = new UserDTO(ub.getUser());
+                        
+                        // Add referrer information if user was referred
+                        if (userDTO.getReferredById() != null) {
+                            // Try to get referrer from the loaded relationship first
+                            User referredBy = ub.getUser().getReferredBy();
+                            
+                            // If not loaded, fetch it explicitly
+                            if (referredBy == null) {
+                                referredBy = userRepository.findById(userDTO.getReferredById()).orElse(null);
+                            }
+                            
+                            if (referredBy != null) {
+                                Map<String, Object> referrerInfo = new java.util.HashMap<>();
+                                referrerInfo.put("id", referredBy.getId());
+                                referrerInfo.put("firstName", referredBy.getFirstName());
+                                referrerInfo.put("lastName", referredBy.getLastName());
+                                referrerInfo.put("email", referredBy.getEmail());
+                                referrerInfo.put("referralCode", referredBy.getReferralCode());
+                                // Add referrer info to member map
+                                member.put("referrerInfo", referrerInfo);
+                            }
+                        }
 
                         // Map memberships from UserBusinessMembership junction table
                         List<Map<String, Object>> memberships = ub.getUserBusinessMemberships().stream()
@@ -90,31 +140,44 @@ public class BusinessController {
 
                         userDTO.setMemberships(memberships);
 
-                        // Calculate user status based on memberships
-                        String calculatedStatus;
-                        if (memberships.isEmpty()) {
-                            calculatedStatus = "INACTIVE";
-                        } else {
-                            // Check if any membership is INACTIVE
-                            boolean hasInactiveMembership = memberships.stream()
-                                    .anyMatch(m -> "INACTIVE".equalsIgnoreCase((String) m.get("status")));
-
-                            // Check if all memberships are ACTIVE
-                            boolean allActive = memberships.stream()
-                                    .allMatch(m -> "ACTIVE".equalsIgnoreCase((String) m.get("status")));
-
-                            if (hasInactiveMembership || !allActive) {
-                                calculatedStatus = "INACTIVE";
-                            } else {
-                                calculatedStatus = "ACTIVE";
+                        // Check if user has an account (password is not default "userpass1")
+                        boolean hasAccount = userBusinessService.hasAccount(ub.getUser());
+                        
+                        // Get calculated status and user type from database (calculate if not set)
+                        String calculatedStatus = ub.getCalculatedStatus();
+                        String calculatedUserType = ub.getCalculatedUserType();
+                        
+                        // If not calculated yet, calculate it now (for existing records or if calculation was missed)
+                        // This ensures all records have calculated values, even old ones
+                        if (calculatedStatus == null || calculatedUserType == null) {
+                            try {
+                                userBusinessService.calculateAndUpdateStatus(ub);
+                                // Reload from database to get updated calculated values
+                                Optional<UserBusiness> reloaded = userBusinessRepository.findById(ub.getId());
+                                if (reloaded.isPresent()) {
+                                    calculatedStatus = reloaded.get().getCalculatedStatus();
+                                    calculatedUserType = reloaded.get().getCalculatedUserType();
+                                }
+                            } catch (Exception e) {
+                                // If calculation fails, use defaults (shouldn't happen, but safe fallback)
+                                System.err.println("Warning: Failed to calculate status for UserBusiness " + ub.getId() + ": " + e.getMessage());
                             }
                         }
-
+                        
+                        // Ensure we have values (fallback if still null)
+                        if (calculatedStatus == null) calculatedStatus = "Inactive";
+                        if (calculatedUserType == null) calculatedUserType = "Member";
+                        
                         member.put("user", userDTO);
                         member.put("userBusinessId", ub.getId());
                         member.put("status", calculatedStatus);
+                        member.put("calculatedStatus", calculatedStatus);
+                        member.put("calculatedUserType", calculatedUserType);
                         member.put("stripeId", ub.getStripeId() != null ? ub.getStripeId() : "");
                         member.put("createdAt", ub.getCreatedAt());
+                        member.put("hasAccount", hasAccount);
+                        member.put("hasEverHadMembership", ub.getHasEverHadMembership() != null ? ub.getHasEverHadMembership() : false);
+                        member.put("isDelinquent", ub.getIsDelinquent() != null ? ub.getIsDelinquent() : false);
                         return member;
                     })
                     .collect(Collectors.toList());
@@ -316,6 +379,7 @@ public class BusinessController {
             Business business = userBusiness.getBusiness();
             String businessName = business.getTitle();
             String businessReplyTo = business.getContactEmail();
+            String contactEmail = business.getContactEmail();
 
             // Fallback if contact email is not set
             if (businessReplyTo == null || businessReplyTo.isEmpty()) {
@@ -333,7 +397,7 @@ public class BusinessController {
             }
 
             // 5. Send email
-            emailService.sendBlastEmail(recipientEmail, request.getSubject(), request.getBody(), businessName, businessReplyTo);
+            emailService.sendBlastEmail(recipientEmail, request.getSubject(), request.getBody(), businessName, businessReplyTo, contactEmail);
 
             return ResponseEntity.ok(Map.of("message", "Email sent successfully to " + recipientEmail));
 
@@ -422,7 +486,7 @@ public class BusinessController {
                         continue;
                     }
 
-                    emailService.sendBlastEmail(recipientEmail, request.getSubject(), request.getBody(), businessName, businessReplyTo);
+                    emailService.sendBlastEmail(recipientEmail, request.getSubject(), request.getBody(), businessName, businessReplyTo, businessDTO.getContactEmail());
                     successCount++;
                 } catch (Exception e) {
                     failCount++;
@@ -469,6 +533,28 @@ public class BusinessController {
 
         public void setBody(String body) {
             this.body = body;
+        }
+    }
+
+    /**
+     * Get business by businessTag (for public join page)
+     */
+    @GetMapping("/public/{businessTag}")
+    public ResponseEntity<?> getPublicBusinessByTag(@PathVariable String businessTag) {
+        try {
+            BusinessDTO businessDTO = businessService.getBusinessByTag(businessTag);
+            // Only return public-facing information
+            Map<String, Object> publicInfo = new java.util.HashMap<>();
+            publicInfo.put("title", businessDTO.getTitle());
+            publicInfo.put("logoUrl", businessDTO.getLogoUrl());
+            publicInfo.put("businessTag", businessDTO.getBusinessTag());
+            return ResponseEntity.ok(publicInfo);
+        } catch (EntityNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Business not found with tag: " + businessTag));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to retrieve business: " + e.getMessage()));
         }
     }
 

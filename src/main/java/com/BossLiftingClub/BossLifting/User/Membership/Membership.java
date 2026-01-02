@@ -1,8 +1,5 @@
 package com.BossLiftingClub.BossLifting.User.Membership;
 
-import com.BossLiftingClub.BossLifting.Business.Business;
-
-import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -38,6 +35,18 @@ public class Membership {
 
     @Column(columnDefinition = "BOOLEAN DEFAULT FALSE")
     private boolean archived = false;
+
+    @Column(name = "is_public", columnDefinition = "BOOLEAN DEFAULT FALSE")
+    private boolean isPublic = false;
+
+    @Column(name = "public_display_name")
+    private String publicDisplayName;
+
+    @Column(name = "public_description", columnDefinition = "TEXT")
+    private String publicDescription;
+
+    @Column(name = "public_benefits", columnDefinition = "TEXT")
+    private String publicBenefits; // JSON array stored as text
 
     public Long getId() {
         return id;
@@ -104,5 +113,37 @@ public class Membership {
 
     public void setStripePriceId(String stripePriceId) {
         this.stripePriceId = stripePriceId;
+    }
+
+    public boolean isPublic() {
+        return isPublic;
+    }
+
+    public void setPublic(boolean isPublic) {
+        this.isPublic = isPublic;
+    }
+
+    public String getPublicDisplayName() {
+        return publicDisplayName;
+    }
+
+    public void setPublicDisplayName(String publicDisplayName) {
+        this.publicDisplayName = publicDisplayName;
+    }
+
+    public String getPublicDescription() {
+        return publicDescription;
+    }
+
+    public void setPublicDescription(String publicDescription) {
+        this.publicDescription = publicDescription;
+    }
+
+    public String getPublicBenefits() {
+        return publicBenefits;
+    }
+
+    public void setPublicBenefits(String publicBenefits) {
+        this.publicBenefits = publicBenefits;
     }
 }

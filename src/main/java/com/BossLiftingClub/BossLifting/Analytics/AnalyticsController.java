@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -1003,17 +1004,21 @@ public class AnalyticsController {
 
     /**
      * Get business-specific overview analytics
-     * GET /api/analytics/business-overview?businessId={id}
+     * GET /api/analytics/business-overview?businessId={id}&startDate={date}&endDate={date}
+     * startDate and endDate are optional - if not provided, calculates revenue for all time
      */
     @GetMapping("/business-overview")
     @Transactional
-    public ResponseEntity<?> getBusinessOverview(@RequestParam Long businessId) {
+    public ResponseEntity<?> getBusinessOverview(
+            @RequestParam Long businessId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate) {
         try {
             // TODO: Add business scope validation for staff after verifying staff business loading works
             // For now, we allow all authenticated users to access any business
             // This will be secured once we verify the staff business relationship is properly loaded
             
-            return ResponseEntity.ok(getClubOverviewInternal(businessId));
+            return ResponseEntity.ok(getClubOverviewInternal(businessId, startDate, endDate));
         } catch (Exception e) {
             logger.error("Error fetching business overview for businessId={}: {}", businessId, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -1029,11 +1034,13 @@ public class AnalyticsController {
     @Deprecated
     @GetMapping("/club-overview")
     @Transactional
-    public ResponseEntity<?> getClubOverview(@RequestParam Long clubId) {
-        return getBusinessOverview(clubId);
+    public ResponseEntity<?> getClubOverview(@RequestParam Long clubId,
+                                             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
+                                             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate) {
+        return getBusinessOverview(clubId, startDate, endDate);
     }
     
-    private ClubOverviewResponse getClubOverviewInternal(Long businessId) {
+    private ClubOverviewResponse getClubOverviewInternal(Long businessId, LocalDateTime startDate, LocalDateTime endDate) {
         try {
             // Get the business
             Business business = businessRepository.findById(businessId)
@@ -1103,12 +1110,24 @@ public class AnalyticsController {
 
                     int totalCharges = 0;
 
-                    // Fetch ALL charges from this connected account (no customer filter)
-                    ChargeListParams params = ChargeListParams.builder()
-                            .setLimit(100L)
-                            .build();
+                    // Fetch charges from this connected account
+                    // Filter by date range if provided, otherwise fetch all charges
+                    ChargeListParams.Builder paramsBuilder = ChargeListParams.builder()
+                            .setLimit(100L);
+                    
+                    if (startDate != null && endDate != null) {
+                        // Filter charges by date range
+                        long startEpoch = startDate.atZone(ZoneId.systemDefault()).toEpochSecond();
+                        long endEpoch = endDate.atZone(ZoneId.systemDefault()).toEpochSecond();
+                        paramsBuilder.setCreated(ChargeListParams.Created.builder()
+                                .setGte(startEpoch)
+                                .setLte(endEpoch)
+                                .build());
+                        logger.info("Filtering revenue by date range: {} to {} (epoch: {} to {})", 
+                            startDate, endDate, startEpoch, endEpoch);
+                    }
 
-                    ChargeCollection charges = Charge.list(params, requestOptions);
+                    ChargeCollection charges = Charge.list(paramsBuilder.build(), requestOptions);
 
                     for (Charge charge : charges.autoPagingIterable()) {
                         // Only count successful charges that haven't been refunded
@@ -1423,15 +1442,48 @@ public class AnalyticsController {
                 currency = money.getCurrency();
             }
 
+            // Calculate total pending from balance
             for (int i = 0; i < balance.getPending().size(); i++) {
                 var money = balance.getPending().get(i);
                 totalPending += money.getAmount() / 100.0;
+            }
+
+            // Fetch pending balance transactions to get dates
+            // Transactions that have available_on in the future are pending
+            java.util.Map<String, Double> pendingByDate = new java.util.HashMap<>();
+            long currentTime = java.time.Instant.now().getEpochSecond();
+            
+            try {
+                com.stripe.param.BalanceTransactionListParams params = com.stripe.param.BalanceTransactionListParams.builder()
+                        .setLimit(100L)
+                        .build();
+                
+                com.stripe.model.BalanceTransactionCollection transactions = com.stripe.model.BalanceTransaction.list(params, requestOptions);
+                
+                for (com.stripe.model.BalanceTransaction transaction : transactions.getData()) {
+                    Long availableOn = transaction.getAvailableOn();
+                    if (availableOn != null && availableOn > currentTime) {
+                        // This transaction is pending (available in the future)
+                        java.time.LocalDate availableDate = java.time.Instant.ofEpochSecond(availableOn)
+                                .atZone(java.time.ZoneId.systemDefault())
+                                .toLocalDate();
+                        String dateKey = availableDate.toString();
+                        double amount = transaction.getAmount() / 100.0;
+                        // Only count positive amounts (credits)
+                        if (amount > 0) {
+                            pendingByDate.merge(dateKey, amount, (a, b) -> a + b);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Error fetching pending transactions by date, continuing without date breakdown: {}", e.getMessage());
             }
 
             BalanceResponse response = new BalanceResponse();
             response.setAvailable(totalAvailable);
             response.setPending(totalPending);
             response.setCurrency(currency);
+            response.setPendingByDate(pendingByDate);
 
             return response;
         } catch (Exception e) {
@@ -1444,6 +1496,7 @@ public class AnalyticsController {
         private double available;
         private double pending;
         private String currency;
+        private java.util.Map<String, Double> pendingByDate;
 
         public double getAvailable() { return available; }
         public void setAvailable(double available) { this.available = available; }
@@ -1451,6 +1504,8 @@ public class AnalyticsController {
         public void setPending(double pending) { this.pending = pending; }
         public String getCurrency() { return currency; }
         public void setCurrency(String currency) { this.currency = currency; }
+        public java.util.Map<String, Double> getPendingByDate() { return pendingByDate; }
+        public void setPendingByDate(java.util.Map<String, Double> pendingByDate) { this.pendingByDate = pendingByDate; }
     }
 
     /**

@@ -54,7 +54,8 @@ public class UserBusinessMembership {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    @Column(name = "signature_data_url", length = 1000)
+    @Lob
+    @Column(name = "signature_data_url", columnDefinition = "TEXT")
     private String signatureDataUrl; // Base64 signature image
 
     @Column(name = "signed_at")

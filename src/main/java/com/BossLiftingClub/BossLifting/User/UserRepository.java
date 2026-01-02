@@ -38,4 +38,21 @@ public interface UserRepository extends JpaRepository<User, Long> {
         WHERE b.businessTag = :clubTag
     """)
     List<User> findUsersWithMembershipByClubTag(@Param("clubTag") String clubTag);
+
+    @Query("""
+        SELECT DISTINCT u
+        FROM User u
+        JOIN u.userBusinesses ub
+        JOIN ub.business b
+        WHERE b.businessTag = :businessTag
+        AND (
+            LOWER(u.referralCode) LIKE LOWER(CONCAT('%', :query, '%'))
+            OR LOWER(u.firstName) LIKE LOWER(CONCAT('%', :query, '%'))
+            OR LOWER(u.lastName) LIKE LOWER(CONCAT('%', :query, '%'))
+            OR LOWER(CONCAT(u.firstName, ' ', u.lastName)) LIKE LOWER(CONCAT('%', :query, '%'))
+            OR LOWER(u.email) LIKE LOWER(CONCAT('%', :query, '%'))
+        )
+        ORDER BY u.firstName, u.lastName
+    """)
+    List<User> searchUsersByBusinessTag(@Param("businessTag") String businessTag, @Param("query") String query);
 }

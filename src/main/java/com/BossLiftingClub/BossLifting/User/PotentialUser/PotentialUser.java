@@ -285,7 +285,7 @@ class PotentialUserController {
     </html>
     """.formatted(businessName, businessName, businessName, businessName, businessContactEmail);
 
-                emailService.sendBlastEmail(email, "Don’t Miss This! – " + businessName + " x Kingdom Kickbacks Social Event", htmlContent, businessName, businessContactEmail);
+                emailService.sendBlastEmail(email, "Don't Miss This! – " + businessName + " x Kingdom Kickbacks Social Event", htmlContent, businessName, businessContactEmail, businessContactEmail);
 
                 successes.add("PotentialUser ID " + potentialUser.getId() + ": Email sent to " + email);
             } catch (Exception e) {

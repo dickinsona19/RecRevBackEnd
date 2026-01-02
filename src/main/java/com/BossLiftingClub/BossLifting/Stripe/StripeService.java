@@ -895,6 +895,92 @@ public class StripeService {
     }
 
     /**
+     * Get active subscription discounts for a customer
+     * @param customerId The Stripe customer ID
+     * @param stripeAccountId The connected account ID (null for platform account)
+     * @return List of active discount information from subscriptions
+     * @throws StripeException if the Stripe API call fails
+     */
+    public List<Map<String, Object>> getSubscriptionDiscounts(String customerId, String stripeAccountId) throws StripeException {
+        if (customerId == null || customerId.isEmpty()) {
+            throw new IllegalArgumentException("Customer ID cannot be null or empty");
+        }
+
+        try {
+            com.stripe.net.RequestOptions requestOptions = null;
+            if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+                requestOptions = com.stripe.net.RequestOptions.builder()
+                        .setStripeAccount(stripeAccountId)
+                        .build();
+            }
+
+            // Retrieve active subscriptions for this customer
+            Map<String, Object> params = new HashMap<>();
+            params.put("customer", customerId);
+            params.put("status", "active");
+            params.put("limit", 100);
+
+            SubscriptionCollection subscriptions;
+            if (requestOptions != null) {
+                subscriptions = Subscription.list(params, requestOptions);
+            } else {
+                subscriptions = Subscription.list(params);
+            }
+
+            List<Map<String, Object>> discounts = new java.util.ArrayList<>();
+            for (Subscription subscription : subscriptions.getData()) {
+                // Check if subscription has an active discount
+                if (subscription.getDiscount() != null) {
+                    Discount discount = subscription.getDiscount();
+                    Coupon coupon = discount.getCoupon();
+                    
+                    if (coupon != null && discount.getEnd() != null) {
+                        // Only include discounts that haven't expired yet
+                        long currentTime = System.currentTimeMillis() / 1000;
+                        if (discount.getEnd() > currentTime) {
+                            Map<String, Object> discountData = new HashMap<>();
+                            discountData.put("subscriptionId", subscription.getId());
+                            discountData.put("couponId", coupon.getId());
+                            discountData.put("couponName", coupon.getName());
+                            
+                            // Discount details
+                            if (coupon.getPercentOff() != null) {
+                                discountData.put("discountType", "percent");
+                                discountData.put("discountValue", coupon.getPercentOff().doubleValue());
+                                discountData.put("discountDisplay", coupon.getPercentOff() + "% off");
+                            } else if (coupon.getAmountOff() != null) {
+                                discountData.put("discountType", "amount");
+                                discountData.put("discountValue", coupon.getAmountOff() / 100.0); // Convert cents to dollars
+                                discountData.put("discountDisplay", "$" + (coupon.getAmountOff() / 100.0) + " off");
+                            }
+                            
+                            // Duration and end date
+                            discountData.put("duration", coupon.getDuration());
+                            discountData.put("durationInMonths", coupon.getDurationInMonths());
+                            discountData.put("endDate", discount.getEnd()); // Unix timestamp
+                            
+                            // Subscription details for context
+                            if (subscription.getItems() != null && !subscription.getItems().getData().isEmpty()) {
+                                SubscriptionItem item = subscription.getItems().getData().get(0);
+                                if (item.getPrice() != null) {
+                                    discountData.put("subscriptionPriceId", item.getPrice().getId());
+                                }
+                            }
+                            
+                            discounts.add(discountData);
+                        }
+                    }
+                }
+            }
+
+            return discounts;
+        } catch (StripeException e) {
+            System.err.println("Error fetching subscription discounts: " + e.getMessage());
+            throw e;
+        }
+    }
+
+    /**
      * Create a refund for a charge
      * @param chargeId The Stripe charge ID to refund
      * @param amount The amount in cents to refund (null for full refund)
@@ -1058,6 +1144,75 @@ public class StripeService {
             System.err.println("Error creating one-time payment: " + e.getMessage());
             throw e;
         }
+    }
+
+    /**
+     * Create a Stripe Checkout Session for public membership signup
+     * @param stripePriceId The Stripe Price ID for the membership
+     * @param stripeAccountId The connected account ID
+     * @param successUrl URL to redirect after successful checkout
+     * @param cancelUrl URL to redirect if checkout is cancelled
+     * @param promoCodeId Optional Stripe Promotion Code ID
+     * @param businessTag Business tag for metadata
+     * @param membershipId Membership ID for metadata
+     * @param referredById Optional referrer user ID for metadata
+     * @return The Checkout Session URL
+     * @throws StripeException if the Stripe API call fails
+     */
+    public String createPublicCheckoutSession(
+            String stripePriceId,
+            String stripeAccountId,
+            String successUrl,
+            String cancelUrl,
+            String promoCodeId,
+            String businessTag,
+            Long membershipId,
+            Long referredById
+    ) throws StripeException {
+        if (stripePriceId == null || stripePriceId.isEmpty()) {
+            throw new IllegalArgumentException("Stripe Price ID cannot be null or empty");
+        }
+        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+            throw new IllegalArgumentException("Stripe Account ID cannot be null or empty");
+        }
+
+        SessionCreateParams.Builder paramsBuilder = SessionCreateParams.builder()
+                .setMode(SessionCreateParams.Mode.SUBSCRIPTION)
+                .addLineItem(
+                        SessionCreateParams.LineItem.builder()
+                                .setPrice(stripePriceId)
+                                .setQuantity(1L)
+                                .build()
+                )
+                .setSuccessUrl(successUrl)
+                .setCancelUrl(cancelUrl);
+
+        // Add promo code if provided
+        if (promoCodeId != null && !promoCodeId.isEmpty()) {
+            paramsBuilder.addDiscount(
+                    SessionCreateParams.Discount.builder()
+                            .setPromotionCode(promoCodeId)
+                            .build()
+            );
+        }
+
+        // Add metadata
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put("businessTag", businessTag);
+        metadata.put("membershipId", String.valueOf(membershipId));
+        if (referredById != null) {
+            metadata.put("referredById", String.valueOf(referredById));
+        }
+        paramsBuilder.putAllMetadata(metadata);
+
+        SessionCreateParams params = paramsBuilder.build();
+
+        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                .setStripeAccount(stripeAccountId)
+                .build();
+
+        Session session = Session.create(params, requestOptions);
+        return session.getUrl();
     }
 
 }

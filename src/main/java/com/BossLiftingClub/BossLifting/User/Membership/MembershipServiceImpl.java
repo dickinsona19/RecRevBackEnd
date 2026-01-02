@@ -140,13 +140,6 @@ public class MembershipServiceImpl implements MembershipService {
     }
 
     private MembershipDTO mapToDTO(Membership membership) {
-        MembershipDTO dto = new MembershipDTO();
-        dto.setId(membership.getId());
-        dto.setTitle(membership.getTitle());
-        dto.setPrice(membership.getPrice());
-        dto.setChargeInterval(membership.getChargeInterval());
-        dto.setBusinessTag(membership.getBusinessTag());
-        // Note: clubTag removed - use businessTag for backward compatibility
-        return dto;
+        return MembershipDTO.fromEntity(membership);
     }
 }

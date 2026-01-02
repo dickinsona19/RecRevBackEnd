@@ -29,6 +29,12 @@ public class BusinessDTO {
 
     private String contactEmail;
 
+    // Referral program settings
+    private Integer referredUserDiscountMonths;
+    private Boolean referredUserWaiveActivationFee;
+    private Integer referrerDiscountMonths;
+    private Boolean referrerWaiveActivationFee;
+
     public static BusinessDTO mapToBusinessDTO(Business business) {
         BusinessDTO dto = new BusinessDTO();
         dto.setId(business.getId());
@@ -42,6 +48,11 @@ public class BusinessDTO {
         dto.setOnboardingStatus(business.getOnboardingStatus());
         dto.setStripeAccountId(business.getStripeAccountId());
         dto.setContactEmail(business.getContactEmail());
+        dto.setContactEmail(business.getContactEmail());
+        dto.setReferredUserDiscountMonths(business.getReferredUserDiscountMonths());
+        dto.setReferredUserWaiveActivationFee(business.getReferredUserWaiveActivationFee());
+        dto.setReferrerDiscountMonths(business.getReferrerDiscountMonths());
+        dto.setReferrerWaiveActivationFee(business.getReferrerWaiveActivationFee());
         return dto;
     }
 
@@ -131,6 +142,38 @@ public class BusinessDTO {
 
     public void setContactEmail(String contactEmail) {
         this.contactEmail = contactEmail;
+    }
+
+    public Integer getReferredUserDiscountMonths() {
+        return referredUserDiscountMonths;
+    }
+
+    public void setReferredUserDiscountMonths(Integer referredUserDiscountMonths) {
+        this.referredUserDiscountMonths = referredUserDiscountMonths;
+    }
+
+    public Boolean getReferredUserWaiveActivationFee() {
+        return referredUserWaiveActivationFee;
+    }
+
+    public void setReferredUserWaiveActivationFee(Boolean referredUserWaiveActivationFee) {
+        this.referredUserWaiveActivationFee = referredUserWaiveActivationFee;
+    }
+
+    public Integer getReferrerDiscountMonths() {
+        return referrerDiscountMonths;
+    }
+
+    public void setReferrerDiscountMonths(Integer referrerDiscountMonths) {
+        this.referrerDiscountMonths = referrerDiscountMonths;
+    }
+
+    public Boolean getReferrerWaiveActivationFee() {
+        return referrerWaiveActivationFee;
+    }
+
+    public void setReferrerWaiveActivationFee(Boolean referrerWaiveActivationFee) {
+        this.referrerWaiveActivationFee = referrerWaiveActivationFee;
     }
 }
 

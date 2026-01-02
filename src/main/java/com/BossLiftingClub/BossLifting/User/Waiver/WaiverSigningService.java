@@ -25,7 +25,6 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URL;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
@@ -42,6 +41,7 @@ public class WaiverSigningService {
     private final BusinessRepository businessRepository;
     private final FirebaseService firebaseService;
     private final EmailService emailService;
+    private final com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService;
 
     @Value("${app.frontend.url:http://localhost:5173}")
     private String frontendUrl;
@@ -51,13 +51,15 @@ public class WaiverSigningService {
                                 UserRepository userRepository,
                                 BusinessRepository businessRepository,
                                 FirebaseService firebaseService,
-                                EmailService emailService) {
+                                EmailService emailService,
+                                com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService) {
         this.waiverTemplateRepository = waiverTemplateRepository;
         this.userWaiverRepository = userWaiverRepository;
         this.userRepository = userRepository;
         this.businessRepository = businessRepository;
         this.firebaseService = firebaseService;
         this.emailService = emailService;
+        this.userBusinessService = userBusinessService;
     }
 
     @Transactional
@@ -123,6 +125,7 @@ public class WaiverSigningService {
                     subject,
                     htmlBody,
                     businessName,
+                    business.getContactEmail(),
                     business.getContactEmail()
             );
             logger.info("Waiver email sent to user {} ({})", userId, user.getEmail());
@@ -153,8 +156,8 @@ public class WaiverSigningService {
         }
 
         try {
-            // Download the template PDF
-            byte[] templatePdfBytes = downloadFile(template.getFileUrl());
+            // Download the template PDF using Firebase SDK
+            byte[] templatePdfBytes = firebaseService.downloadFile(template.getFileUrl());
 
             // Merge signature into PDF
             byte[] signedPdfBytes = mergeSignatureIntoPdf(
@@ -187,6 +190,20 @@ public class WaiverSigningService {
             user.setWaiverSignedDate(LocalDateTime.now());
             userRepository.save(user);
 
+            // Recalculate status and user type for all UserBusiness relationships for this user
+            // since waiver status affects the calculated status
+            try {
+                java.util.List<com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness> userBusinesses = user.getUserBusinesses();
+                if (userBusinesses != null) {
+                    for (com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness ub : userBusinesses) {
+                        userBusinessService.calculateAndUpdateStatus(ub);
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("Failed to recalculate status after waiver signing for user {}: {}", userId, e.getMessage());
+                // Don't fail the waiver signing if status recalculation fails
+            }
+
             logger.info("Waiver signed successfully for user {} (template version {})", userId, template.getVersion());
             return savedWaiver;
         } catch (Exception e) {
@@ -202,17 +219,6 @@ public class WaiverSigningService {
                 .findFirst();
     }
 
-    private byte[] downloadFile(String url) throws IOException {
-        try (InputStream inputStream = new URL(url).openStream();
-             ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[4096];
-            int bytesRead;
-            while ((bytesRead = inputStream.read(buffer)) != -1) {
-                outputStream.write(buffer, 0, bytesRead);
-            }
-            return outputStream.toByteArray();
-        }
-    }
 
     private byte[] mergeSignatureIntoPdf(byte[] templatePdfBytes, String userName, String signatureBase64, String signerIp) throws IOException {
         try (PDDocument document = Loader.loadPDF(templatePdfBytes)) {
@@ -260,11 +266,11 @@ public class WaiverSigningService {
                 }
 
                 // Timestamp
-                String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss UTC"));
+                String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
                 contentStream.beginText();
                 contentStream.setFont(helvetica, 10);
                 contentStream.newLineAtOffset(margin, yPosition);
-                contentStream.showText("Signed on: " + timestamp);
+                contentStream.showText("Signed on: " + timestamp + " UTC");
                 contentStream.endText();
                 yPosition -= 20;
 

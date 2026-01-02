@@ -145,6 +145,25 @@ public class UserController {
             throw e;
         }
     }
+
+    @GetMapping("/search/{businessTag}")
+    public ResponseEntity<List<UserDTO>> searchUsers(
+            @PathVariable String businessTag,
+            @RequestParam String query) {
+        try {
+            if (query == null || query.trim().isEmpty()) {
+                return ResponseEntity.ok(List.of());
+            }
+            List<User> users = userRepository.searchUsersByBusinessTag(businessTag, query.trim());
+            List<UserDTO> userDTOs = users.stream()
+                    .map(UserDTO::new)
+                    .toList();
+            return ResponseEntity.ok(userDTOs);
+        } catch (Exception e) {
+            logger.error("Error searching users for businessTag: {} with query: {}", businessTag, query, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
     // Delete User given userId or Phone Number
     @DeleteMapping("/delete-user")
     public ResponseEntity<Map<String, Object>> deleteUser(@RequestBody Map<String, Object> request) {

@@ -12,4 +12,8 @@ public interface MembershipRepository extends JpaRepository<Membership, Long> {
     // Backward compatibility - find by clubTag maps to businessTag
     @Query("SELECT m FROM Membership m WHERE m.businessTag = :clubTag")
     List<Membership> findByClubTag(@Param("clubTag") String clubTag);
+    
+    // Find public memberships by businessTag
+    @Query("SELECT m FROM Membership m WHERE m.businessTag = :businessTag AND m.isPublic = true AND m.archived = false")
+    List<Membership> findPublicMembershipsByBusinessTag(@Param("businessTag") String businessTag);
 }

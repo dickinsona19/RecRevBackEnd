@@ -47,6 +47,19 @@ public class Business {
     @Column(name = "contact_email")
     private String contactEmail;
 
+    // Referral program settings
+    @Column(name = "referred_user_discount_months")
+    private Integer referredUserDiscountMonths = 1; // Default: 1 month off
+
+    @Column(name = "referred_user_waive_activation_fee")
+    private Boolean referredUserWaiveActivationFee = true; // Default: waive activation fee
+
+    @Column(name = "referrer_discount_months")
+    private Integer referrerDiscountMonths = 1; // Default: 1 month off
+
+    @Column(name = "referrer_waive_activation_fee")
+    private Boolean referrerWaiveActivationFee = true; // Default: waive activation fee
+
     @ManyToOne
     @JoinColumn(name = "client_id")
     @JsonBackReference
@@ -154,6 +167,38 @@ public class Business {
 
     public void setContactEmail(String contactEmail) {
         this.contactEmail = contactEmail;
+    }
+
+    public Integer getReferredUserDiscountMonths() {
+        return referredUserDiscountMonths;
+    }
+
+    public void setReferredUserDiscountMonths(Integer referredUserDiscountMonths) {
+        this.referredUserDiscountMonths = referredUserDiscountMonths;
+    }
+
+    public Boolean getReferredUserWaiveActivationFee() {
+        return referredUserWaiveActivationFee;
+    }
+
+    public void setReferredUserWaiveActivationFee(Boolean referredUserWaiveActivationFee) {
+        this.referredUserWaiveActivationFee = referredUserWaiveActivationFee;
+    }
+
+    public Integer getReferrerDiscountMonths() {
+        return referrerDiscountMonths;
+    }
+
+    public void setReferrerDiscountMonths(Integer referrerDiscountMonths) {
+        this.referrerDiscountMonths = referrerDiscountMonths;
+    }
+
+    public Boolean getReferrerWaiveActivationFee() {
+        return referrerWaiveActivationFee;
+    }
+
+    public void setReferrerWaiveActivationFee(Boolean referrerWaiveActivationFee) {
+        this.referrerWaiveActivationFee = referrerWaiveActivationFee;
     }
 
 }

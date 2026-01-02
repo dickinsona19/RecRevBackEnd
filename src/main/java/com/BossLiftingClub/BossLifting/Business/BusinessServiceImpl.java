@@ -62,6 +62,11 @@ public class BusinessServiceImpl implements BusinessService {
         business.setCreatedAt(LocalDateTime.now());
         business.setBusinessTag(businessTag);
         business.setContactEmail(businessDTO.getContactEmail());
+        // Set referral program settings (use defaults if not provided)
+        business.setReferredUserDiscountMonths(businessDTO.getReferredUserDiscountMonths() != null ? businessDTO.getReferredUserDiscountMonths() : 1);
+        business.setReferredUserWaiveActivationFee(businessDTO.getReferredUserWaiveActivationFee() != null ? businessDTO.getReferredUserWaiveActivationFee() : true);
+        business.setReferrerDiscountMonths(businessDTO.getReferrerDiscountMonths() != null ? businessDTO.getReferrerDiscountMonths() : 1);
+        business.setReferrerWaiveActivationFee(businessDTO.getReferrerWaiveActivationFee() != null ? businessDTO.getReferrerWaiveActivationFee() : true);
 
         if (businessDTO.getClientId() != null) {
             Client client = clientRepository.findById(businessDTO.getClientId())
@@ -120,6 +125,48 @@ public class BusinessServiceImpl implements BusinessService {
                     return new EntityNotFoundException("Business not found with tag: " + businessTag);
                 });
         return BusinessDTO.mapToBusinessDTO(business);
+    }
+
+    @Override
+    @Transactional
+    public BusinessDTO updateBusiness(Long id, BusinessDTO businessDTO) {
+        logger.info("Updating business with ID: {}", id);
+        Business business = businessRepository.findById(id)
+                .orElseThrow(() -> {
+                    logger.error("Business not found with ID: {}", id);
+                    return new EntityNotFoundException("Business not found with ID: " + id);
+                });
+
+        // Update fields
+        if (businessDTO.getTitle() != null) {
+            business.setTitle(businessDTO.getTitle());
+        }
+        if (businessDTO.getLogoUrl() != null) {
+            business.setLogoUrl(businessDTO.getLogoUrl());
+        }
+        if (businessDTO.getStatus() != null) {
+            business.setStatus(businessDTO.getStatus());
+        }
+        if (businessDTO.getContactEmail() != null) {
+            business.setContactEmail(businessDTO.getContactEmail());
+        }
+        // Update referral program settings
+        if (businessDTO.getReferredUserDiscountMonths() != null) {
+            business.setReferredUserDiscountMonths(businessDTO.getReferredUserDiscountMonths());
+        }
+        if (businessDTO.getReferredUserWaiveActivationFee() != null) {
+            business.setReferredUserWaiveActivationFee(businessDTO.getReferredUserWaiveActivationFee());
+        }
+        if (businessDTO.getReferrerDiscountMonths() != null) {
+            business.setReferrerDiscountMonths(businessDTO.getReferrerDiscountMonths());
+        }
+        if (businessDTO.getReferrerWaiveActivationFee() != null) {
+            business.setReferrerWaiveActivationFee(businessDTO.getReferrerWaiveActivationFee());
+        }
+
+        Business savedBusiness = businessRepository.save(business);
+        logger.info("Business updated successfully with ID: {}", id);
+        return BusinessDTO.mapToBusinessDTO(savedBusiness);
     }
 
     @Override

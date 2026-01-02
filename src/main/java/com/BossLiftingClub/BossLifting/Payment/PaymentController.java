@@ -326,7 +326,11 @@ public class PaymentController {
 
             String stripeCustomerId = userBusiness.getStripeId();
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
-                return ResponseEntity.ok(List.of()); // Return empty list if no Stripe customer
+                // Return empty structure if no Stripe customer
+                Map<String, Object> emptyResponse = new java.util.HashMap<>();
+                emptyResponse.put("payments", List.of());
+                emptyResponse.put("upcomingDiscounts", List.of());
+                return ResponseEntity.ok(emptyResponse);
             }
 
             Business business = userBusiness.getBusiness();
@@ -338,8 +342,22 @@ public class PaymentController {
             String stripeAccountId = business.getStripeAccountId();
 
             List<Map<String, Object>> paymentHistory = stripeService.getPaymentHistory(stripeCustomerId, stripeAccountId);
+            
+            // Get active subscription discounts
+            List<Map<String, Object>> upcomingDiscounts = new java.util.ArrayList<>();
+            try {
+                upcomingDiscounts = stripeService.getSubscriptionDiscounts(stripeCustomerId, stripeAccountId);
+            } catch (Exception e) {
+                System.err.println("Error fetching subscription discounts: " + e.getMessage());
+                // Don't fail the request if discount fetching fails
+            }
 
-            return ResponseEntity.ok(paymentHistory);
+            // Combine payment history and discounts
+            Map<String, Object> response = new java.util.HashMap<>();
+            response.put("payments", paymentHistory);
+            response.put("upcomingDiscounts", upcomingDiscounts);
+
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to fetch payment history: " + e.getMessage()));
@@ -405,7 +423,7 @@ public class PaymentController {
                 com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService =
                         applicationContext.getBean(com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService.class);
 
-                userBusinessService.addMembershipByUserBusinessId(userBusinessId, membershipId, status, anchorDate, overridePrice, promoCode, null, null);
+                userBusinessService.addMembershipByUserBusinessId(userBusinessId, membershipId, status, anchorDate, overridePrice, promoCode, null, null, false, null);
             }
 
             return ResponseEntity.ok(Map.of(
@@ -613,6 +631,10 @@ public class PaymentController {
                 com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness userBusiness = membership.getUserBusiness();
                 userBusiness.removeMembership(membership);
                 userBusinessRepository.save(userBusiness);
+                
+                // Recalculate status and user type after membership deletion
+                userBusinessService.calculateAndUpdateStatus(userBusiness);
+                
                 System.out.println("✅ Membership " + membership.getId() + " deleted from database");
             }
 
@@ -702,6 +724,14 @@ public class PaymentController {
 
             if (membership != null) {
                 com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness userBusiness = membership.getUserBusiness();
+                
+                // Set isDelinquent flag on UserBusiness for this business-user relationship
+                userBusiness.setIsDelinquent(true);
+                userBusinessRepository.save(userBusiness);
+                
+                // Recalculate status and user type after payment failure
+                userBusinessService.calculateAndUpdateStatus(userBusiness);
+                
                 com.BossLiftingClub.BossLifting.User.User user = userBusiness.getUser();
                 Business business = userBusiness.getBusiness();
                 
@@ -766,14 +796,24 @@ public class PaymentController {
             com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership membership =
                     findMembershipByStripeSubscriptionId(subscriptionId);
 
-            if (membership != null &&
-                !"ACTIVE".equalsIgnoreCase(membership.getStatus()) &&
-                !"PAUSE_SCHEDULED".equalsIgnoreCase(membership.getStatus()) &&
-                !"CANCELLING".equalsIgnoreCase(membership.getStatus())) {
+            if (membership != null) {
+                com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness userBusiness = membership.getUserBusiness();
+                
+                // Clear isDelinquent flag when payment succeeds
+                userBusiness.setIsDelinquent(false);
+                userBusinessRepository.save(userBusiness);
+                
+                // Recalculate status and user type after payment success
+                userBusinessService.calculateAndUpdateStatus(userBusiness);
+                
+                if (!"ACTIVE".equalsIgnoreCase(membership.getStatus()) &&
+                    !"PAUSE_SCHEDULED".equalsIgnoreCase(membership.getStatus()) &&
+                    !"CANCELLING".equalsIgnoreCase(membership.getStatus())) {
 
-                userBusinessService.updateUserBusinessMembershipById(
-                        membership.getId(), "ACTIVE", null, null, null);
-                System.out.println("✅ Membership " + membership.getId() + " reactivated after successful payment");
+                    userBusinessService.updateUserBusinessMembershipById(
+                            membership.getId(), "ACTIVE", null, null, null);
+                    System.out.println("✅ Membership " + membership.getId() + " reactivated after successful payment");
+                }
             }
 
         } catch (Exception e) {

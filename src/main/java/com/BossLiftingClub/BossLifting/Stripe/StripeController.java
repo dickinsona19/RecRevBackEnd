@@ -124,7 +124,7 @@ public class StripeController {
         );
 
         try {
-            emailService.sendBlastEmail(email, subject, message, businessName, businessContactEmail);
+            emailService.sendBlastEmail(email, subject, message, businessName, businessContactEmail, businessContactEmail);
             System.out.println("Onboarding email sent to: " + email);
         } catch (Exception e) {
             System.err.println("Failed to send onboarding email via EmailService: " + e.getMessage());

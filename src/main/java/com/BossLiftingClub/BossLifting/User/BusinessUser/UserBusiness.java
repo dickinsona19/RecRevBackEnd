@@ -40,6 +40,18 @@ public class UserBusiness {
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
 
+    @Column(name = "has_ever_had_membership", nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
+    private Boolean hasEverHadMembership = false;
+
+    @Column(name = "is_delinquent", nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
+    private Boolean isDelinquent = false;
+
+    @Column(name = "calculated_status")
+    private String calculatedStatus;
+
+    @Column(name = "calculated_user_type")
+    private String calculatedUserType;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -118,6 +130,38 @@ public class UserBusiness {
 
     public void setNotes(String notes) {
         this.notes = notes;
+    }
+
+    public Boolean getHasEverHadMembership() {
+        return hasEverHadMembership;
+    }
+
+    public void setHasEverHadMembership(Boolean hasEverHadMembership) {
+        this.hasEverHadMembership = hasEverHadMembership;
+    }
+
+    public Boolean getIsDelinquent() {
+        return isDelinquent;
+    }
+
+    public void setIsDelinquent(Boolean isDelinquent) {
+        this.isDelinquent = isDelinquent;
+    }
+
+    public String getCalculatedStatus() {
+        return calculatedStatus;
+    }
+
+    public void setCalculatedStatus(String calculatedStatus) {
+        this.calculatedStatus = calculatedStatus;
+    }
+
+    public String getCalculatedUserType() {
+        return calculatedUserType;
+    }
+
+    public void setCalculatedUserType(String calculatedUserType) {
+        this.calculatedUserType = calculatedUserType;
     }
 
     public void addMembership(UserBusinessMembership membership) {

@@ -10,7 +10,7 @@ public interface BusinessService {
     BusinessDTO getBusinessById(Long id);
     BusinessDTO getBusinessByTag(String businessTag);
 //    List<BusinessDTO> getAllBusinesses();
-//    BusinessDTO updateBusiness(long id, BusinessDTO businessDTO);
+    BusinessDTO updateBusiness(Long id, BusinessDTO businessDTO);
     void deleteBusiness(long id);
 
     String createStripeOnboardingLink(String businessTag, String returnUrl, String refreshUrl) throws StripeException;

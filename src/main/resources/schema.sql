@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS businesses (
     stripe_account_id VARCHAR(100),
     onboarding_status VARCHAR(50) DEFAULT 'NOT_STARTED',
     contact_email VARCHAR(255),
+    referred_user_discount_months INT DEFAULT 1,
+    referred_user_waive_activation_fee BOOLEAN DEFAULT TRUE,
+    referrer_discount_months INT DEFAULT 1,
+    referrer_waive_activation_fee BOOLEAN DEFAULT TRUE,
     UNIQUE (business_tag),
     FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
 );
@@ -41,7 +45,11 @@ CREATE TABLE IF NOT EXISTS membership (
     club_tag VARCHAR(100),
     business_tag VARCHAR(100),
     stripe_price_id VARCHAR(255),
-    archived BOOLEAN DEFAULT FALSE
+    archived BOOLEAN DEFAULT FALSE,
+    is_public BOOLEAN DEFAULT FALSE,
+    public_display_name VARCHAR(255),
+    public_description TEXT,
+    public_benefits TEXT
 );
 
 -- User table
@@ -158,6 +166,10 @@ CREATE TABLE IF NOT EXISTS user_business (
     stripe_id VARCHAR(255),
     status VARCHAR(50),
     notes TEXT,
+    has_ever_had_membership BOOLEAN DEFAULT FALSE,
+    is_delinquent BOOLEAN DEFAULT FALSE,
+    calculated_status VARCHAR(50),
+    calculated_user_type VARCHAR(50),
     created_at DATETIME NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
@@ -176,7 +188,7 @@ CREATE TABLE IF NOT EXISTS user_business_membership (
     pause_start_date DATETIME,
     pause_end_date DATETIME,
     actual_price DECIMAL(10, 2) NOT NULL DEFAULT 0,
-    signature_data_url VARCHAR(1000),
+    signature_data_url TEXT,
     signed_at DATETIME,
     signer_name VARCHAR(255),
     created_at DATETIME NOT NULL,

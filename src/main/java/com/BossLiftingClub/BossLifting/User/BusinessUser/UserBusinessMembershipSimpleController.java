@@ -100,7 +100,9 @@ public class UserBusinessMembershipSimpleController {
                     overridePrice,
                     request.getPromoCode(),
                     request.getSignatureDataUrl(),
-                    request.getSignerName()
+                    request.getSignerName(),
+                    request.getSendOnboardingEmail(),
+                    request.getReferredById()
             );
 
             return ResponseEntity.status(HttpStatus.CREATED).body(membership);
@@ -271,6 +273,8 @@ public class UserBusinessMembershipSimpleController {
         private Double customPrice;
         private String signatureDataUrl; // Base64 signature image
         private String signerName; // Name of person who signed
+        private Boolean sendOnboardingEmail; // Whether to send onboarding email if user doesn't have account
+        private Long referredById; // ID of the user who referred this member
 
         // Getters and Setters
         public Long getUserBusinessId() {
@@ -335,6 +339,22 @@ public class UserBusinessMembershipSimpleController {
 
         public void setSignerName(String signerName) {
             this.signerName = signerName;
+        }
+
+        public Boolean getSendOnboardingEmail() {
+            return sendOnboardingEmail;
+        }
+
+        public void setSendOnboardingEmail(Boolean sendOnboardingEmail) {
+            this.sendOnboardingEmail = sendOnboardingEmail;
+        }
+
+        public Long getReferredById() {
+            return referredById;
+        }
+
+        public void setReferredById(Long referredById) {
+            this.referredById = referredById;
         }
     }
 
