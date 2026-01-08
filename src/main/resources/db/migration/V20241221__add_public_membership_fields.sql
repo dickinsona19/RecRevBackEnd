@@ -6,3 +6,5 @@ ADD COLUMN public_description TEXT,
 ADD COLUMN public_benefits TEXT;
 
 
+
+

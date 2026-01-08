@@ -302,6 +302,57 @@ public class BusinessServiceImpl implements BusinessService {
         businessRepository.save(business);
         logger.info("Onboarding status updated successfully for business: {}", business.getBusinessTag());
     }
+    
+    @Override
+    @Transactional
+    public void checkAndUpdateOnboardingStatus(String businessTag) throws StripeException {
+        logger.info("Checking onboarding status for business: {}", businessTag);
+        
+        Business business = businessRepository.findByBusinessTag(businessTag)
+                .orElseThrow(() -> {
+                    logger.error("Business not found with businessTag: {}", businessTag);
+                    return new EntityNotFoundException("Business not found with businessTag: " + businessTag);
+                });
+        
+        String stripeAccountId = business.getStripeAccountId();
+        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+            logger.warn("Business {} does not have a Stripe account ID", businessTag);
+            return;
+        }
+        
+        try {
+            // Query Stripe directly to get current account status
+            com.stripe.model.Account account = com.stripe.model.Account.retrieve(stripeAccountId);
+            
+            boolean chargesEnabled = account.getChargesEnabled();
+            boolean detailsSubmitted = account.getDetailsSubmitted();
+            
+            String onboardingStatus;
+            if (chargesEnabled && detailsSubmitted) {
+                onboardingStatus = "COMPLETED";
+                logger.info("Stripe account {} has completed onboarding (chargesEnabled: {}, detailsSubmitted: {})", 
+                        stripeAccountId, chargesEnabled, detailsSubmitted);
+            } else if (detailsSubmitted) {
+                onboardingStatus = "PENDING";
+                logger.info("Stripe account {} has submitted details but is pending review", stripeAccountId);
+            } else if (account.getRequirements() != null && !account.getRequirements().getCurrentlyDue().isEmpty()) {
+                onboardingStatus = "RESTRICTED";
+                logger.info("Stripe account {} has requirements currently due", stripeAccountId);
+            } else {
+                onboardingStatus = "PENDING";
+                logger.info("Stripe account {} is still pending onboarding", stripeAccountId);
+            }
+            
+            // Update the business status
+            business.setOnboardingStatus(onboardingStatus);
+            businessRepository.save(business);
+            logger.info("Updated onboarding status for business {} to {}", businessTag, onboardingStatus);
+            
+        } catch (StripeException e) {
+            logger.error("Error checking Stripe account status for business {}: {}", businessTag, e.getMessage());
+            throw e;
+        }
+    }
 
     @Override
     @Transactional(readOnly = true)

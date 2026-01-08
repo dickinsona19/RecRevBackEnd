@@ -216,8 +216,15 @@ public class UserBusinessService {
         // Add to the UserBusiness (this will cascade save)
         userBusiness.addMembership(userBusinessMembership);
 
+        // Mark that this user has ever had a membership
+        userBusiness.setHasEverHadMembership(true);
+
         // Save and return
         userBusinessRepository.save(userBusiness);
+        
+        // Recalculate status after adding membership
+        calculateAndUpdateStatus(userBusiness);
+        
         return userBusinessMembership;
     }
 
@@ -462,6 +469,9 @@ public class UserBusinessService {
 
         // Save and return
         userBusinessRepository.save(userBusiness);
+        
+        // Recalculate status after adding membership
+        calculateAndUpdateStatus(userBusiness);
         
         // Check if user needs onboarding email (if they agreed to sign up and don't have an account)
         if (sendOnboardingEmail != null && sendOnboardingEmail) {
@@ -718,6 +728,9 @@ public class UserBusinessService {
 
         // Save
         userBusinessRepository.save(userBusiness);
+        
+        // Recalculate status after removing membership
+        calculateAndUpdateStatus(userBusiness);
 
         return membership;
     }
@@ -973,10 +986,10 @@ public class UserBusinessService {
         boolean hasMemberships = memberships != null && !memberships.isEmpty();
         
         // Get flags
-        Boolean hasEverHadMembership = userBusiness.getHasEverHadMembership();
-        boolean hasEverHadMembershipFlag = hasEverHadMembership != null && hasEverHadMembership;
         Boolean isDelinquent = userBusiness.getIsDelinquent();
         boolean isDelinquentFlag = isDelinquent != null && isDelinquent;
+        Boolean isPaused = userBusiness.getIsPaused();
+        boolean isPausedFlag = isPaused != null && isPaused;
         
         String calculatedStatus;
         String calculatedUserType;
@@ -1021,18 +1034,8 @@ public class UserBusinessService {
         
         // Has card but NO membership
         if (hasCard && !hasMemberships) {
-            // RULE 4: Pending - Has card + No memberships + Never had memberships
-            if (!hasEverHadMembershipFlag) {
-                calculatedStatus = "Pending";
-                calculatedUserType = "Member";
-                userBusiness.setCalculatedStatus(calculatedStatus);
-                userBusiness.setCalculatedUserType(calculatedUserType);
-                userBusinessRepository.save(userBusiness);
-                return;
-            }
-            
-            // Had memberships before but all are cancelled/removed
-            calculatedStatus = "Inactive";
+            // RULE 4: Pending - Has card + No memberships
+            calculatedStatus = "Pending";
             calculatedUserType = "Member";
             userBusiness.setCalculatedStatus(calculatedStatus);
             userBusiness.setCalculatedUserType(calculatedUserType);
@@ -1042,14 +1045,24 @@ public class UserBusinessService {
         
         // Has card and memberships - check other membership statuses
         if (hasCard && hasMemberships && memberships != null) {
-            // RULE 5: Check if any membership is paused
-            boolean hasPausedMembership = memberships.stream()
-                    .anyMatch(m -> "PAUSED".equalsIgnoreCase(m.getStatus()) || 
-                                 "PAUSE_SCHEDULED".equalsIgnoreCase(m.getStatus()));
-            
-            if (hasPausedMembership) {
+            // RULE 5: Check if user is paused (from isPaused flag)
+            if (isPausedFlag) {
                 calculatedStatus = "Paused / On Hold";
                 calculatedUserType = "Member";
+                userBusiness.setCalculatedStatus(calculatedStatus);
+                userBusiness.setCalculatedUserType(calculatedUserType);
+                userBusinessRepository.save(userBusiness);
+                return;
+            }
+            
+            // RULE 5.5: Check if any membership is PAST_DUE (mirrors Stripe past_due status)
+            boolean hasPastDueMembership = memberships.stream()
+                    .anyMatch(m -> "PAST_DUE".equalsIgnoreCase(m.getStatus()));
+            
+            if (hasPastDueMembership) {
+                calculatedStatus = "Delinquent";
+                calculatedUserType = "Member";
+                userBusiness.setIsDelinquent(true); // Ensure isDelinquent is set
                 userBusiness.setCalculatedStatus(calculatedStatus);
                 userBusiness.setCalculatedUserType(calculatedUserType);
                 userBusinessRepository.save(userBusiness);

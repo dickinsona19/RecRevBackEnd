@@ -5,3 +5,5 @@ ADD COLUMN calculated_status VARCHAR(50),
 ADD COLUMN calculated_user_type VARCHAR(50);
 
 
+
+

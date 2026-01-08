@@ -46,6 +46,9 @@ public class UserBusiness {
     @Column(name = "is_delinquent", nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
     private Boolean isDelinquent = false;
 
+    @Column(name = "is_paused", nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
+    private Boolean isPaused = false;
+
     @Column(name = "calculated_status")
     private String calculatedStatus;
 
@@ -146,6 +149,14 @@ public class UserBusiness {
 
     public void setIsDelinquent(Boolean isDelinquent) {
         this.isDelinquent = isDelinquent;
+    }
+
+    public Boolean getIsPaused() {
+        return isPaused;
+    }
+
+    public void setIsPaused(Boolean isPaused) {
+        this.isPaused = isPaused;
     }
 
     public String getCalculatedStatus() {

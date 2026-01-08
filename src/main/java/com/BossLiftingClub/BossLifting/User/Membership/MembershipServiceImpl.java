@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 import com.BossLiftingClub.BossLifting.Business.Business;
 import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessRepository;
 
 @Service
 public class MembershipServiceImpl implements MembershipService {
@@ -31,6 +33,9 @@ public class MembershipServiceImpl implements MembershipService {
 
     @Autowired
     private BusinessRepository businessRepository;
+
+    @Autowired
+    private UserBusinessRepository userBusinessRepository;
 
     @PostConstruct
     public void initStripe() {
@@ -47,8 +52,17 @@ public class MembershipServiceImpl implements MembershipService {
     public List<MembershipDTO> getMembershipsByBusinessTag(String businessTag) {
         logger.debug("Fetching memberships for businessTag: {}", businessTag);
         List<Membership> memberships = membershipRepository.findByBusinessTag(businessTag);
+        
+        // Get all UserBusiness records for this business to count members
+        Business business = businessRepository.findByBusinessTag(businessTag)
+                .orElse(null);
+        
+        List<UserBusiness> allUserBusinesses = business != null 
+                ? userBusinessRepository.findByBusinessId(business.getId())
+                : java.util.Collections.emptyList();
+        
         return memberships.stream()
-                .map(this::mapToDTO)
+                .map(membership -> mapToDTO(membership, allUserBusinesses))
                 .collect(Collectors.toList());
     }
     
@@ -139,7 +153,20 @@ public class MembershipServiceImpl implements MembershipService {
         };
     }
 
-    private MembershipDTO mapToDTO(Membership membership) {
-        return MembershipDTO.fromEntity(membership);
+    private MembershipDTO mapToDTO(Membership membership, List<UserBusiness> allUserBusinesses) {
+        MembershipDTO dto = MembershipDTO.fromEntity(membership);
+        
+        // Count how many members have this membership
+        int memberCount = 0;
+        for (UserBusiness userBusiness : allUserBusinesses) {
+            boolean hasMembership = userBusiness.getUserBusinessMemberships().stream()
+                    .anyMatch(m -> m.getMembership().getId().equals(membership.getId()));
+            if (hasMembership) {
+                memberCount++;
+            }
+        }
+        
+        dto.setMemberCount(memberCount);
+        return dto;
     }
 }

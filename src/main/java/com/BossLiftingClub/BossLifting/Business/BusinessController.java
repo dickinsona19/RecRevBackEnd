@@ -192,6 +192,53 @@ public class BusinessController {
     /**
      * Update the status of a user-business relationship
      */
+    @Autowired
+    private com.BossLiftingClub.BossLifting.User.BusinessUser.StripeSyncService stripeSyncService;
+
+    /**
+     * Sync from Stripe and recalculate status for all members of a business
+     * This will:
+     * 1. Sync subscription statuses from Stripe (update/remove memberships based on Stripe state)
+     * 2. Recalculate status for all members
+     */
+    @PostMapping("/{businessTag}/recalculate-statuses")
+    public ResponseEntity<?> recalculateAllMemberStatuses(@PathVariable String businessTag) {
+        try {
+            // First, sync from Stripe to update memberships based on current Stripe state
+            Map<String, Object> syncResult = stripeSyncService.syncBusinessFromStripe(businessTag);
+            
+            if (!Boolean.TRUE.equals(syncResult.get("success"))) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(Map.of("error", syncResult.get("error") != null ? syncResult.get("error") : "Failed to sync from Stripe"));
+            }
+            
+            // Then recalculate statuses for all members
+            List<UserBusiness> userBusinesses = userBusinessRepository.findAllByBusinessTag(businessTag);
+            
+            int recalculated = 0;
+            for (UserBusiness userBusiness : userBusinesses) {
+                try {
+                    userBusinessService.calculateAndUpdateStatus(userBusiness);
+                    recalculated++;
+                } catch (Exception e) {
+                    System.err.println("Error recalculating status for UserBusiness " + userBusiness.getId() + ": " + e.getMessage());
+                }
+            }
+            
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Synced from Stripe and recalculated status for " + recalculated + " members",
+                    "synced", syncResult.get("synced"),
+                    "updated", syncResult.get("updated"),
+                    "recalculated", recalculated,
+                    "total", userBusinesses.size()
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to sync and recalculate statuses: " + e.getMessage()));
+        }
+    }
+
     @PutMapping("/{businessTag}/members/{userId}/status")
     public ResponseEntity<?> updateMemberStatus(
             @PathVariable String businessTag,
@@ -252,6 +299,40 @@ public class BusinessController {
         }
     }
 
+    /**
+     * Check and update Stripe onboarding status for a business
+     * This queries Stripe directly to get the current status
+     * GET /api/businesses/{businessTag}/check-onboarding-status
+     */
+    @GetMapping("/{businessTag}/check-onboarding-status")
+    public ResponseEntity<?> checkOnboardingStatus(@PathVariable String businessTag) {
+        try {
+            businessService.checkAndUpdateOnboardingStatus(businessTag);
+            
+            // Return updated business data
+            BusinessDTO business = businessService.getBusinessByTag(businessTag);
+            if (business == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Business not found with tag: " + businessTag));
+            }
+            
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Onboarding status checked and updated",
+                    "business", business
+            ));
+        } catch (EntityNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", e.getMessage()));
+        } catch (com.stripe.exception.StripeException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to check Stripe status: " + e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to check onboarding status: " + e.getMessage()));
+        }
+    }
+    
     /**
      * Create Stripe onboarding link for a business
      * This initiates or continues the Stripe Express account setup process

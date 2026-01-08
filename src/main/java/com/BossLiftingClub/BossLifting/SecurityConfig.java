@@ -54,6 +54,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/**").authenticated()
                         .requestMatchers("/users/**").authenticated()
                         .requestMatchers("/products/**").authenticated()
+                        .requestMatchers("/clients/**").authenticated() // Allow authenticated access to /clients endpoints
                         
                         // Default: require authentication
                         .anyRequest().authenticated()

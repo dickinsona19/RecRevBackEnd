@@ -7,6 +7,7 @@ import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership;
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessRepository;
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessCreateDTO;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.Membership.MembershipRepository;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
@@ -58,6 +59,9 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private StripeService stripeService;
+
+    @Autowired
+    private UserBusinessService userBusinessService;
 
     @Autowired
     public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder) {
@@ -243,6 +247,9 @@ public class UserServiceImpl implements UserService {
                     }
                     savedUserBusiness.getUserBusinessMemberships().add(userBusinessMembership);
                 }
+                
+                // Recalculate status after adding memberships
+                userBusinessService.calculateAndUpdateStatus(savedUserBusiness);
             }
         } else {
             // Create new user
@@ -364,6 +371,9 @@ public class UserServiceImpl implements UserService {
                     }
                     savedUserBusiness.getUserBusinessMemberships().add(userBusinessMembership);
                 }
+                
+                // Recalculate status after adding memberships
+                userBusinessService.calculateAndUpdateStatus(savedUserBusiness);
             }
         }
 

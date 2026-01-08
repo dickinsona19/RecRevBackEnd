@@ -167,6 +167,38 @@ public class PaymentController {
                     business.getStripeAccountId()
             );
 
+            // Update all subscriptions for this customer to use the new payment method
+            try {
+                com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                        .setStripeAccount(business.getStripeAccountId())
+                        .build();
+
+                com.stripe.param.SubscriptionListParams listParams = com.stripe.param.SubscriptionListParams.builder()
+                        .setCustomer(stripeCustomerId)
+                        .setStatus(com.stripe.param.SubscriptionListParams.Status.ALL)
+                        .setLimit(100L)
+                        .build();
+
+                com.stripe.model.SubscriptionCollection subscriptions = com.stripe.model.Subscription.list(listParams, requestOptions);
+
+                for (com.stripe.model.Subscription subscription : subscriptions.getData()) {
+                    // Only update active subscriptions (not cancelled/paused)
+                    if ("active".equalsIgnoreCase(subscription.getStatus()) || 
+                        "trialing".equalsIgnoreCase(subscription.getStatus())) {
+                        
+                        com.stripe.param.SubscriptionUpdateParams updateParams = com.stripe.param.SubscriptionUpdateParams.builder()
+                                .setDefaultPaymentMethod(paymentMethodId)
+                                .build();
+
+                        subscription.update(updateParams, requestOptions);
+                        System.out.println("✅ Updated subscription " + subscription.getId() + " to use new payment method");
+                    }
+                }
+            } catch (com.stripe.exception.StripeException e) {
+                // Log error but don't fail the payment method update
+                System.err.println("⚠️  Warning: Failed to update subscriptions with new payment method: " + e.getMessage());
+            }
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Payment method updated successfully"
@@ -660,10 +692,21 @@ public class PaymentController {
             com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership membership =
                     findMembershipByStripeSubscriptionId(subscriptionId);
 
-            if (membership != null && !"PAUSED".equalsIgnoreCase(membership.getStatus())) {
-                userBusinessService.updateUserBusinessMembershipById(
-                        membership.getId(), "PAUSED", null, null, null);
-                System.out.println("✅ Membership " + membership.getId() + " status updated to PAUSED");
+            if (membership != null) {
+                com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness userBusiness = membership.getUserBusiness();
+                
+                // Set isPaused flag
+                userBusiness.setIsPaused(true);
+                userBusinessRepository.save(userBusiness);
+                
+                if (!"PAUSED".equalsIgnoreCase(membership.getStatus())) {
+                    userBusinessService.updateUserBusinessMembershipById(
+                            membership.getId(), "PAUSED", null, null, null);
+                    System.out.println("✅ Membership " + membership.getId() + " status updated to PAUSED");
+                }
+                
+                // Recalculate status
+                userBusinessService.calculateAndUpdateStatus(userBusiness);
             }
 
         } catch (Exception e) {
@@ -688,13 +731,24 @@ public class PaymentController {
             com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership membership =
                     findMembershipByStripeSubscriptionId(subscriptionId);
 
-            if (membership != null && !"ACTIVE".equalsIgnoreCase(membership.getStatus())) {
-                // Clear pause dates and set to active
-                membership.setPauseStartDate(null);
-                membership.setPauseEndDate(null);
-                userBusinessService.updateUserBusinessMembershipById(
-                        membership.getId(), "ACTIVE", null, null, null);
-                System.out.println("✅ Membership " + membership.getId() + " resumed and set to ACTIVE");
+            if (membership != null) {
+                com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness userBusiness = membership.getUserBusiness();
+                
+                // Clear isPaused flag
+                userBusiness.setIsPaused(false);
+                userBusinessRepository.save(userBusiness);
+                
+                if (!"ACTIVE".equalsIgnoreCase(membership.getStatus())) {
+                    // Clear pause dates and set to active
+                    membership.setPauseStartDate(null);
+                    membership.setPauseEndDate(null);
+                    userBusinessService.updateUserBusinessMembershipById(
+                            membership.getId(), "ACTIVE", null, null, null);
+                    System.out.println("✅ Membership " + membership.getId() + " resumed and set to ACTIVE");
+                }
+                
+                // Recalculate status
+                userBusinessService.calculateAndUpdateStatus(userBusiness);
             }
 
         } catch (Exception e) {

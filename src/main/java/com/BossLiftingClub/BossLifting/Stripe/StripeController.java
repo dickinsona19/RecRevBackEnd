@@ -541,15 +541,53 @@ public class StripeController {
 
 
     private void createSubscriptions(String customerId, String paymentMethodId, String membershipPrice, String PromoToken) throws Exception {
+        createSubscriptions(customerId, paymentMethodId, membershipPrice, PromoToken, null);
+    }
+
+    private void createSubscriptions(String customerId, String paymentMethodId, String membershipPrice, String PromoToken, String stripeAccountId) throws Exception {
+        // Create request options for connected account if provided
+        com.stripe.net.RequestOptions requestOptions = null;
+        if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+            requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+        }
+
         // Validate customer and payment method
-        Customer customer = Customer.retrieve(customerId);
+        Customer customer;
+        if (requestOptions != null) {
+            customer = Customer.retrieve(customerId, requestOptions);
+        } else {
+            customer = Customer.retrieve(customerId);
+        }
+        
         if (customer.getDeleted() != null && customer.getDeleted()) {
             throw new RuntimeException("Customer is deleted: " + customerId);
         }
-        if (paymentMethodId == null || !PaymentMethod.retrieve(paymentMethodId).getCustomer().equals(customerId)) {
-            throw new RuntimeException("Invalid payment method for customer: " + customerId);
+        
+        // Validate payment method exists and attach to connected account if needed
+        if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+            // Ensure payment method is attached to customer on connected account
+            // PaymentMethods created via Stripe.js are on platform account by default
+            try {
+                stripeService.attachPaymentMethodOnConnectedAccount(customerId, paymentMethodId, stripeAccountId);
+                System.out.println("PaymentMethod " + paymentMethodId + " attached to customer " + customerId + " on connected account " + stripeAccountId);
+            } catch (StripeException e) {
+                // If already attached or other error, log and continue
+                if (e.getCode() != null && !e.getCode().equals("resource_already_exists")) {
+                    System.err.println("Warning: Could not attach payment method to connected account: " + e.getMessage());
+                }
+            }
+        } else {
+            // For platform account, just verify payment method exists
+            try {
+                PaymentMethod.retrieve(paymentMethodId);
+            } catch (StripeException e) {
+                throw new RuntimeException("PaymentMethod not found: " + paymentMethodId + " - " + e.getMessage(), e);
+            }
         }
-        System.out.println("Customer " + customerId + " has valid payment method: " + paymentMethodId);
+        
+        System.out.println("Customer " + customerId + " has valid payment method: " + paymentMethodId + (stripeAccountId != null ? " on connected account: " + stripeAccountId : " on platform account"));
 
         // Determine billing cycle based on current date
         LocalDate currentDate = LocalDate.now(ZoneId.of("UTC"));
@@ -578,23 +616,31 @@ public class StripeController {
         String applicationFeePriceId = "price_1RJOFhGHcVHSTvgI08VPh4XY"; // One-time application fee Price ID
 
         // Step 1: Create a one-time InvoiceItem for the application fee
-
-
-        processApplicationFee(customerId, applicationFeePriceId, PromoToken);
+        processApplicationFee(customerId, applicationFeePriceId, PromoToken, stripeAccountId);
+        
         // Step 3: Create the subscription (without the application fee)
+        // Set payment_behavior to ALLOW_INCOMPLETE to prevent automatic cancellation
+        // Subscriptions will remain in past_due state until manually cancelled
         SubscriptionCreateParams.Builder subscriptionBuilder = SubscriptionCreateParams.builder()
                 .setCustomer(customerId)
                 .addItem(SubscriptionCreateParams.Item.builder()
                         .setPrice(mainPriceId)
                         .build())
-                .setDefaultPaymentMethod(paymentMethodId);
+                .setDefaultPaymentMethod(paymentMethodId)
+                .setPaymentBehavior(SubscriptionCreateParams.PaymentBehavior.ALLOW_INCOMPLETE)
+                .setProrationBehavior(SubscriptionCreateParams.ProrationBehavior.ALWAYS_INVOICE);
 
         // Check if the membership price is not 948 before adding the tax rate
         if (!membershipPrice.equals("948.00")) {
             subscriptionBuilder.addDefaultTaxRate("txr_1RIsQGGHcVHSTvgIF3A1Nacp");
         }
         SubscriptionCreateParams subscriptionParams = subscriptionBuilder.build();
-        Subscription subscription = Subscription.create(subscriptionParams);
+        Subscription subscription;
+        if (requestOptions != null) {
+            subscription = Subscription.create(subscriptionParams, requestOptions);
+        } else {
+            subscription = Subscription.create(subscriptionParams);
+        }
 
         System.out.println("Subscription created: " + subscription.getId());
 
@@ -611,27 +657,39 @@ public class StripeController {
         }
 
         // Create maintenance subscription with delayed billing cycle
+        // Set payment_behavior to ALLOW_INCOMPLETE to prevent automatic cancellation
         SubscriptionCreateParams.Builder maintenanceParamsBuilder = SubscriptionCreateParams.builder()
                 .setCustomer(customerId)
                 .addItem(SubscriptionCreateParams.Item.builder()
                         .setPrice("price_1RF30SGHcVHSTvgIpegCzQ0m") // $59.99
                         .build())
                 .setDefaultPaymentMethod(paymentMethodId)
-                .setProrationBehavior(SubscriptionCreateParams.ProrationBehavior.NONE)
+                .setPaymentBehavior(SubscriptionCreateParams.PaymentBehavior.ALLOW_INCOMPLETE)
+                .setProrationBehavior(SubscriptionCreateParams.ProrationBehavior.ALWAYS_INVOICE)
                 .addExpand("schedule")
                 .setBillingCycleAnchor(billingAnchorTimestamp);
 
         System.out.println("Setting maintenance subscription with first charge on " + billingAnchorDate);
 
         try {
-            Subscription maintenanceSubscription = Subscription.create(maintenanceParamsBuilder.build());
+            Subscription maintenanceSubscription;
+            if (requestOptions != null) {
+                maintenanceSubscription = Subscription.create(maintenanceParamsBuilder.build(), requestOptions);
+            } else {
+                maintenanceSubscription = Subscription.create(maintenanceParamsBuilder.build());
+            }
             System.out.println("Maintenance subscription created with ID: " + maintenanceSubscription.getId());
         } catch (StripeException e) {
             System.err.println("Failed to create maintenance subscription: " + e.getMessage() + "; request-id: " + e.getRequestId());
             throw e;
         }
     }
+    
     public void processApplicationFee(String customerId, String applicationFeePriceId, String promoToken) throws Exception {
+        processApplicationFee(customerId, applicationFeePriceId, promoToken, null);
+    }
+    
+    public void processApplicationFee(String customerId, String applicationFeePriceId, String promoToken, String stripeAccountId) throws Exception {
         // Fetch all promos
         List<PromoDTO> promos = promoService.findAll();
 
@@ -642,20 +700,36 @@ public class StripeController {
 
         // If no valid promo is found, create the invoice item and invoice
         if (!isValidPromo) {
+            com.stripe.net.RequestOptions requestOptions = null;
+            if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+                requestOptions = com.stripe.net.RequestOptions.builder()
+                        .setStripeAccount(stripeAccountId)
+                        .build();
+            }
+            
             InvoiceItemCreateParams invoiceItemParams = InvoiceItemCreateParams.builder()
                     .setCustomer(customerId)
                     .setPrice(applicationFeePriceId)
                     .setQuantity(1L)
                     .build();
 
-            InvoiceItem.create(invoiceItemParams);
+            if (requestOptions != null) {
+                InvoiceItem.create(invoiceItemParams, requestOptions);
+            } else {
+                InvoiceItem.create(invoiceItemParams);
+            }
 
-            Invoice invoice = Invoice.create(
-                    InvoiceCreateParams.builder()
-                            .setCustomer(customerId)
-                            .setCollectionMethod(InvoiceCreateParams.CollectionMethod.CHARGE_AUTOMATICALLY)
-                            .build()
-            );
+            InvoiceCreateParams invoiceParams = InvoiceCreateParams.builder()
+                    .setCustomer(customerId)
+                    .setCollectionMethod(InvoiceCreateParams.CollectionMethod.CHARGE_AUTOMATICALLY)
+                    .build();
+            
+            Invoice invoice;
+            if (requestOptions != null) {
+                invoice = Invoice.create(invoiceParams, requestOptions);
+            } else {
+                invoice = Invoice.create(invoiceParams);
+            }
             invoice.finalizeInvoice();
         }
     }
@@ -870,6 +944,7 @@ public class StripeController {
                 }
 
                 // Create new subscription with aligned billing cycle anchor and trial
+                // Set payment_behavior to ALLOW_INCOMPLETE to prevent automatic cancellation
                 Subscription.create(
                         SubscriptionCreateParams.builder()
                                 .setCustomer(StripeCusId)
@@ -880,6 +955,7 @@ public class StripeController {
                                 )
                                 .setBillingCycleAnchor(billingCycleAnchor)
                                 .setTrialEnd(billingCycleAnchor) // No payment until anchor date
+                                .setPaymentBehavior(SubscriptionCreateParams.PaymentBehavior.ALLOW_INCOMPLETE)
                                 // Proration is allowed by default for anchored invoice
                                 .build()
                 );

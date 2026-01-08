@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS user_business (
     notes TEXT,
     has_ever_had_membership BOOLEAN DEFAULT FALSE,
     is_delinquent BOOLEAN DEFAULT FALSE,
+    is_paused BOOLEAN DEFAULT FALSE,
     calculated_status VARCHAR(50),
     calculated_user_type VARCHAR(50),
     created_at DATETIME NOT NULL,

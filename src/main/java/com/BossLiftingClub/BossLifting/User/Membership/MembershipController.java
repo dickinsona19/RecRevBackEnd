@@ -4,6 +4,7 @@ import com.BossLiftingClub.BossLifting.Email.EmailService;
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership;
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessRepository;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService;
 import com.BossLiftingClub.BossLifting.Stripe.StripeService;
 import com.BossLiftingClub.BossLifting.Business.Business;
 import com.stripe.exception.StripeException;
@@ -37,6 +38,9 @@ public class MembershipController {
 
     @Autowired
     private StripeService stripeService;
+
+    @Autowired
+    private UserBusinessService userBusinessService;
 
     @GetMapping("/business/{businessTag}")
     @Transactional(readOnly = true)
@@ -201,6 +205,7 @@ public class MembershipController {
                 // Save the membership with signature but keep it PENDING
                 // User will need to add payment method later
                 userBusinessRepository.save(userBusiness);
+                userBusinessService.calculateAndUpdateStatus(userBusiness);
                 return ResponseEntity.ok(Map.of(
                     "message", "Membership signature saved successfully. Please add a payment method to activate the membership.",
                     "status", "PENDING"
@@ -216,6 +221,7 @@ public class MembershipController {
                 if (!hasPaymentMethod) {
                     // Save the membership with signature but keep it PENDING
                     userBusinessRepository.save(userBusiness);
+                    userBusinessService.calculateAndUpdateStatus(userBusiness);
                     return ResponseEntity.ok(Map.of(
                         "message", "Membership signature saved successfully. Please add a payment method to activate the membership.",
                         "status", "PENDING"
@@ -224,6 +230,7 @@ public class MembershipController {
             } catch (StripeException e) {
                 // If we can't verify payment method, save signature but keep PENDING
                 userBusinessRepository.save(userBusiness);
+                userBusinessService.calculateAndUpdateStatus(userBusiness);
                 return ResponseEntity.ok(Map.of(
                     "message", "Membership signature saved successfully. Payment verification failed. Please contact support.",
                     "status", "PENDING"
@@ -252,6 +259,7 @@ public class MembershipController {
                 } catch (StripeException e) {
                     // If subscription creation fails, save signature but keep PENDING
                     userBusinessRepository.save(userBusiness);
+                    userBusinessService.calculateAndUpdateStatus(userBusiness);
                     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                         .body(Map.of("error", "Failed to create subscription. Signature saved but membership is pending activation."));
                 }
@@ -262,6 +270,8 @@ public class MembershipController {
         }
 
         userBusinessRepository.save(userBusiness);
+        // Recalculate status after adding/updating membership
+        userBusinessService.calculateAndUpdateStatus(userBusiness);
 
         return ResponseEntity.ok(Map.of(
             "message", "Membership signature saved successfully",

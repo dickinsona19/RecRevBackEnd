@@ -33,6 +33,8 @@ public class MembershipDTO {
 
     private String publicBenefits; // JSON array as string
 
+    private Integer memberCount = 0; // Number of members with this membership
+
     // Getters and Setters
     public Long getId() {
         return id;
@@ -121,6 +123,14 @@ public class MembershipDTO {
 
     public void setPublicBenefits(String publicBenefits) {
         this.publicBenefits = publicBenefits;
+    }
+
+    public Integer getMemberCount() {
+        return memberCount;
+    }
+
+    public void setMemberCount(Integer memberCount) {
+        this.memberCount = memberCount;
     }
 
     // Convert from Entity to DTO
