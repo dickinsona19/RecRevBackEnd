@@ -144,6 +144,56 @@ public class StripeService {
 
         return cancelAt;
     }
+
+    /**
+     * Charge a one-time application/processing fee to a customer on a connected account.
+     * Uses an InvoiceItem + Invoice (charge automatically) and finalizes the invoice.
+     *
+     * @return Stripe Invoice ID if created, otherwise null
+     */
+    public String chargeApplicationFee(String customerId,
+                                       BigDecimal feeAmount,
+                                       String stripeAccountId,
+                                       String description) throws StripeException {
+        if (customerId == null || customerId.isEmpty()) {
+            throw new IllegalArgumentException("Customer ID cannot be null or empty");
+        }
+        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+            throw new IllegalArgumentException("Stripe Account ID cannot be null or empty");
+        }
+        if (feeAmount == null || feeAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+
+        BigDecimal normalized = feeAmount.setScale(2, RoundingMode.HALF_UP);
+        long amountCents = normalized.movePointRight(2).longValueExact();
+
+        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                .setStripeAccount(stripeAccountId)
+                .build();
+
+        com.stripe.param.InvoiceItemCreateParams.Builder itemBuilder =
+                com.stripe.param.InvoiceItemCreateParams.builder()
+                        .setCustomer(customerId)
+                        .setAmount(amountCents)
+                        .setCurrency("usd");
+
+        if (description != null && !description.isEmpty()) {
+            itemBuilder.setDescription(description);
+        }
+
+        com.stripe.model.InvoiceItem.create(itemBuilder.build(), requestOptions);
+
+        com.stripe.param.InvoiceCreateParams invoiceParams =
+                com.stripe.param.InvoiceCreateParams.builder()
+                        .setCustomer(customerId)
+                        .setCollectionMethod(com.stripe.param.InvoiceCreateParams.CollectionMethod.CHARGE_AUTOMATICALLY)
+                        .build();
+
+        com.stripe.model.Invoice invoice = com.stripe.model.Invoice.create(invoiceParams, requestOptions);
+        com.stripe.model.Invoice finalized = invoice.finalizeInvoice(requestOptions);
+        return finalized.getId();
+    }
     public String createCustomer(String email, String fullName, String paymentMethodId) throws StripeException {
         // Create customer with email and name
         Map<String, Object> customerParams = new HashMap<>();

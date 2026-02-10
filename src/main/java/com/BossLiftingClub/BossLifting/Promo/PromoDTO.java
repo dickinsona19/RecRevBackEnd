@@ -15,10 +15,11 @@ public class PromoDTO {
     private String discountType;
     private String duration;
     private Integer durationInMonths;
+    private Boolean waiveApplicationFee;
 
     // Constructor
     public PromoDTO(Long id, String name, String codeToken, List<UserDTO> users, Integer freePassCount, Integer urlVisitCount,
-                    String businessTag, Double discountValue, String discountType, String duration, Integer durationInMonths) {
+                    String businessTag, Double discountValue, String discountType, String duration, Integer durationInMonths, Boolean waiveApplicationFee) {
         this.id = id;
         this.name = name;
         this.codeToken = codeToken;
@@ -30,6 +31,7 @@ public class PromoDTO {
         this.discountType = discountType;
         this.duration = duration;
         this.durationInMonths = durationInMonths;
+        this.waiveApplicationFee = waiveApplicationFee;
     }
 
     // Getters and Setters
@@ -119,5 +121,13 @@ public class PromoDTO {
 
     public void setDurationInMonths(Integer durationInMonths) {
         this.durationInMonths = durationInMonths;
+    }
+
+    public Boolean getWaiveApplicationFee() {
+        return waiveApplicationFee;
+    }
+
+    public void setWaiveApplicationFee(Boolean waiveApplicationFee) {
+        this.waiveApplicationFee = waiveApplicationFee;
     }
 }

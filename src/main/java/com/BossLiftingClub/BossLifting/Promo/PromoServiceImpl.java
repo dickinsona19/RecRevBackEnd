@@ -46,7 +46,8 @@ public class PromoServiceImpl implements PromoService {
                 promo.getDiscountValue(),
                 promo.getDiscountType(),
                 promo.getDuration(),
-                promo.getDurationInMonths()
+                promo.getDurationInMonths(),
+                promo.getWaiveApplicationFee()
         );
     }
 
@@ -132,6 +133,7 @@ public class PromoServiceImpl implements PromoService {
         promo.setDiscountValue(createDTO.getDiscountValue());
         promo.setDuration(createDTO.getDuration());
         promo.setDurationInMonths(createDTO.getDurationInMonths());
+        promo.setWaiveApplicationFee(Boolean.TRUE.equals(createDTO.getWaiveApplicationFee()));
         promo.setStripeCouponId(stripeCouponId);
         promo.setStripePromoCodeId(stripePromoCodeId);
         

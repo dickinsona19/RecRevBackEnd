@@ -10,6 +10,8 @@ import com.BossLiftingClub.BossLifting.User.Membership.MembershipService;
 import com.BossLiftingClub.BossLifting.User.Membership.MembershipPackage;
 import com.BossLiftingClub.BossLifting.User.Membership.PackageRepository;
 import com.BossLiftingClub.BossLifting.User.Membership.PackageMembershipRepository;
+import com.BossLiftingClub.BossLifting.Promo.Promo;
+import com.BossLiftingClub.BossLifting.Promo.PromoRepository;
 import com.BossLiftingClub.BossLifting.User.User;
 import com.BossLiftingClub.BossLifting.User.UserRepository;
 import com.stripe.exception.StripeException;
@@ -61,6 +63,9 @@ public class UserBusinessService {
 
     @Autowired
     private PackageMembershipRepository packageMembershipRepository;
+
+    @Autowired
+    private PromoRepository promoRepository;
 
     /**
      * Create a new user-business relationship
@@ -467,6 +472,7 @@ public class UserBusinessService {
         
         BigDecimal actualPrice = resolveActualPrice(membership, overridePrice);
         String stripeSubscriptionId = null;
+        BigDecimal applicationFeePaid = BigDecimal.ZERO;
 
         // Only create Stripe subscription if signature is provided (membership is being activated)
         // For PENDING memberships, subscription will be created when user signs
@@ -536,6 +542,39 @@ public class UserBusinessService {
                 );
                 stripeSubscriptionId = subscription.getId();
                 System.out.println("Created Stripe subscription: " + stripeSubscriptionId + " for membership " + membershipId);
+
+                // Charge one-time application fee if configured and not waived by promo/referral
+                BigDecimal feeToCharge = membership.getProcessingFee();
+                if (feeToCharge != null && feeToCharge.compareTo(BigDecimal.ZERO) > 0) {
+                    boolean waived = false;
+
+                    // Promo waives application fee only if configured
+                    if (promoCode != null && !promoCode.trim().isEmpty()) {
+                        Promo promo = promoRepository.findByCodeToken(promoCode.trim()).orElse(null);
+                        if (promo != null && Boolean.TRUE.equals(promo.getWaiveApplicationFee())) {
+                            waived = true;
+                        }
+                    }
+
+                    // Referral waiver
+                    if (!waived && referredById != null && Boolean.TRUE.equals(business.getReferredUserWaiveActivationFee())) {
+                        waived = true;
+                    }
+
+                    if (!waived) {
+                        try {
+                            stripeService.chargeApplicationFee(
+                                    stripeCustomerId,
+                                    feeToCharge,
+                                    stripeAccountId,
+                                    "Application fee - Membership: " + membership.getTitle()
+                            );
+                            applicationFeePaid = feeToCharge;
+                        } catch (StripeException feeEx) {
+                            logger.warn("Failed to charge application fee (continuing): {}", feeEx.getMessage());
+                        }
+                    }
+                }
             } catch (StripeException e) {
                 System.err.println("Failed to create Stripe subscription: " + e.getMessage());
                 throw new RuntimeException("Failed to create Stripe subscription: " + e.getMessage());
@@ -554,6 +593,7 @@ public class UserBusinessService {
             userBusinessMembership.setStripeSubscriptionId(stripeSubscriptionId);
         }
         userBusinessMembership.setActualPrice(actualPrice);
+        userBusinessMembership.setProcessingFeePaid(applicationFeePaid);
         
         // Set signature data if provided
         if (signatureDataUrl != null && !signatureDataUrl.isEmpty()) {

@@ -8,6 +8,7 @@ public class PromoCreateDTO {
     private String discountType; // 'percent' or 'amount'
     private String duration; // 'forever', 'once', 'repeating'
     private Integer durationInMonths;
+    private Boolean waiveApplicationFee;
 
     // Getters and Setters
     public String getName() {
@@ -64,6 +65,14 @@ public class PromoCreateDTO {
 
     public void setDurationInMonths(Integer durationInMonths) {
         this.durationInMonths = durationInMonths;
+    }
+
+    public Boolean getWaiveApplicationFee() {
+        return waiveApplicationFee;
+    }
+
+    public void setWaiveApplicationFee(Boolean waiveApplicationFee) {
+        this.waiveApplicationFee = waiveApplicationFee;
     }
 }
 

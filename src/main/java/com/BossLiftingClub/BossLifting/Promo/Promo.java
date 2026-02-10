@@ -43,6 +43,9 @@ public class Promo {
     @Column(name = "duration_in_months")
     private Integer durationInMonths;
 
+    @Column(name = "waive_application_fee")
+    private Boolean waiveApplicationFee = false;
+
     @ManyToMany
     @JoinTable(
             name = "promo_users",
@@ -136,6 +139,14 @@ public class Promo {
 
     public void setDurationInMonths(Integer durationInMonths) {
         this.durationInMonths = durationInMonths;
+    }
+
+    public Boolean getWaiveApplicationFee() {
+        return waiveApplicationFee;
+    }
+
+    public void setWaiveApplicationFee(Boolean waiveApplicationFee) {
+        this.waiveApplicationFee = waiveApplicationFee;
     }
 
     public List<User> getUsers() {

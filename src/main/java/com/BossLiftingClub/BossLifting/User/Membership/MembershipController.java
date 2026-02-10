@@ -7,6 +7,10 @@ import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessRepository;
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService;
 import com.BossLiftingClub.BossLifting.Stripe.StripeService;
 import com.BossLiftingClub.BossLifting.Business.Business;
+import com.BossLiftingClub.BossLifting.Promo.Promo;
+import com.BossLiftingClub.BossLifting.Promo.PromoRepository;
+import com.BossLiftingClub.BossLifting.User.Membership.PackageRepository;
+import com.BossLiftingClub.BossLifting.User.Membership.MembershipPackage;
 import com.stripe.exception.StripeException;
 import java.math.BigDecimal;
 import jakarta.validation.Valid;
@@ -41,6 +45,12 @@ public class MembershipController {
 
     @Autowired
     private UserBusinessService userBusinessService;
+
+    @Autowired
+    private PromoRepository promoRepository;
+
+    @Autowired
+    private PackageRepository packageRepository;
 
     @GetMapping("/business/{businessTag}")
     @Transactional(readOnly = true)
@@ -138,6 +148,10 @@ public class MembershipController {
         Long membershipId = request.getMembershipId();
         String signatureDataUrl = request.getSignatureDataUrl();
         String signerName = request.getSignerName();
+        String promoCode = request.getPromoCode();
+        Long packageId = request.getPackageId();
+        Boolean chargeApplicationFee = request.getChargeApplicationFee();
+        Long referredById = request.getReferredById();
 
         if (userId == null || userBusinessId == null || membershipId == null) {
             return ResponseEntity.badRequest()
@@ -275,10 +289,61 @@ public class MembershipController {
                         stripePriceId,
                         stripeAccountId,
                         membership.getAnchorDate() != null ? membership.getAnchorDate() : LocalDateTime.now(),
-                        null, // promoCode - can be added later if needed
+                        promoCode, // promoCode (optional)
                         actualPrice,
                         billingInterval // Pass the interval for one-offs
                     );
+
+                    // Charge application fee (one-time) if configured and not waived
+                    boolean shouldChargeFee = Boolean.TRUE.equals(chargeApplicationFee);
+                    if (shouldChargeFee) {
+                        BigDecimal feeToCharge = null;
+                        String feeDescription = null;
+
+                        if (packageId != null) {
+                            MembershipPackage pkg = packageRepository.findById(packageId).orElse(null);
+                            if (pkg != null) {
+                                feeToCharge = pkg.getProcessingFee();
+                                feeDescription = "Application fee - Package: " + pkg.getName();
+                            }
+                        } else {
+                            feeToCharge = membership.getMembership().getProcessingFee();
+                            feeDescription = "Application fee - Membership: " + membership.getMembership().getTitle();
+                        }
+
+                        boolean waived = false;
+
+                        // Waive for promo only if promo has waiveApplicationFee=true
+                        if (promoCode != null && !promoCode.trim().isEmpty()) {
+                            Promo promo = promoRepository.findByCodeToken(promoCode.trim()).orElse(null);
+                            if (promo != null && Boolean.TRUE.equals(promo.getWaiveApplicationFee())) {
+                                waived = true;
+                            }
+                        }
+
+                        // Waive for referrals if business setting enabled and user was referred
+                        if (!waived) {
+                            Long effectiveReferredById = referredById;
+                            if (effectiveReferredById == null && userBusiness.getUser() != null && userBusiness.getUser().getReferredBy() != null) {
+                                effectiveReferredById = userBusiness.getUser().getReferredBy().getId();
+                            }
+                            if (effectiveReferredById != null && Boolean.TRUE.equals(business.getReferredUserWaiveActivationFee())) {
+                                waived = true;
+                            }
+                        }
+
+                        if (!waived && feeToCharge != null && feeToCharge.compareTo(BigDecimal.ZERO) > 0) {
+                            try {
+                                stripeService.chargeApplicationFee(stripeCustomerId, feeToCharge, stripeAccountId, feeDescription);
+                                membership.setProcessingFeePaid(feeToCharge);
+                            } catch (StripeException feeEx) {
+                                // Fee failed - don't block subscription activation, but log it
+                                System.err.println("Warning: Failed to charge application fee: " + feeEx.getMessage());
+                            }
+                        } else {
+                            membership.setProcessingFeePaid(BigDecimal.ZERO);
+                        }
+                    }
                     
                     // For ONE_OFF memberships, calculate the end date and cancel at that specific date
                     // This ensures the subscription auto-cancels after the correct duration (e.g., 2 weeks)
@@ -452,6 +517,10 @@ public class MembershipController {
         private Long membershipId;
         private String signatureDataUrl;
         private String signerName;
+        private String promoCode;
+        private Long packageId;
+        private Boolean chargeApplicationFee;
+        private Long referredById;
 
         public Long getUserId() { return userId; }
         public void setUserId(Long userId) { this.userId = userId; }
@@ -467,6 +536,18 @@ public class MembershipController {
 
         public String getSignerName() { return signerName; }
         public void setSignerName(String signerName) { this.signerName = signerName; }
+
+        public String getPromoCode() { return promoCode; }
+        public void setPromoCode(String promoCode) { this.promoCode = promoCode; }
+
+        public Long getPackageId() { return packageId; }
+        public void setPackageId(Long packageId) { this.packageId = packageId; }
+
+        public Boolean getChargeApplicationFee() { return chargeApplicationFee; }
+        public void setChargeApplicationFee(Boolean chargeApplicationFee) { this.chargeApplicationFee = chargeApplicationFee; }
+
+        public Long getReferredById() { return referredById; }
+        public void setReferredById(Long referredById) { this.referredById = referredById; }
     }
 
     public static class SignatureEmailRequest {

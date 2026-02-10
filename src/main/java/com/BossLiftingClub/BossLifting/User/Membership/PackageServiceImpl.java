@@ -41,6 +41,7 @@ public class PackageServiceImpl implements PackageService {
         packageEntity.setName(packageDTO.getName());
         packageEntity.setBusiness(business);
         packageEntity.setBusinessTag(packageDTO.getBusinessTag());
+        packageEntity.setProcessingFee(packageDTO.getProcessingFee());
         
         // Calculate monthly price from memberships (normalize all to monthly)
         BigDecimal totalMonthlyPrice = BigDecimal.ZERO;
@@ -93,6 +94,7 @@ public class PackageServiceImpl implements PackageService {
 
         packageEntity.setName(packageDTO.getName());
         packageEntity.setUpdatedAt(LocalDateTime.now());
+        packageEntity.setProcessingFee(packageDTO.getProcessingFee());
 
         // Update memberships
         packageMembershipRepository.deleteByPackageEntityId(id);
@@ -153,6 +155,7 @@ public class PackageServiceImpl implements PackageService {
         dto.setBusinessId(packageEntity.getBusiness().getId());
         dto.setBusinessTag(packageEntity.getBusinessTag());
         dto.setPrice(packageEntity.getPrice());
+        dto.setProcessingFee(packageEntity.getProcessingFee());
         dto.setStripeProductId(packageEntity.getStripeProductId());
         dto.setArchived(packageEntity.isArchived());
         

@@ -18,6 +18,11 @@ public class PackageDTO {
 
     private BigDecimal price;
 
+    /**
+     * One-time application/processing fee charged on signup (optional)
+     */
+    private BigDecimal processingFee;
+
     private String stripeProductId;
 
     private boolean archived = false;
@@ -65,6 +70,14 @@ public class PackageDTO {
 
     public void setPrice(BigDecimal price) {
         this.price = price;
+    }
+
+    public BigDecimal getProcessingFee() {
+        return processingFee;
+    }
+
+    public void setProcessingFee(BigDecimal processingFee) {
+        this.processingFee = processingFee;
     }
 
     public String getStripeProductId() {

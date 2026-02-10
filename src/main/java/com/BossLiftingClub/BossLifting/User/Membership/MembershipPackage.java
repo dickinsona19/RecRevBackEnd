@@ -33,6 +33,13 @@ public class MembershipPackage {
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal price;
 
+    /**
+     * One-time application/processing fee charged on signup (optional).
+     * This is separate from the recurring monthly package price.
+     */
+    @Column(name = "processing_fee", precision = 10, scale = 2)
+    private BigDecimal processingFee;
+
     @Column(name = "stripe_product_id")
     private String stripeProductId;
 
@@ -87,6 +94,14 @@ public class MembershipPackage {
 
     public void setPrice(BigDecimal price) {
         this.price = price;
+    }
+
+    public BigDecimal getProcessingFee() {
+        return processingFee;
+    }
+
+    public void setProcessingFee(BigDecimal processingFee) {
+        this.processingFee = processingFee;
     }
 
     public String getStripeProductId() {
