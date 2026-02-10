@@ -1,6 +1,7 @@
 package com.BossLiftingClub.BossLifting.User.BusinessUser;
 
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
+import com.BossLiftingClub.BossLifting.User.Membership.MembershipPackage;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
@@ -24,8 +25,12 @@ public class UserBusinessMembership {
     private UserBusiness userBusiness;
 
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "membership_id", nullable = false)
+    @JoinColumn(name = "membership_id")
     private Membership membership;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "package_id")
+    private MembershipPackage packageEntity;
 
     @Column(name = "status", nullable = false)
     private String status; // e.g., "ACTIVE", "INACTIVE", "CANCELLED", "PENDING"
@@ -63,6 +68,15 @@ public class UserBusinessMembership {
 
     @Column(name = "signer_name", length = 255)
     private String signerName; // Name of person who signed
+
+    @Column(name = "punches_remaining")
+    private Integer punchesRemaining;
+
+    @Column(name = "punches_expiry_date")
+    private LocalDateTime punchesExpiryDate;
+
+    @Column(name = "processing_fee_paid", precision = 10, scale = 2)
+    private BigDecimal processingFeePaid;
 
     // Constructors
     public UserBusinessMembership() {
@@ -210,5 +224,37 @@ public class UserBusinessMembership {
     @PreUpdate
     public void onUpdate() {
         this.updatedAt = LocalDateTime.now();
+    }
+
+    public MembershipPackage getPackageEntity() {
+        return packageEntity;
+    }
+
+    public void setPackageEntity(MembershipPackage packageEntity) {
+        this.packageEntity = packageEntity;
+    }
+
+    public Integer getPunchesRemaining() {
+        return punchesRemaining;
+    }
+
+    public void setPunchesRemaining(Integer punchesRemaining) {
+        this.punchesRemaining = punchesRemaining;
+    }
+
+    public LocalDateTime getPunchesExpiryDate() {
+        return punchesExpiryDate;
+    }
+
+    public void setPunchesExpiryDate(LocalDateTime punchesExpiryDate) {
+        this.punchesExpiryDate = punchesExpiryDate;
+    }
+
+    public BigDecimal getProcessingFeePaid() {
+        return processingFeePaid;
+    }
+
+    public void setProcessingFeePaid(BigDecimal processingFeePaid) {
+        this.processingFeePaid = processingFeePaid;
     }
 }

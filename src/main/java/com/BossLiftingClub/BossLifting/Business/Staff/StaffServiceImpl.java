@@ -28,6 +28,9 @@ public class StaffServiceImpl implements StaffService {
     private BusinessRepository businessRepository;
     
     @Autowired
+    private StaffInvitationRepository staffInvitationRepository;
+    
+    @Autowired
     private JavaMailSender mailSender;
     
     @Autowired
@@ -97,28 +100,49 @@ public class StaffServiceImpl implements StaffService {
             throw new RuntimeException("Staff member with email " + email + " already exists for this business");
         }
         
+        // Check if there's already a pending invitation for this email and business
+        Optional<StaffInvitation> existingInvitation = staffInvitationRepository
+                .findByInvitedEmailAndBusinessIdAndStatus(email, businessId, StaffInvitation.InvitationStatus.PENDING);
+        
+        if (existingInvitation.isPresent()) {
+            throw new RuntimeException("A pending invitation already exists for " + email);
+        }
+        
         // Generate invite token
         String inviteToken = generateInviteToken();
         LocalDateTime expiryDate = LocalDateTime.now().plusDays(INVITE_TOKEN_EXPIRY_DAYS);
         
-        // Create staff record (inactive until they accept invite)
-        Staff staff = new Staff();
-        staff.setEmail(email);
-        staff.setRole(role != null ? role : "TEAM_MEMBER");
-        staff.setType(role != null ? role : "TEAM_MEMBER"); // Backward compatibility
-        staff.setBusiness(business);
-        staff.setInviteToken(inviteToken);
-        staff.setInviteTokenExpiry(expiryDate);
-        staff.setIsActive(false); // Inactive until they accept invite
-        staff.setInvitedBy(invitedBy);
-        staff.setCreatedAt(LocalDateTime.now());
+        // Create staff invitation record
+        StaffInvitation invitation = new StaffInvitation();
+        invitation.setBusiness(business);
+        invitation.setInvitedEmail(email);
+        invitation.setRole(role != null ? role : "TEAM_MEMBER");
+        invitation.setStatus(StaffInvitation.InvitationStatus.PENDING);
+        invitation.setInviteToken(inviteToken);
+        invitation.setInviteTokenExpiry(expiryDate);
+        invitation.setInvitedBy(invitedBy);
+        invitation.setCreatedAt(LocalDateTime.now());
         
-        Staff savedStaff = staffRepository.save(staff);
+        StaffInvitation savedInvitation = staffInvitationRepository.save(invitation);
         
         // Send invitation email
-        sendInvitationEmail(email, inviteToken, business.getTitle(), role);
+        try {
+            sendInvitationEmail(email, inviteToken, business.getTitle(), role);
+        } catch (Exception e) {
+            // Log error but don't fail - invitation is saved
+            System.err.println("Failed to send invitation email: " + e.getMessage());
+        }
         
-        return mapToDTO(savedStaff);
+        // Return a DTO representing the pending invitation
+        StaffDTO dto = new StaffDTO();
+        dto.setEmail(email);
+        dto.setRole(role != null ? role : "TEAM_MEMBER");
+        dto.setType(role != null ? role : "TEAM_MEMBER");
+        dto.setBusinessId(businessId);
+        dto.setIsActive(false);
+        dto.setInvitedBy(invitedBy);
+        dto.setCreatedAt(LocalDateTime.now());
+        return dto;
     }
     
     private String generateInviteToken() {
@@ -127,92 +151,123 @@ public class StaffServiceImpl implements StaffService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
     }
     
-    private void sendInvitationEmail(String email, String inviteToken, String businessName, String role) {
-        try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-            
-            String inviteLink = frontendUrl + "/accept-invite?token=" + inviteToken;
-            
-            String subject = "You've been invited to join " + businessName;
-            String htmlContent = String.format("""
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <style>
-                        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                        .header { background: linear-gradient(135deg, #1e293b, #334155); color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-                        .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px; }
-                        .button { display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #10b981, #059669); color: white; text-decoration: none; border-radius: 6px; font-weight: 600; margin: 20px 0; }
-                        .footer { text-align: center; color: #777; font-size: 12px; margin-top: 20px; }
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <div class="header">
-                            <h2>Staff Invitation</h2>
-                        </div>
-                        <div class="content">
-                            <p>Hello,</p>
-                            <p>You've been invited to join <strong>%s</strong> as a <strong>%s</strong>.</p>
-                            <p>Click the button below to accept the invitation and set up your account:</p>
-                            <div style="text-align: center;">
-                                <a href="%s" class="button">Accept Invitation</a>
-                            </div>
-                            <p>This invitation link will expire in 7 days.</p>
-                            <p>If you didn't expect this invitation, you can safely ignore this email.</p>
-                        </div>
-                        <div class="footer">
-                            <p>This is an automated message from RecRev</p>
-                        </div>
-                    </div>
-                </body>
-                </html>
-                """, businessName, role != null ? role : "Team Member", inviteLink);
-            
-            helper.setTo(email);
-            helper.setSubject(subject);
-            helper.setText(htmlContent, true);
-            helper.setFrom("RecRev <contact@cltliftingclub.com>");
-            
-            mailSender.send(message);
-        } catch (MessagingException e) {
-            throw new RuntimeException("Failed to send invitation email: " + e.getMessage(), e);
+    private void sendInvitationEmail(String email, String inviteToken, String businessName, String role) throws MessagingException {
+        MimeMessage message = mailSender.createMimeMessage();
+        MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+        
+        String inviteLink = frontendUrl + "/staff-signup?token=" + inviteToken;
+        
+        // Format role for display
+        String roleDisplay = role != null ? role.replace("_", " ") : "Team Member";
+        if (roleDisplay.equalsIgnoreCase("ADMIN")) {
+            roleDisplay = "Admin";
+        } else if (roleDisplay.equalsIgnoreCase("MANAGER")) {
+            roleDisplay = "Manager";
+        } else if (roleDisplay.equalsIgnoreCase("TEAM_MEMBER")) {
+            roleDisplay = "Team Member";
         }
+        
+        String subject = "Staff Invitation from " + businessName;
+        String htmlContent = String.format("""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                    .header { background: linear-gradient(135deg, #1e293b, #334155); color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+                    .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px; }
+                    .button { display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #10b981, #059669); color: white; text-decoration: none; border-radius: 6px; font-weight: 600; margin: 20px 0; }
+                    .footer { text-align: center; color: #777; font-size: 12px; margin-top: 20px; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h2>Staff Invitation</h2>
+                    </div>
+                    <div class="content">
+                        <p>Hello,</p>
+                        <p>This gym is inviting you to join as a Staff Member (<strong>%s</strong>).</p>
+                        <p>Click the button below to complete your onboarding and set up your account:</p>
+                        <div style="text-align: center;">
+                            <a href="%s" class="button">Complete Onboarding</a>
+                        </div>
+                        <p>This invitation link will expire in 7 days.</p>
+                        <p>If you didn't expect this invitation, you can safely ignore this email.</p>
+                    </div>
+                    <div class="footer">
+                        <p>This is an automated message from RecRev</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """, roleDisplay, inviteLink);
+        
+        helper.setTo(email);
+        helper.setSubject(subject);
+        helper.setText(htmlContent, true);
+        helper.setFrom("RecRev <contact@cltliftingclub.com>");
+        
+        mailSender.send(message);
     }
 
     @Override
     @Transactional
     public StaffDTO acceptInvite(String inviteToken, String password) {
-        // Find staff by invite token
-        Optional<Staff> staffOpt = staffRepository.findAll().stream()
-                .filter(s -> inviteToken.equals(s.getInviteToken()))
-                .findFirst();
+        return acceptInvite(inviteToken, password, null, null);
+    }
+    
+    @Transactional
+    public StaffDTO acceptInvite(String inviteToken, String password, String firstName, String lastName) {
+        // Find invitation by token
+        Optional<StaffInvitation> invitationOpt = staffInvitationRepository
+                .findByInviteTokenAndStatus(inviteToken, StaffInvitation.InvitationStatus.PENDING);
         
-        if (staffOpt.isEmpty()) {
+        if (invitationOpt.isEmpty()) {
             throw new RuntimeException("Invalid invitation token");
         }
         
-        Staff staff = staffOpt.get();
+        StaffInvitation invitation = invitationOpt.get();
         
         // Check if token is expired
-        if (staff.getInviteTokenExpiry() != null && staff.getInviteTokenExpiry().isBefore(LocalDateTime.now())) {
+        if (invitation.getInviteTokenExpiry() != null && invitation.getInviteTokenExpiry().isBefore(LocalDateTime.now())) {
+            invitation.setStatus(StaffInvitation.InvitationStatus.EXPIRED);
+            staffInvitationRepository.save(invitation);
             throw new RuntimeException("Invitation token has expired");
         }
         
-        // Check if already accepted
-        if (staff.getIsActive() != null && staff.getIsActive()) {
-            throw new RuntimeException("Invitation has already been accepted");
+        // Check if email already has an active staff account for this business
+        List<Staff> existingStaff = staffRepository.findByEmailAndIsActiveTrue(invitation.getInvitedEmail());
+        Optional<Staff> existingForBusiness = existingStaff.stream()
+                .filter(s -> s.getBusiness() != null && s.getBusiness().getId().equals(invitation.getBusiness().getId()))
+                .findFirst();
+        
+        if (existingForBusiness.isPresent()) {
+            throw new RuntimeException("Staff member with this email already exists for this business");
         }
         
-        // Set password and activate
+        // Create staff record
+        Staff staff = new Staff();
+        staff.setEmail(invitation.getInvitedEmail());
+        staff.setFirstName(firstName);
+        staff.setLastName(lastName);
+        staff.setRole(invitation.getRole());
+        staff.setType(invitation.getRole()); // Backward compatibility
+        staff.setBusiness(invitation.getBusiness());
         staff.setPassword(passwordEncoder.encode(password));
         staff.setIsActive(true);
-        staff.setInviteToken(null); // Clear token after acceptance
-        staff.setInviteTokenExpiry(null);
+        staff.setInvitedBy(invitation.getInvitedBy());
+        staff.setCreatedAt(LocalDateTime.now());
         
         Staff savedStaff = staffRepository.save(staff);
+        
+        // Update invitation status
+        invitation.setStatus(StaffInvitation.InvitationStatus.ACCEPTED);
+        invitation.setAcceptedAt(LocalDateTime.now());
+        invitation.setStaffId(savedStaff.getId());
+        staffInvitationRepository.save(invitation);
+        
         return mapToDTO(savedStaff);
     }
 
@@ -271,6 +326,56 @@ public class StaffServiceImpl implements StaffService {
                 .orElseThrow(() -> new RuntimeException("Staff not found"));
         staff.setIsActive(false);
         staffRepository.save(staff);
+    }
+
+    @Override
+    public List<StaffInvitationDTO> getPendingInvitationsByBusiness(Long businessId) {
+        List<StaffInvitation> invitations = staffInvitationRepository
+                .findByBusinessIdAndStatus(businessId, StaffInvitation.InvitationStatus.PENDING);
+        
+        return invitations.stream().map(invitation -> {
+            StaffInvitationDTO dto = new StaffInvitationDTO();
+            dto.setId(invitation.getId());
+            dto.setBusinessId(invitation.getBusiness().getId());
+            dto.setBusinessName(invitation.getBusiness().getTitle());
+            dto.setInvitedEmail(invitation.getInvitedEmail());
+            dto.setRole(invitation.getRole());
+            dto.setStatus(invitation.getStatus().name());
+            dto.setCreatedAt(invitation.getCreatedAt());
+            dto.setInviteTokenExpiry(invitation.getInviteTokenExpiry());
+            dto.setInvitedBy(invitation.getInvitedBy());
+            return dto;
+        }).collect(Collectors.toList());
+    }
+    
+    @Override
+    @Transactional
+    public void resendInvitationEmail(Long invitationId) {
+        StaffInvitation invitation = staffInvitationRepository.findById(invitationId)
+                .orElseThrow(() -> new RuntimeException("Invitation not found"));
+        
+        if (invitation.getStatus() != StaffInvitation.InvitationStatus.PENDING) {
+            throw new RuntimeException("Can only resend pending invitations");
+        }
+        
+        // Check if token is expired, regenerate if needed
+        if (invitation.getInviteTokenExpiry() != null && invitation.getInviteTokenExpiry().isBefore(LocalDateTime.now())) {
+            invitation.setInviteToken(generateInviteToken());
+            invitation.setInviteTokenExpiry(LocalDateTime.now().plusDays(INVITE_TOKEN_EXPIRY_DAYS));
+            staffInvitationRepository.save(invitation);
+        }
+        
+        // Resend email
+        try {
+            sendInvitationEmail(
+                invitation.getInvitedEmail(),
+                invitation.getInviteToken(),
+                invitation.getBusiness().getTitle(),
+                invitation.getRole()
+            );
+        } catch (MessagingException e) {
+            throw new RuntimeException("Failed to resend invitation email: " + e.getMessage(), e);
+        }
     }
 
     private StaffDTO mapToDTO(Staff staff) {

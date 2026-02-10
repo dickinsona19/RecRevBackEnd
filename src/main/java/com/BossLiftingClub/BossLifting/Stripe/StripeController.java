@@ -2,6 +2,7 @@ package com.BossLiftingClub.BossLifting.Stripe;
 
 import com.BossLiftingClub.BossLifting.Analytics.RecentActivity;
 import com.BossLiftingClub.BossLifting.Analytics.RecentActivityRepository;
+import com.BossLiftingClub.BossLifting.Business.Business;
 import com.BossLiftingClub.BossLifting.Business.BusinessDTO;
 import com.BossLiftingClub.BossLifting.Business.BusinessService;
 import com.BossLiftingClub.BossLifting.Email.EmailService;
@@ -14,6 +15,10 @@ import com.BossLiftingClub.BossLifting.User.UserTitles.UserTitles;
 import com.BossLiftingClub.BossLifting.User.UserTitles.UserTitlesRepository;
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService;
+import com.BossLiftingClub.BossLifting.User.Membership.Membership;
+import com.BossLiftingClub.BossLifting.User.Membership.MembershipRepository;
+import com.BossLiftingClub.BossLifting.User.FamilyInvitation;
+import com.BossLiftingClub.BossLifting.User.FamilyInvitationRepository;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.exception.StripeException;
 import com.stripe.model.*;
@@ -31,6 +36,8 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.web.bind.annotation.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -41,7 +48,9 @@ import java.time.ZonedDateTime;
 import java.util.*;
 
 @RestController
+@RequestMapping("/api/stripe")
 public class StripeController {
+    private static final Logger logger = LoggerFactory.getLogger(StripeController.class);
     private final StripeService stripeService;
     private final String webhookSecret;
     private final UserService userService;
@@ -53,6 +62,8 @@ public class StripeController {
     private final RecentActivityRepository recentActivityRepository;
     private final BusinessService businessService;
     private final UserBusinessService userBusinessService;
+    private final MembershipRepository membershipRepository;
+    private final FamilyInvitationRepository familyInvitationRepository;
     private final JavaMailSender mailSender;
     private final EmailService emailService;
 
@@ -69,6 +80,8 @@ public class StripeController {
                             RecentActivityRepository recentActivityRepository, 
                             BusinessService businessService,
                             UserBusinessService userBusinessService,
+                            MembershipRepository membershipRepository,
+                            FamilyInvitationRepository familyInvitationRepository,
                             JavaMailSender mailSender,
                             EmailService emailService) {
         this.eventService = eventService;
@@ -82,6 +95,8 @@ public class StripeController {
         this.recentActivityRepository = recentActivityRepository;
         this.businessService = businessService;
         this.userBusinessService = userBusinessService;
+        this.membershipRepository = membershipRepository;
+        this.familyInvitationRepository = familyInvitationRepository;
         this.mailSender = mailSender;
         this.emailService = emailService;
     }
@@ -973,49 +988,254 @@ public class StripeController {
     }
 
     @PostMapping("/{userId}/sendFamilyInviteEmail")
-    public ResponseEntity<String> sendFamilyPlanEmail(@PathVariable String userId, @RequestParam String newCusEmail) {
-
-
+    public ResponseEntity<?> sendFamilyPlanEmail(
+            @PathVariable String userId,
+            @RequestBody Map<String, Object> request) {
         try {
-            // Hardcoded password reset link with userId
-            String inviteLink = "https://www.cltliftingclub.com/signup?contract=Family&userId=" + userId;
+            String email = (String) request.get("email");
+            String businessTag = (String) request.get("businessTag");
+            Long membershipId = request.get("membershipId") != null ? 
+                Long.valueOf(request.get("membershipId").toString()) : null;
             
-            // Default branding
-            String businessName = "CLT Lifting Club";
-            String businessContactEmail = "contact@cltliftingclub.com";
-            
-            // Try to infer business from user
-            Long longUserId = Long.valueOf(userId);
-            List<UserBusiness> businesses = userBusinessService.getBusinessesForUser(longUserId);
-            if (businesses != null && !businesses.isEmpty()) {
-                UserBusiness primaryBusiness = businesses.get(0);
-                businessName = primaryBusiness.getBusiness().getTitle();
-                if (primaryBusiness.getBusiness().getContactEmail() != null) {
-                    businessContactEmail = primaryBusiness.getBusiness().getContactEmail();
+            // Handle customPrice conversion - can be Number or String
+            BigDecimal customPrice = null;
+            if (request.get("customPrice") != null) {
+                Object customPriceObj = request.get("customPrice");
+                if (customPriceObj instanceof Number) {
+                    // If it's already a number, convert directly
+                    customPrice = BigDecimal.valueOf(((Number) customPriceObj).doubleValue());
+                } else {
+                    // If it's a string, parse it (handle locale issues by replacing comma with period)
+                    String customPriceStr = customPriceObj.toString().replace(",", ".");
+                    customPrice = new BigDecimal(customPriceStr);
                 }
             }
 
-            // Professional email content for Clt Lifting
-            String subject = "Add to Family plan";
-            String htmlContent = """
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-    <h2>You’ve Been Invited to Join a Family Plan</h2>
-    <p>Dear Member,</p>
-    <p>You’ve been invited to join a family plan for your %s account. To accept the invitation and activate your membership, click the link below:</p>
-    <p><a href="%s" style="background-color: #007bff; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Join the Family Plan</a></p>
-    <p>If you were not expecting this invitation or believe it was sent in error, please ignore this email or contact our support team at %s.</p>
-    <p>We’re excited to have you as part of the %s family!</p>
-    <p>Best regards,<br>The %s Team</p>
-</body>
-</html>
-""".formatted(businessName, inviteLink, businessContactEmail, businessName, businessName);
+            if (email == null || email.isEmpty()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Email is required"));
+            }
 
-            emailService.sendBlastEmail(newCusEmail, subject, htmlContent, businessName, businessContactEmail);
+            if (businessTag == null || businessTag.isEmpty()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Business tag is required"));
+            }
 
-            return ResponseEntity.ok("Family invite email sent to " + newCusEmail);
+            if (membershipId == null && customPrice == null) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Either membershipId or customPrice is required"));
+            }
+
+            Long longUserId = Long.valueOf(userId);
+            
+            // Get the primary owner's UserBusiness for this business
+            UserBusiness primaryOwnerUserBusiness = userBusinessService.getBusinessesForUser(longUserId).stream()
+                .filter(ub -> businessTag.equals(ub.getBusiness().getBusinessTag()))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Primary owner is not a member of business: " + businessTag));
+
+            Business business = primaryOwnerUserBusiness.getBusiness();
+            String stripeAccountId = business.getStripeAccountId();
+            
+            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Business does not have Stripe configured"));
+            }
+
+            String stripeCustomerId = primaryOwnerUserBusiness.getStripeId();
+            if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Primary owner does not have a Stripe customer ID"));
+            }
+
+            // Create membership/subscription for the primary owner
+            com.BossLiftingClub.BossLifting.User.Membership.Membership membership = null;
+            String stripePriceId = null;
+            BigDecimal actualPrice = null;
+
+            if (membershipId != null) {
+                // Use existing membership plan
+                membership = membershipRepository.findById(membershipId)
+                    .orElseThrow(() -> new RuntimeException("Membership not found with id: " + membershipId));
+                stripePriceId = membership.getStripePriceId();
+                if (stripePriceId == null || stripePriceId.isEmpty()) {
+                    return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Membership plan does not have a Stripe price ID configured"));
+                }
+                actualPrice = new BigDecimal(membership.getPrice());
+            } else {
+                // Custom price - need to find a membership with a Stripe price ID to use as a template
+                // We need the price details (currency, product, recurring interval) to create a custom price
+                List<Membership> availableMemberships = membershipRepository.findByBusinessTag(businessTag);
+                if (availableMemberships.isEmpty()) {
+                    return ResponseEntity.badRequest()
+                        .body(Map.of("error", "No membership plans available. Please create a membership plan first."));
+                }
+                
+                // Find the first membership that has a Stripe price ID configured
+                membership = availableMemberships.stream()
+                    .filter(m -> m.getStripePriceId() != null && !m.getStripePriceId().isEmpty())
+                    .findFirst()
+                    .orElse(null);
+                
+                if (membership == null) {
+                    return ResponseEntity.badRequest()
+                        .body(Map.of("error", "No membership plans with Stripe price ID found. Please configure at least one membership plan with a Stripe price ID."));
+                }
+                
+                stripePriceId = membership.getStripePriceId();
+                actualPrice = customPrice;
+            }
+
+            // Get primary owner user
+            com.BossLiftingClub.BossLifting.User.User primaryOwner = userRepository.findById(longUserId)
+                .orElseThrow(() -> new RuntimeException("Primary owner not found"));
+
+            // Make membership final for use in lambda
+            final com.BossLiftingClub.BossLifting.User.Membership.Membership finalMembership = membership;
+            
+            // Check if primary owner already has this membership
+            boolean alreadyHasMembership = primaryOwnerUserBusiness.getUserBusinessMemberships().stream()
+                .anyMatch(ubm -> ubm.getMembership().getId().equals(finalMembership.getId())
+                    && "ACTIVE".equals(ubm.getStatus()));
+
+            // Create Stripe subscription for the primary owner (only if they don't already have this membership)
+            com.stripe.model.Subscription subscription = null;
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership userBusinessMembership = null;
+            
+            if (!alreadyHasMembership) {
+                try {
+                    subscription = stripeService.createSubscription(
+                        stripeCustomerId,
+                        stripePriceId,
+                        stripeAccountId,
+                        java.time.LocalDateTime.now(),
+                        null, // no promo code
+                        actualPrice
+                    );
+
+                    // Create UserBusinessMembership linked to the primary owner
+                    userBusinessMembership = userBusinessService.addMembershipToUser(
+                        longUserId,
+                        businessTag,
+                        membership.getId(),
+                        "ACTIVE",
+                        java.time.LocalDateTime.now(),
+                        null, // endDate
+                        subscription.getId(),
+                        actualPrice
+                    );
+                } catch (Exception e) {
+                    logger.error("Error creating subscription/membership: {}", e.getMessage(), e);
+                    // Continue to send email even if subscription creation fails
+                }
+            } else {
+                // Primary owner already has this membership, find the existing one
+                userBusinessMembership = primaryOwnerUserBusiness.getUserBusinessMemberships().stream()
+                    .filter(ubm -> ubm.getMembership().getId().equals(finalMembership.getId())
+                        && "ACTIVE".equals(ubm.getStatus()))
+                    .findFirst()
+                    .orElse(null);
+                if (userBusinessMembership != null && userBusinessMembership.getStripeSubscriptionId() != null) {
+                    try {
+                        // Retrieve the existing subscription
+                        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                            .setStripeAccount(stripeAccountId)
+                            .build();
+                        subscription = com.stripe.model.Subscription.retrieve(
+                            userBusinessMembership.getStripeSubscriptionId(),
+                            requestOptions
+                        );
+                    } catch (Exception e) {
+                        logger.warn("Could not retrieve existing subscription: {}", e.getMessage());
+                    }
+                }
+            }
+
+            // Create pending invitation record
+            FamilyInvitation invitation = new FamilyInvitation();
+            invitation.setPrimaryOwner(primaryOwner);
+            invitation.setInvitedEmail(email);
+            invitation.setBusinessTag(businessTag);
+            // Set membershipId - if custom price, use the template membership ID we found
+            invitation.setMembershipId(membershipId != null ? membershipId : (membership != null ? membership.getId() : null));
+            invitation.setCustomPrice(customPrice);
+            invitation.setStatus(FamilyInvitation.InvitationStatus.PENDING);
+            invitation.setUserId(null); // Will be set when accepted
+            familyInvitationRepository.save(invitation);
+
+            // Send invitation email
+            // Use RecRev portal URL - can be configured via environment variable
+            String frontendBaseUrl = System.getenv("FRONTEND_BASE_URL");
+            if (frontendBaseUrl == null || frontendBaseUrl.isEmpty()) {
+                frontendBaseUrl = "http://localhost:5173"; // Default to localhost for development
+            }
+            String inviteLink = frontendBaseUrl + "/signup?contract=Family&userId=" + userId;
+            String businessName = business.getTitle() != null ? business.getTitle() : "RecRev";
+            String businessContactEmail = business.getContactEmail() != null ? 
+                business.getContactEmail() : "support@recrev.com";
+
+            String subject = "Join Your Family Plan - RecRev Portal";
+            // Escape any % characters in the values to prevent formatting errors
+            String escapedBusinessName = businessName.replace("%", "%%");
+            String escapedInviteLink = inviteLink.replace("%", "%%");
+            String escapedBusinessContactEmail = businessContactEmail.replace("%", "%%");
+            
+            String htmlContent = String.format(
+                "<body style=\"font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;\">" +
+                "<div style=\"background: linear-gradient(135deg, #1e293b 0%%, #334155 100%%); padding: 30px; border-radius: 10px; margin-bottom: 20px;\">" +
+                "<h1 style=\"color: white; margin: 0; font-size: 24px;\">RecRev Portal</h1>" +
+                "</div>" +
+                "<h2 style=\"color: #1e293b; margin-top: 0;\">You've Been Invited to Join a Family Plan</h2>" +
+                "<p>Dear Member,</p>" +
+                "<p>You've been invited to join a family plan for <strong>%s</strong>. As a family member, you'll have access to all the benefits of the family plan.</p>" +
+                "<p style=\"text-align: center; margin: 30px 0;\">" +
+                "<a href=\"%s\" style=\"background: linear-gradient(135deg, #10b981, #059669); color: #fff; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);\">Complete Your Signup</a>" +
+                "</p>" +
+                "<p style=\"color: #64748b; font-size: 14px;\">Click the button above to create your account and join the family plan. You'll be redirected to our secure RecRev portal to complete the signup process.</p>" +
+                "<div style=\"background: #f1f5f9; padding: 15px; border-radius: 8px; margin: 20px 0;\">" +
+                "<p style=\"margin: 0; color: #475569; font-size: 14px;\"><strong>What's Next?</strong></p>" +
+                "<ul style=\"margin: 10px 0; padding-left: 20px; color: #64748b; font-size: 14px;\">" +
+                "<li>Click the button above to access the RecRev portal</li>" +
+                "<li>Create your account with your email address</li>" +
+                "<li>Set up your password</li>" +
+                "<li>Complete your profile setup</li>" +
+                "</ul>" +
+                "</div>" +
+                "<p style=\"color: #64748b; font-size: 14px;\">If you were not expecting this invitation or believe it was sent in error, please ignore this email or contact our support team at <a href=\"mailto:%s\" style=\"color: #3b82f6;\">%s</a>.</p>" +
+                "<p style=\"margin-top: 30px;\">Best regards,<br><strong>The %s Team</strong></p>" +
+                "<hr style=\"border: none; border-top: 1px solid #e2e8f0; margin: 30px 0;\">" +
+                "<p style=\"color: #94a3b8; font-size: 12px; text-align: center;\">This email was sent by RecRev Portal. Powered by RecRev.</p>" +
+                "</body>" +
+                "</html>",
+                escapedBusinessName, escapedInviteLink, escapedBusinessContactEmail, escapedBusinessContactEmail, escapedBusinessName
+            );
+
+            try {
+                emailService.sendBlastEmail(email, subject, htmlContent, businessName, businessContactEmail);
+            } catch (Exception e) {
+                logger.error("Error sending email: {}", e.getMessage(), e);
+                // Email sending failed, but invitation is saved
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("message", "Family invite email sent successfully");
+            response.put("email", email);
+            response.put("invitationId", invitation.getId());
+            if (userBusinessMembership != null) {
+                response.put("membershipId", userBusinessMembership.getId());
+            }
+            if (subscription != null) {
+                response.put("subscriptionId", subscription.getId());
+            }
+
+            return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            return ResponseEntity.status(500).body("Failed to send email: " + e.getMessage());
+            logger.error("Error in sendFamilyInviteEmail: {}", e.getMessage(), e);
+            String errorMessage = e.getMessage() != null ? e.getMessage() : "Unknown error occurred";
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("error", "Failed to send email and create membership: " + errorMessage));
         }
     }
 

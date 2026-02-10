@@ -690,6 +690,183 @@ public class AnalyticsController {
     }
 
     /**
+     * Get individual metric - Total Revenue (fast, uses Stripe Balance for "all time")
+     * GET /api/analytics/metric/total-revenue?businessTag={tag}&startDate={start}&endDate={end}
+     */
+    @GetMapping("/metric/total-revenue")
+    @Transactional
+    public Map<String, Object> getTotalRevenue(
+            @RequestParam(required = false) String businessTag,
+            @RequestParam(required = false) String clubTag,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        try {
+            String tag = businessTag != null ? businessTag : clubTag;
+            Business business = businessRepository.findByBusinessTag(tag)
+                    .orElseThrow(() -> new RuntimeException("Business not found"));
+            String stripeAccountId = business.getStripeAccountId();
+            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+                throw new RuntimeException("Business does not have Stripe configured");
+            }
+
+            LocalDateTime start = parseDate(startDate);
+            LocalDateTime end = parseDate(endDate, LocalDateTime.now());
+
+            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+
+            double revenue;
+            // Always use optimized charge fetching - only fetch charges in the date range
+            if (start == null) {
+                // For "all time", fetch all charges (but do it efficiently)
+                List<Charge> allCharges = fetchAllCharges(requestOptions);
+                revenue = calculateTotalRevenueFromCache(allCharges, null, LocalDateTime.now());
+            } else {
+                // For date ranges, only fetch charges in that range (much faster)
+                List<Charge> charges = fetchChargesForDateRange(requestOptions, start, end);
+                revenue = calculateTotalRevenueFromCache(charges, start, end);
+            }
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("value", revenue);
+            return result;
+        } catch (Exception e) {
+            logger.error("Error fetching total revenue: {}", e.getMessage(), e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return error;
+        }
+    }
+
+    /**
+     * Get individual metric - Active Members
+     */
+    @GetMapping("/metric/active-members")
+    @Transactional
+    public Map<String, Object> getActiveMembers(
+            @RequestParam(required = false) String businessTag,
+            @RequestParam(required = false) String clubTag) {
+        try {
+            String tag = businessTag != null ? businessTag : clubTag;
+            List<UserBusiness> userBusinesses = userBusinessRepository.findAllByBusinessTag(tag);
+            int active = calculateActiveMembers(userBusinesses);
+            Map<String, Object> result = new HashMap<>();
+            result.put("value", active);
+            return result;
+        } catch (Exception e) {
+            logger.error("Error fetching active members: {}", e.getMessage(), e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return error;
+        }
+    }
+
+    /**
+     * Get individual metric - MRR
+     */
+    @GetMapping("/metric/mrr")
+    @Transactional
+    public Map<String, Object> getMRR(
+            @RequestParam(required = false) String businessTag,
+            @RequestParam(required = false) String clubTag) {
+        try {
+            String tag = businessTag != null ? businessTag : clubTag;
+            List<UserBusiness> userBusinesses = userBusinessRepository.findAllByBusinessTag(tag);
+            double mrr = calculateMRR(userBusinesses);
+            Map<String, Object> result = new HashMap<>();
+            result.put("value", mrr);
+            return result;
+        } catch (Exception e) {
+            logger.error("Error fetching MRR: {}", e.getMessage(), e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return error;
+        }
+    }
+
+    /**
+     * Get individual metric - Average LTV
+     */
+    @GetMapping("/metric/average-ltv")
+    @Transactional
+    public Map<String, Object> getAverageLTV(
+            @RequestParam(required = false) String businessTag,
+            @RequestParam(required = false) String clubTag) {
+        try {
+            String tag = businessTag != null ? businessTag : clubTag;
+            Business business = businessRepository.findByBusinessTag(tag)
+                    .orElseThrow(() -> new RuntimeException("Business not found"));
+            String stripeAccountId = business.getStripeAccountId();
+            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+                throw new RuntimeException("Business does not have Stripe configured");
+            }
+            List<UserBusiness> userBusinesses = userBusinessRepository.findAllByBusinessTag(tag);
+            
+            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+            
+            // Fetch all charges for lifetime revenue (optimized - only once)
+            List<Charge> allCharges = fetchAllCharges(requestOptions);
+            double lifetimeRevenue = calculateLifetimeRevenueFromCache(allCharges);
+            
+            double ltv = userBusinesses.size() > 0 ? lifetimeRevenue / userBusinesses.size() : 0.0;
+            Map<String, Object> result = new HashMap<>();
+            result.put("value", ltv);
+            return result;
+        } catch (Exception e) {
+            logger.error("Error fetching average LTV: {}", e.getMessage(), e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return error;
+        }
+    }
+
+    // Helper method to parse dates
+    private LocalDateTime parseDate(String dateStr, LocalDateTime defaultValue) {
+        if (dateStr == null || dateStr.isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return java.time.ZonedDateTime.parse(dateStr).toLocalDateTime();
+        } catch (Exception e) {
+            logger.warn("Error parsing date: {}, using default", dateStr);
+            return defaultValue;
+        }
+    }
+
+    private LocalDateTime parseDate(String dateStr) {
+        return parseDate(dateStr, null);
+    }
+
+    // Optimized: Fetch only charges for specific date range
+    private List<Charge> fetchChargesForDateRange(com.stripe.net.RequestOptions requestOptions, LocalDateTime start, LocalDateTime end) {
+        List<Charge> charges = new ArrayList<>();
+        try {
+            long startEpoch = start.atZone(ZoneId.systemDefault()).toEpochSecond();
+            long endEpoch = end.atZone(ZoneId.systemDefault()).toEpochSecond();
+            
+            ChargeListParams params = ChargeListParams.builder()
+                    .setLimit(100L)
+                    .setCreated(ChargeListParams.Created.builder()
+                            .setGte(startEpoch)
+                            .setLte(endEpoch)
+                            .build())
+                    .build();
+            
+            ChargeCollection chargeCollection = Charge.list(params, requestOptions);
+            for (Charge charge : chargeCollection.autoPagingIterable()) {
+                charges.add(charge);
+            }
+            logger.debug("Fetched {} charges for date range", charges.size());
+        } catch (Exception e) {
+            logger.error("Error fetching charges for date range: {}", e.getMessage(), e);
+        }
+        return charges;
+    }
+
+    /**
      * Get comprehensive dashboard metrics for a business
      * GET /api/analytics/dashboard?businessTag={tag}&startDate={start}&endDate={end}
      */
@@ -736,22 +913,33 @@ public class AnalyticsController {
             // Get all UserBusiness records for this business
             List<UserBusiness> userBusinesses = userBusinessRepository.findAllByBusinessTag(tag);
 
+            // OPTIMIZATION: Fetch all Stripe data once and cache it to avoid multiple API calls
+            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+            
+            // Fetch ALL charges once (for lifetime revenue calculations)
+            List<Charge> allCharges = fetchAllCharges(requestOptions);
+            
+            // Fetch refunds once
+            List<Refund> allRefunds = fetchAllRefunds(requestOptions, start, end);
+
             Map<String, Object> metrics = new HashMap<>();
 
-            // Calculate metrics based on requirements
-            metrics.put("totalRevenue", calculateTotalRevenue(stripeAccountId, start, end));
+            // Calculate metrics based on requirements - reuse cached data
+            metrics.put("totalRevenue", calculateTotalRevenueFromCache(allCharges, start, end));
             metrics.put("activeMembers", calculateActiveMembers(userBusinesses));
             metrics.put("totalMembers", userBusinesses.size());
             metrics.put("mrr", calculateMRR(userBusinesses));
             metrics.put("memberGrowth", calculateMemberGrowth(userBusinesses, start, end));
-            metrics.put("revenueGrowth", calculateRevenueGrowth(stripeAccountId, start, end));
+            metrics.put("revenueGrowth", calculateRevenueGrowthFromCache(allCharges, start, end));
             metrics.put("churnRate", calculateChurnRate(userBusinesses, start, end));
             metrics.put("churnCount", calculateChurnCount(userBusinesses, start, end));
             metrics.put("newMembers", calculateNewMembers(userBusinesses, start, end));
-            metrics.put("totalLifetimeRevenue", calculateLifetimeRevenue(stripeAccountId));
-            metrics.put("averageLTV", calculateAverageLTV(stripeAccountId, userBusinesses.size()));
+            metrics.put("totalLifetimeRevenue", calculateLifetimeRevenueFromCache(allCharges));
+            metrics.put("averageLTV", calculateAverageLTVFromCache(allCharges, userBusinesses.size()));
             metrics.put("failedPayments", getFailedPayments(stripeAccountId, start, end));
-            metrics.put("refundedPayments", getRefundedPayments(stripeAccountId, start, end));
+            metrics.put("refundedPayments", getRefundedPaymentsFromCache(allRefunds, start, end));
             metrics.put("membershipBreakdown", getMembershipBreakdown(userBusinesses));
 
             return metrics;
@@ -773,6 +961,64 @@ public class AnalyticsController {
         }
     }
 
+    // OPTIMIZATION: Fetch all charges once and cache them
+    private List<Charge> fetchAllCharges(com.stripe.net.RequestOptions requestOptions) {
+        List<Charge> allCharges = new ArrayList<>();
+        try {
+            ChargeListParams params = ChargeListParams.builder()
+                    .setLimit(100L)
+                    .build();
+            ChargeCollection charges = Charge.list(params, requestOptions);
+            for (Charge charge : charges.autoPagingIterable()) {
+                allCharges.add(charge);
+            }
+            logger.debug("Fetched {} charges from Stripe", allCharges.size());
+        } catch (Exception e) {
+            logger.error("Error fetching charges: {}", e.getMessage(), e);
+        }
+        return allCharges;
+    }
+
+    // OPTIMIZATION: Fetch all refunds once and cache them
+    private List<Refund> fetchAllRefunds(com.stripe.net.RequestOptions requestOptions, LocalDateTime start, LocalDateTime end) {
+        List<Refund> allRefunds = new ArrayList<>();
+        try {
+            RefundListParams.Builder paramsBuilder = RefundListParams.builder();
+            if (start != null) {
+                paramsBuilder.setCreated(RefundListParams.Created.builder()
+                        .setGte(start.atZone(ZoneId.systemDefault()).toEpochSecond())
+                        .setLte(end.atZone(ZoneId.systemDefault()).toEpochSecond())
+                        .build());
+            }
+            RefundCollection refunds = Refund.list(paramsBuilder.build(), requestOptions);
+            for (Refund refund : refunds.autoPagingIterable()) {
+                allRefunds.add(refund);
+            }
+            logger.debug("Fetched {} refunds from Stripe", allRefunds.size());
+        } catch (Exception e) {
+            logger.error("Error fetching refunds: {}", e.getMessage(), e);
+        }
+        return allRefunds;
+    }
+
+    // Calculate revenue from cached charges (much faster)
+    private double calculateTotalRevenueFromCache(List<Charge> allCharges, LocalDateTime start, LocalDateTime end) {
+        long startEpoch = start != null ? start.atZone(ZoneId.systemDefault()).toEpochSecond() : 0;
+        long endEpoch = end != null ? end.atZone(ZoneId.systemDefault()).toEpochSecond() : Long.MAX_VALUE;
+        
+        double totalRevenue = 0.0;
+        for (Charge charge : allCharges) {
+            if (charge.getPaid() && !charge.getRefunded()) {
+                long chargeTime = charge.getCreated();
+                if (chargeTime >= startEpoch && chargeTime <= endEpoch) {
+                    totalRevenue += charge.getAmount() / 100.0;
+                }
+            }
+        }
+        return totalRevenue;
+    }
+
+    // Legacy method kept for backward compatibility (but should use cached version)
     private double calculateTotalRevenue(String stripeAccountId, LocalDateTime start, LocalDateTime end) throws Exception {
         com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
                 .setStripeAccount(stripeAccountId)
@@ -849,6 +1095,30 @@ public class AnalyticsController {
         return growth;
     }
 
+    // Optimized version using cached charges
+    private Map<String, Object> calculateRevenueGrowthFromCache(List<Charge> allCharges, LocalDateTime start, LocalDateTime end) {
+        Map<String, Object> growth = new HashMap<>();
+
+        if (start == null) {
+            growth.put("percentChange", 0.0);
+            return growth;
+        }
+
+        long periodDays = java.time.Duration.between(start, end).toDays();
+        LocalDateTime previousStart = start.minusDays(periodDays);
+
+        double currentRevenue = calculateTotalRevenueFromCache(allCharges, start, end);
+        double previousRevenue = calculateTotalRevenueFromCache(allCharges, previousStart, start);
+
+        double percentChange = previousRevenue > 0 ? ((currentRevenue - previousRevenue) / previousRevenue) * 100 : 0.0;
+
+        growth.put("percentChange", percentChange);
+        growth.put("currentPeriod", currentRevenue);
+        growth.put("previousPeriod", previousRevenue);
+        return growth;
+    }
+
+    // Legacy method kept for backward compatibility
     private Map<String, Object> calculateRevenueGrowth(String stripeAccountId, LocalDateTime start, LocalDateTime end) throws Exception {
         Map<String, Object> growth = new HashMap<>();
 
@@ -905,6 +1175,17 @@ public class AnalyticsController {
                 .count();
     }
 
+    // Optimized version using cached charges
+    private double calculateLifetimeRevenueFromCache(List<Charge> allCharges) {
+        return calculateTotalRevenueFromCache(allCharges, null, LocalDateTime.now());
+    }
+
+    private double calculateAverageLTVFromCache(List<Charge> allCharges, int totalMembers) {
+        if (totalMembers == 0) return 0.0;
+        return calculateLifetimeRevenueFromCache(allCharges) / totalMembers;
+    }
+
+    // Legacy methods kept for backward compatibility
     private double calculateLifetimeRevenue(String stripeAccountId) throws Exception {
         return calculateTotalRevenue(stripeAccountId, null, LocalDateTime.now());
     }
@@ -925,6 +1206,29 @@ public class AnalyticsController {
         return failed;
     }
 
+    // Optimized version using cached refunds
+    private Map<String, Object> getRefundedPaymentsFromCache(List<Refund> allRefunds, LocalDateTime start, LocalDateTime end) {
+        Map<String, Object> refunded = new HashMap<>();
+        int count = 0;
+        double amount = 0.0;
+        
+        long startEpoch = start != null ? start.atZone(ZoneId.systemDefault()).toEpochSecond() : 0;
+        long endEpoch = end != null ? end.atZone(ZoneId.systemDefault()).toEpochSecond() : Long.MAX_VALUE;
+        
+        for (Refund refund : allRefunds) {
+            long refundTime = refund.getCreated();
+            if (refundTime >= startEpoch && refundTime <= endEpoch) {
+                count++;
+                amount += refund.getAmount() / 100.0;
+            }
+        }
+
+        refunded.put("count", count);
+        refunded.put("amount", amount);
+        return refunded;
+    }
+
+    // Legacy method kept for backward compatibility
     private Map<String, Object> getRefundedPayments(String stripeAccountId, LocalDateTime start, LocalDateTime end) throws Exception {
         Map<String, Object> refunded = new HashMap<>();
         int count = 0;
@@ -1396,6 +1700,332 @@ public class AnalyticsController {
         public void setStartDate(String startDate) { this.startDate = startDate; }
         public String getEndDate() { return endDate; }
         public void setEndDate(String endDate) { this.endDate = endDate; }
+    }
+
+    /**
+     * GET /api/analytics/new-members-chart?businessId={id}&startDate={date}&endDate={date}
+     * Returns chart data for new members created per day/hour
+     */
+    @GetMapping("/new-members-chart")
+    @Transactional
+    public ResponseEntity<?> getNewMembersChart(
+            @RequestParam(required = false) Long businessId,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        if (businessId == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "businessId parameter is required"));
+        }
+
+        try {
+            Business business = businessRepository.findById(businessId)
+                    .orElse(null);
+
+            if (business == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Business not found"));
+            }
+
+            // Calculate date range
+            LocalDateTime endDateTime = LocalDateTime.now();
+            LocalDateTime startDateTime;
+
+            if (startDate != null && !startDate.isEmpty()) {
+                startDateTime = LocalDate.parse(startDate).atStartOfDay();
+                if (endDate != null && !endDate.isEmpty()) {
+                    endDateTime = LocalDate.parse(endDate).atTime(23, 59, 59);
+                }
+            } else {
+                startDateTime = endDateTime.minusDays(30);
+            }
+
+            boolean isSingleDay = startDateTime.toLocalDate().isEqual(endDateTime.toLocalDate());
+            Map<String, Long> membersByDate = new TreeMap<>();
+
+            // Get all UserBusiness records for this business created in the date range
+            List<UserBusiness> userBusinesses = userBusinessRepository.findByBusinessId(businessId);
+            
+            for (UserBusiness userBusiness : userBusinesses) {
+                LocalDateTime createdAt = userBusiness.getCreatedAt();
+                if (createdAt != null && !createdAt.isBefore(startDateTime) && !createdAt.isAfter(endDateTime)) {
+                    String dateKey;
+                    if (isSingleDay) {
+                        dateKey = String.format("%02d:00", createdAt.getHour());
+                    } else {
+                        dateKey = createdAt.toLocalDate().toString();
+                    }
+                    membersByDate.put(dateKey, membersByDate.getOrDefault(dateKey, 0L) + 1);
+                }
+            }
+
+            // Fill in missing dates/hours with 0
+            if (isSingleDay) {
+                for (int hour = 0; hour < 24; hour++) {
+                    String hourKey = String.format("%02d:00", hour);
+                    membersByDate.putIfAbsent(hourKey, 0L);
+                }
+            } else {
+                LocalDate curr = startDateTime.toLocalDate();
+                LocalDate end = endDateTime.toLocalDate();
+                while (!curr.isAfter(end)) {
+                    String key = curr.toString();
+                    membersByDate.putIfAbsent(key, 0L);
+                    curr = curr.plusDays(1);
+                }
+            }
+
+            List<String> labels = new ArrayList<>(membersByDate.keySet());
+            List<Double> values = new ArrayList<>(membersByDate.values().stream().map(Long::doubleValue).toList());
+
+            RevenueChartResponse response = new RevenueChartResponse();
+            response.setLabels(labels.toArray(new String[0]));
+            response.setValues(values.stream().mapToDouble(Double::doubleValue).toArray());
+            response.setPeriod(isSingleDay ? "today" : "custom");
+            response.setStartDate(startDateTime.toString());
+            response.setEndDate(endDateTime.toString());
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error fetching new members chart: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Error fetching new members chart: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * GET /api/analytics/total-members-chart?businessId={id}&startDate={date}&endDate={date}
+     * Returns chart data for total active members per day/hour
+     */
+    @GetMapping("/total-members-chart")
+    @Transactional
+    public ResponseEntity<?> getTotalMembersChart(
+            @RequestParam(required = false) Long businessId,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        if (businessId == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "businessId parameter is required"));
+        }
+
+        try {
+            Business business = businessRepository.findById(businessId)
+                    .orElse(null);
+
+            if (business == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Business not found"));
+            }
+
+            // Calculate date range
+            LocalDateTime endDateTime = LocalDateTime.now();
+            LocalDateTime startDateTime;
+
+            if (startDate != null && !startDate.isEmpty()) {
+                startDateTime = LocalDate.parse(startDate).atStartOfDay();
+                if (endDate != null && !endDate.isEmpty()) {
+                    endDateTime = LocalDate.parse(endDate).atTime(23, 59, 59);
+                }
+            } else {
+                startDateTime = endDateTime.minusDays(30);
+            }
+
+            boolean isSingleDay = startDateTime.toLocalDate().isEqual(endDateTime.toLocalDate());
+            Map<String, Long> membersByDate = new TreeMap<>();
+
+            // Get all UserBusiness records for this business
+            List<UserBusiness> userBusinesses = userBusinessRepository.findByBusinessId(businessId);
+            
+            // For each date/hour in range, count members who existed at that point
+            if (isSingleDay) {
+                for (int hour = 0; hour < 24; hour++) {
+                    String hourKey = String.format("%02d:00", hour);
+                    LocalDateTime checkTime = startDateTime.toLocalDate().atTime(hour, 0);
+                    long count = userBusinesses.stream()
+                            .filter(ub -> ub.getCreatedAt() != null && !ub.getCreatedAt().isAfter(checkTime))
+                            .count();
+                    membersByDate.put(hourKey, count);
+                }
+            } else {
+                LocalDate curr = startDateTime.toLocalDate();
+                LocalDate end = endDateTime.toLocalDate();
+                while (!curr.isAfter(end)) {
+                    String key = curr.toString();
+                    LocalDateTime checkTime = curr.atTime(23, 59, 59);
+                    long count = userBusinesses.stream()
+                            .filter(ub -> ub.getCreatedAt() != null && !ub.getCreatedAt().isAfter(checkTime))
+                            .count();
+                    membersByDate.put(key, count);
+                    curr = curr.plusDays(1);
+                }
+            }
+
+            List<String> labels = new ArrayList<>(membersByDate.keySet());
+            List<Double> values = new ArrayList<>(membersByDate.values().stream().map(Long::doubleValue).toList());
+
+            RevenueChartResponse response = new RevenueChartResponse();
+            response.setLabels(labels.toArray(new String[0]));
+            response.setValues(values.stream().mapToDouble(Double::doubleValue).toArray());
+            response.setPeriod(isSingleDay ? "today" : "custom");
+            response.setStartDate(startDateTime.toString());
+            response.setEndDate(endDateTime.toString());
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error fetching total members chart: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Error fetching total members chart: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * GET /api/analytics/mrr-chart?businessId={id}&startDate={date}&endDate={date}
+     * Returns chart data for Monthly Recurring Revenue per day/hour
+     */
+    @GetMapping("/mrr-chart")
+    @Transactional
+    public ResponseEntity<?> getMrrChart(
+            @RequestParam(required = false) Long businessId,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        if (businessId == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "businessId parameter is required"));
+        }
+
+        try {
+            Business business = businessRepository.findById(businessId)
+                    .orElse(null);
+
+            if (business == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Business not found"));
+            }
+
+            String stripeAccountId = business.getStripeAccountId();
+            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Business does not have a Stripe account configured"));
+            }
+
+            // Calculate date range
+            LocalDateTime endDateTime = LocalDateTime.now();
+            LocalDateTime startDateTime;
+
+            if (startDate != null && !startDate.isEmpty()) {
+                startDateTime = LocalDate.parse(startDate).atStartOfDay();
+                if (endDate != null && !endDate.isEmpty()) {
+                    endDateTime = LocalDate.parse(endDate).atTime(23, 59, 59);
+                }
+            } else {
+                startDateTime = endDateTime.minusDays(30);
+            }
+
+            boolean isSingleDay = startDateTime.toLocalDate().isEqual(endDateTime.toLocalDate());
+            Map<String, Double> mrrByDate = new TreeMap<>();
+
+            // Fetch all subscriptions (active, past_due, etc.) to calculate MRR over time
+            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+
+            SubscriptionListParams.Builder paramsBuilder = SubscriptionListParams.builder()
+                    .setLimit(100L);
+
+            SubscriptionCollection subscriptions = Subscription.list(paramsBuilder.build(), requestOptions);
+            Iterable<Subscription> subscriptionsIterable = subscriptions.autoPagingIterable();
+
+            // Collect all subscriptions with their monthly amounts and dates
+            List<SubscriptionData> subscriptionDataList = new ArrayList<>();
+            for (Subscription subscription : subscriptionsIterable) {
+                if (subscription.getItems() != null && subscription.getItems().getData() != null) {
+                    for (SubscriptionItem item : subscription.getItems().getData()) {
+                        if (item.getPrice() != null && item.getPrice().getRecurring() != null) {
+                            String interval = item.getPrice().getRecurring().getInterval();
+                            Long unitAmount = item.getPrice().getUnitAmount();
+                            
+                            if (unitAmount != null && "month".equals(interval)) {
+                                double monthlyAmount = unitAmount / 100.0;
+                                LocalDateTime subCreated = LocalDateTime.ofEpochSecond(
+                                        subscription.getCreated(), 0, java.time.ZoneOffset.UTC);
+                                LocalDateTime subEnded = subscription.getCanceledAt() != null
+                                        ? LocalDateTime.ofEpochSecond(subscription.getCanceledAt(), 0, java.time.ZoneOffset.UTC)
+                                        : null;
+                                String status = subscription.getStatus();
+                                
+                                subscriptionDataList.add(new SubscriptionData(monthlyAmount, subCreated, subEnded, status));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Calculate MRR for each date/hour in range
+            if (isSingleDay) {
+                for (int hour = 0; hour < 24; hour++) {
+                    String hourKey = String.format("%02d:00", hour);
+                    LocalDateTime checkTime = startDateTime.toLocalDate().atTime(hour, 0);
+                    double mrr = subscriptionDataList.stream()
+                            .filter(sub -> {
+                                boolean created = !sub.createdAt.isAfter(checkTime);
+                                boolean notEnded = sub.endedAt == null || !sub.endedAt.isBefore(checkTime);
+                                boolean active = "active".equals(sub.status) || "trialing".equals(sub.status) || "past_due".equals(sub.status);
+                                return created && notEnded && active;
+                            })
+                            .mapToDouble(sub -> sub.monthlyAmount)
+                            .sum();
+                    mrrByDate.put(hourKey, mrr);
+                }
+            } else {
+                LocalDate curr = startDateTime.toLocalDate();
+                LocalDate end = endDateTime.toLocalDate();
+                while (!curr.isAfter(end)) {
+                    String key = curr.toString();
+                    LocalDateTime checkTime = curr.atTime(23, 59, 59);
+                    double mrr = subscriptionDataList.stream()
+                            .filter(sub -> {
+                                boolean created = !sub.createdAt.isAfter(checkTime);
+                                boolean notEnded = sub.endedAt == null || !sub.endedAt.isBefore(checkTime);
+                                boolean active = "active".equals(sub.status) || "trialing".equals(sub.status) || "past_due".equals(sub.status);
+                                return created && notEnded && active;
+                            })
+                            .mapToDouble(sub -> sub.monthlyAmount)
+                            .sum();
+                    mrrByDate.put(key, mrr);
+                    curr = curr.plusDays(1);
+                }
+            }
+
+            List<String> labels = new ArrayList<>(mrrByDate.keySet());
+            List<Double> values = new ArrayList<>(mrrByDate.values());
+
+            RevenueChartResponse response = new RevenueChartResponse();
+            response.setLabels(labels.toArray(new String[0]));
+            response.setValues(values.stream().mapToDouble(Double::doubleValue).toArray());
+            response.setPeriod(isSingleDay ? "today" : "custom");
+            response.setStartDate(startDateTime.toString());
+            response.setEndDate(endDateTime.toString());
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error fetching MRR chart: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Error fetching MRR chart: " + e.getMessage()));
+        }
+    }
+
+    // Helper class for MRR calculation
+    private static class SubscriptionData {
+        double monthlyAmount;
+        LocalDateTime createdAt;
+        LocalDateTime endedAt;
+        String status;
+
+        SubscriptionData(double monthlyAmount, LocalDateTime createdAt, LocalDateTime endedAt, String status) {
+            this.monthlyAmount = monthlyAmount;
+            this.createdAt = createdAt;
+            this.endedAt = endedAt;
+            this.status = status;
+        }
     }
 
     /**

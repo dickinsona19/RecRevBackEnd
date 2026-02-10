@@ -85,6 +85,11 @@ public class MembershipController {
             membership.setPublicDisplayName(membershipDTO.getPublicDisplayName());
             membership.setPublicDescription(membershipDTO.getPublicDescription());
             membership.setPublicBenefits(membershipDTO.getPublicBenefits());
+            membership.setMembershipType(membershipDTO.getMembershipType() != null ? membershipDTO.getMembershipType() : "UNLIMITED");
+            membership.setPunchCount(membershipDTO.getPunchCount());
+            membership.setExpiryDays(membershipDTO.getExpiryDays());
+            membership.setOneOffType(membershipDTO.getOneOffType());
+            membership.setProcessingFee(membershipDTO.getProcessingFee());
             
             Membership updated = membershipRepository.save(membership);
             return ResponseEntity.ok(MembershipDTO.fromEntity(updated));
@@ -245,14 +250,90 @@ public class MembershipController {
                         ? membership.getActualPrice() 
                         : new BigDecimal(membership.getMembership().getPrice());
                     
+                    // For one-offs, determine the correct billing interval from oneOffType
+                    // This ensures the subscription uses the right interval (week, month, etc.)
+                    String membershipType = membership.getMembership().getMembershipType();
+                    String oneOffType = membership.getMembership().getOneOffType();
+                    String billingInterval = null; // null means use the Stripe Price's default interval
+                    
+                    if ("ONE_OFF".equalsIgnoreCase(membershipType) && oneOffType != null && !oneOffType.isEmpty()) {
+                        // Parse oneOffType (e.g., "1_WEEK", "2_MONTH", "WEEK_PASS", "MONTH_PASS")
+                        String upperType = oneOffType.toUpperCase();
+                        if (upperType.contains("_WEEK") || upperType.equals("WEEK_PASS")) {
+                            billingInterval = "week";
+                        } else if (upperType.contains("_MONTH") || upperType.equals("MONTH_PASS")) {
+                            billingInterval = "month";
+                        } else if (upperType.contains("_DAY")) {
+                            billingInterval = "day";
+                        } else if (upperType.contains("_YEAR")) {
+                            billingInterval = "year";
+                        }
+                    }
+                    
                     com.stripe.model.Subscription subscription = stripeService.createSubscription(
                         stripeCustomerId,
                         stripePriceId,
                         stripeAccountId,
                         membership.getAnchorDate() != null ? membership.getAnchorDate() : LocalDateTime.now(),
                         null, // promoCode - can be added later if needed
-                        actualPrice
+                        actualPrice,
+                        billingInterval // Pass the interval for one-offs
                     );
+                    
+                    // For ONE_OFF memberships, calculate the end date and cancel at that specific date
+                    // This ensures the subscription auto-cancels after the correct duration (e.g., 2 weeks)
+                    if ("ONE_OFF".equalsIgnoreCase(membershipType) && oneOffType != null && !oneOffType.isEmpty()) {
+                        try {
+                            // Parse duration from oneOffType (e.g., "2_WEEK" -> 2 weeks)
+                            int duration = 1; // default to 1 period
+                            String upperType = oneOffType.toUpperCase();
+                            
+                            // Extract number from patterns like "2_WEEK", "3_MONTH", etc.
+                            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(\\d+)");
+                            java.util.regex.Matcher matcher = pattern.matcher(upperType);
+                            if (matcher.find()) {
+                                try {
+                                    duration = Integer.parseInt(matcher.group(1));
+                                } catch (NumberFormatException e) {
+                                    // Keep default of 1
+                                }
+                            }
+                            
+                            // Calculate end date based on interval and duration
+                            LocalDateTime startDate = membership.getAnchorDate() != null 
+                                ? membership.getAnchorDate() 
+                                : LocalDateTime.now();
+                            LocalDateTime cancelDate = startDate;
+                            
+                            if (upperType.contains("_WEEK") || upperType.equals("WEEK_PASS")) {
+                                cancelDate = startDate.plusWeeks(duration);
+                            } else if (upperType.contains("_MONTH") || upperType.equals("MONTH_PASS")) {
+                                cancelDate = startDate.plusMonths(duration);
+                            } else if (upperType.contains("_DAY")) {
+                                cancelDate = startDate.plusDays(duration);
+                            } else if (upperType.contains("_YEAR")) {
+                                cancelDate = startDate.plusYears(duration);
+                            } else {
+                                // Fallback: use billing interval from subscription
+                                cancelDate = startDate.plusWeeks(duration); // default to weeks
+                            }
+                            
+                            stripeService.cancelSubscriptionAtDate(subscription.getId(), cancelDate, stripeAccountId);
+                            System.out.println("One-off membership subscription set to cancel at: " + cancelDate + " (duration: " + duration + " periods)");
+                        } catch (StripeException cancelException) {
+                            // Log but don't fail - subscription is created, just won't auto-cancel
+                            System.err.println("Warning: Failed to set cancel_at for one-off subscription: " + cancelException.getMessage());
+                        } catch (Exception e) {
+                            // Log parsing errors but don't fail
+                            System.err.println("Warning: Failed to parse one-off duration, using default: " + e.getMessage());
+                            try {
+                                // Fallback to cancel at period end
+                                stripeService.cancelSubscriptionAtPeriodEnd(subscription.getId(), stripeAccountId);
+                            } catch (StripeException ex) {
+                                System.err.println("Warning: Failed to set cancel_at_period_end: " + ex.getMessage());
+                            }
+                        }
+                    }
                     
                     membership.setStripeSubscriptionId(subscription.getId());
                     membership.setStatus("ACTIVE"); // Activate the membership
@@ -260,8 +341,10 @@ public class MembershipController {
                     // If subscription creation fails, save signature but keep PENDING
                     userBusinessRepository.save(userBusiness);
                     userBusinessService.calculateAndUpdateStatus(userBusiness);
+                    System.err.println("Failed to create subscription: " + e.getMessage());
+                    e.printStackTrace();
                     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(Map.of("error", "Failed to create subscription. Signature saved but membership is pending activation."));
+                        .body(Map.of("error", "Failed to create subscription. Signature saved but membership is pending activation. Error: " + e.getMessage()));
                 }
             } else {
                 // No Stripe price ID, activate without subscription

@@ -96,6 +96,54 @@ public class StripeService {
         long currentPeriodEnd = updatedSubscription.getCurrentPeriodEnd();
         return LocalDateTime.ofEpochSecond(currentPeriodEnd, 0, java.time.ZoneOffset.UTC);
     }
+
+    /**
+     * Cancel a subscription at a specific date (for one-offs with multiple periods)
+     * @param subscriptionId The Stripe subscription ID
+     * @param cancelAt The date/time when the subscription should be cancelled
+     * @param stripeAccountId The connected account ID (null for platform account)
+     * @return The LocalDateTime when the subscription will be cancelled
+     * @throws StripeException if the Stripe API call fails
+     */
+    public LocalDateTime cancelSubscriptionAtDate(String subscriptionId, LocalDateTime cancelAt, String stripeAccountId) throws StripeException {
+        if (subscriptionId == null || subscriptionId.isEmpty()) {
+            throw new IllegalArgumentException("Subscription ID cannot be null or empty");
+        }
+        if (cancelAt == null) {
+            throw new IllegalArgumentException("Cancel date cannot be null");
+        }
+
+        com.stripe.net.RequestOptions requestOptions = null;
+        if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+            requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+        }
+
+        // Retrieve subscription
+        Subscription subscription;
+        if (requestOptions != null) {
+            subscription = Subscription.retrieve(subscriptionId, requestOptions);
+        } else {
+            subscription = Subscription.retrieve(subscriptionId);
+        }
+
+        // Convert cancelAt to Unix timestamp
+        long cancelAtTimestamp = cancelAt.atZone(ZoneId.systemDefault()).toEpochSecond();
+
+        // Update subscription to cancel at specific date
+        Map<String, Object> params = new HashMap<>();
+        params.put("cancel_at", cancelAtTimestamp);
+
+        Subscription updatedSubscription;
+        if (requestOptions != null) {
+            updatedSubscription = subscription.update(params, requestOptions);
+        } else {
+            updatedSubscription = subscription.update(params);
+        }
+
+        return cancelAt;
+    }
     public String createCustomer(String email, String fullName, String paymentMethodId) throws StripeException {
         // Create customer with email and name
         Map<String, Object> customerParams = new HashMap<>();
@@ -566,6 +614,21 @@ public class StripeService {
                                            LocalDateTime anchorDate,
                                            String promoCode,
                                            BigDecimal overridePrice) throws StripeException {
+        return createSubscription(customerId, stripePriceId, stripeAccountId, anchorDate, promoCode, overridePrice, null);
+    }
+
+    /**
+     * Create a Stripe subscription with optional promo code, custom price override, and billing interval override.
+     * @param billingIntervalOverride Override the billing interval (e.g., "week", "month", "day", "year"). 
+     *                                If null, uses the Stripe Price's interval or defaults to "month".
+     */
+    public Subscription createSubscription(String customerId,
+                                           String stripePriceId,
+                                           String stripeAccountId,
+                                           LocalDateTime anchorDate,
+                                           String promoCode,
+                                           BigDecimal overridePrice,
+                                           String billingIntervalOverride) throws StripeException {
         if (customerId == null || customerId.isEmpty()) {
             throw new IllegalArgumentException("Customer ID cannot be null or empty");
         }
@@ -609,13 +672,20 @@ public class StripeService {
                             .setProduct(priceDetails.getProduct())
                             .setUnitAmount(unitAmount);
 
-            if (priceDetails.getRecurring() != null && priceDetails.getRecurring().getInterval() != null) {
-                priceData.setRecurring(
-                        com.stripe.param.SubscriptionCreateParams.Item.PriceData.Recurring.builder()
-                                .setInterval(mapInterval(priceDetails.getRecurring().getInterval()))
-                                .build()
-                );
+            // Always set recurring interval - required for subscriptions
+            // Use override if provided, otherwise use the original price's interval, or default to month
+            String interval = "month"; // default
+            if (billingIntervalOverride != null && !billingIntervalOverride.isEmpty()) {
+                interval = billingIntervalOverride;
+            } else if (priceDetails.getRecurring() != null && priceDetails.getRecurring().getInterval() != null) {
+                interval = priceDetails.getRecurring().getInterval();
             }
+            
+            priceData.setRecurring(
+                    com.stripe.param.SubscriptionCreateParams.Item.PriceData.Recurring.builder()
+                            .setInterval(mapInterval(interval))
+                            .build()
+            );
 
             itemBuilder.setPriceData(priceData.build());
         } else {

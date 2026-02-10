@@ -122,18 +122,25 @@ public class MembershipServiceImpl implements MembershipService {
             Product product = Product.create(productParams, requestOptions);
 
             // 2. Create Stripe Price on the client's connected account
-            PriceCreateParams priceParams = PriceCreateParams.builder()
+            // For punch cards and one-offs, create one-time payment
+            // For unlimited, create recurring subscription
+            PriceCreateParams.Builder priceParamsBuilder = PriceCreateParams.builder()
                     .setUnitAmount(unitAmount)
                     .setCurrency("usd")
-                    .setRecurring(
-                            PriceCreateParams.Recurring.builder()
-                                    .setInterval(resolveInterval(membership.getChargeInterval()))
-                                    .build()
-                    )
-                    .setProduct(product.getId())
-                    .build();
+                    .setProduct(product.getId());
 
-            Price price = Price.create(priceParams, requestOptions);
+            String membershipType = membership.getMembershipType();
+            if (membershipType == null || membershipType.equals("UNLIMITED")) {
+                // Recurring subscription for unlimited memberships
+                priceParamsBuilder.setRecurring(
+                        PriceCreateParams.Recurring.builder()
+                                .setInterval(resolveInterval(membership.getChargeInterval()))
+                                .build()
+                );
+            }
+            // For PUNCH_CARD and ONE_OFF, no recurring - it's a one-time payment
+
+            Price price = Price.create(priceParamsBuilder.build(), requestOptions);
 
             // 3. Return Stripe Price ID
             return price.getId();

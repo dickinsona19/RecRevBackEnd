@@ -48,6 +48,21 @@ public class Membership {
     @Column(name = "public_benefits", columnDefinition = "TEXT")
     private String publicBenefits; // JSON array stored as text
 
+    @Column(name = "membership_type")
+    private String membershipType = "UNLIMITED"; // UNLIMITED, PUNCH_CARD, ONE_OFF
+
+    @Column(name = "punch_count")
+    private Integer punchCount;
+
+    @Column(name = "expiry_days")
+    private Integer expiryDays; // null = permanent
+
+    @Column(name = "one_off_type")
+    private String oneOffType; // Format: "DURATION_UNIT" (e.g., "1_WEEK", "2_MONTH", "3_DAY", "1_YEAR") or legacy "WEEK_PASS", "MONTH_PASS"
+
+    @Column(name = "processing_fee", precision = 10, scale = 2)
+    private java.math.BigDecimal processingFee;
+
     public Long getId() {
         return id;
     }
@@ -145,5 +160,45 @@ public class Membership {
 
     public void setPublicBenefits(String publicBenefits) {
         this.publicBenefits = publicBenefits;
+    }
+
+    public String getMembershipType() {
+        return membershipType;
+    }
+
+    public void setMembershipType(String membershipType) {
+        this.membershipType = membershipType;
+    }
+
+    public Integer getPunchCount() {
+        return punchCount;
+    }
+
+    public void setPunchCount(Integer punchCount) {
+        this.punchCount = punchCount;
+    }
+
+    public Integer getExpiryDays() {
+        return expiryDays;
+    }
+
+    public void setExpiryDays(Integer expiryDays) {
+        this.expiryDays = expiryDays;
+    }
+
+    public String getOneOffType() {
+        return oneOffType;
+    }
+
+    public void setOneOffType(String oneOffType) {
+        this.oneOffType = oneOffType;
+    }
+
+    public java.math.BigDecimal getProcessingFee() {
+        return processingFee;
+    }
+
+    public void setProcessingFee(java.math.BigDecimal processingFee) {
+        this.processingFee = processingFee;
     }
 }

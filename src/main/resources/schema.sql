@@ -49,7 +49,12 @@ CREATE TABLE IF NOT EXISTS membership (
     is_public BOOLEAN DEFAULT FALSE,
     public_display_name VARCHAR(255),
     public_description TEXT,
-    public_benefits TEXT
+    public_benefits TEXT,
+    membership_type VARCHAR(50) DEFAULT 'UNLIMITED',
+    punch_count INT,
+    expiry_days INT,
+    one_off_type VARCHAR(50),
+    processing_fee DECIMAL(10, 2)
 );
 
 -- User table
@@ -177,16 +182,35 @@ CREATE TABLE IF NOT EXISTS user_business (
     UNIQUE (user_id, business_id)
 );
 
+-- Packages table (must be created before user_business_membership due to foreign key)
+CREATE TABLE IF NOT EXISTS packages (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(255) NOT NULL,
+    business_id BIGINT NOT NULL,
+    business_tag VARCHAR(100) NOT NULL,
+    price DECIMAL(10, 2) NOT NULL,
+    stripe_product_id VARCHAR(255),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME,
+    archived BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
+    INDEX idx_packages_business_tag (business_tag)
+);
+
 -- UserBusinessMembership table (links users to memberships within a business)
 CREATE TABLE IF NOT EXISTS user_business_membership (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     user_business_id BIGINT NOT NULL,
-    membership_id BIGINT NOT NULL,
+    membership_id BIGINT,
+    package_id BIGINT,
     status VARCHAR(50) NOT NULL,
     stripe_subscription_id VARCHAR(255),
     anchor_date DATETIME,
     end_date DATETIME,
     pause_start_date DATETIME,
+    punches_remaining INT,
+    punches_expiry_date DATETIME,
+    processing_fee_paid DECIMAL(10, 2),
     pause_end_date DATETIME,
     actual_price DECIMAL(10, 2) NOT NULL DEFAULT 0,
     signature_data_url TEXT,
@@ -195,7 +219,8 @@ CREATE TABLE IF NOT EXISTS user_business_membership (
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     FOREIGN KEY (user_business_id) REFERENCES user_business(id) ON DELETE CASCADE,
-    FOREIGN KEY (membership_id) REFERENCES membership(id) ON DELETE CASCADE
+    FOREIGN KEY (membership_id) REFERENCES membership(id) ON DELETE CASCADE,
+    FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE SET NULL
 );
 
 -- Member Logs table
@@ -235,6 +260,68 @@ CREATE TABLE IF NOT EXISTS recent_activity (
     customer_name VARCHAR(255),
     stripe_event_id VARCHAR(255),
     created_at DATETIME NOT NULL
+);
+
+-- Family Invitations table
+CREATE TABLE IF NOT EXISTS family_invitations (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    primary_owner_id BIGINT NOT NULL,
+    invited_email VARCHAR(255) NOT NULL,
+    invited_first_name VARCHAR(255),
+    invited_last_name VARCHAR(255),
+    status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+    membership_id BIGINT,
+    custom_price DECIMAL(10, 2),
+    business_tag VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    accepted_at TIMESTAMP NULL,
+    user_id BIGINT NULL,
+    FOREIGN KEY (primary_owner_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (membership_id) REFERENCES membership(id) ON DELETE SET NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_primary_owner_status (primary_owner_id, status),
+    INDEX idx_invited_email (invited_email),
+    INDEX idx_business_tag (business_tag)
+);
+
+-- Staff Invitations table
+CREATE TABLE IF NOT EXISTS staff_invitations (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    business_id BIGINT NOT NULL,
+    invited_email VARCHAR(255) NOT NULL,
+    role VARCHAR(50) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+    invite_token VARCHAR(255) NOT NULL UNIQUE,
+    invite_token_expiry DATETIME NOT NULL,
+    invited_by INT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    accepted_at DATETIME,
+    staff_id INT,
+    FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+);
+
+-- Create indexes separately to avoid conflicts
+CREATE INDEX IF NOT EXISTS idx_staff_inv_business_status ON staff_invitations(business_id, status);
+CREATE INDEX IF NOT EXISTS idx_staff_inv_invited_email ON staff_invitations(invited_email);
+
+-- Package memberships join table
+CREATE TABLE IF NOT EXISTS package_memberships (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    package_id BIGINT NOT NULL,
+    membership_id BIGINT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE,
+    FOREIGN KEY (membership_id) REFERENCES membership(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_package_membership (package_id, membership_id)
+);
+
+-- Punch card scans table (for double-scan protection)
+CREATE TABLE IF NOT EXISTS punch_card_scans (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_business_membership_id BIGINT NOT NULL,
+    scanned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_business_membership_id) REFERENCES user_business_membership(id) ON DELETE CASCADE,
+    INDEX idx_user_membership_scan (user_business_membership_id, scanned_at)
 );
 
 -- Products table

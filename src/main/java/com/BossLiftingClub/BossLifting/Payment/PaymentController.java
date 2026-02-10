@@ -30,6 +30,9 @@ public class PaymentController {
     private UserBusinessRepository userBusinessRepository;
 
     @Autowired
+    private com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembershipRepository userBusinessMembershipRepository;
+
+    @Autowired
     private JavaMailSender mailSender;
 
     @Autowired
@@ -197,6 +200,17 @@ public class PaymentController {
             } catch (com.stripe.exception.StripeException e) {
                 // Log error but don't fail the payment method update
                 System.err.println("⚠️  Warning: Failed to update subscriptions with new payment method: " + e.getMessage());
+            }
+
+            // Recalculate user status after payment method is added
+            try {
+                com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService =
+                        applicationContext.getBean(com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService.class);
+                userBusinessService.calculateAndUpdateStatus(userBusiness);
+                System.out.println("✅ Recalculated user status after payment method update");
+            } catch (Exception e) {
+                // Log error but don't fail the payment method update
+                System.err.println("⚠️  Warning: Failed to recalculate user status: " + e.getMessage());
             }
 
             return ResponseEntity.ok(Map.of(
@@ -564,6 +578,22 @@ public class PaymentController {
                     if (paymentMethodId != null) {
                         stripeService.attachPaymentMethodOnConnectedAccount(customerId, paymentMethodId, stripeAccountId);
                         System.out.println("✅ Payment method set as default for customer: " + customerId);
+                        
+                        // Recalculate user status after payment method is added
+                        try {
+                            // Find UserBusiness by Stripe customer ID
+                            List<UserBusiness> userBusinesses = userBusinessRepository.findByStripeId(customerId);
+                            if (!userBusinesses.isEmpty()) {
+                                UserBusiness userBusiness = userBusinesses.get(0);
+                                com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService =
+                                        applicationContext.getBean(com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService.class);
+                                userBusinessService.calculateAndUpdateStatus(userBusiness);
+                                System.out.println("✅ Recalculated user status after payment method added via webhook");
+                            }
+                        } catch (Exception e) {
+                            // Log error but don't fail the webhook processing
+                            System.err.println("⚠️  Warning: Failed to recalculate user status after payment method added: " + e.getMessage());
+                        }
                     }
                 }
             }
@@ -757,7 +787,12 @@ public class PaymentController {
     }
 
     /**
-     * Handle invoice.payment_failed - Create failed payment attempt and schedule retries
+     * Handle invoice.payment_failed - Update Subscription status to 'past_due'
+     * 
+     * Business Rules:
+     * - Updates UserBusinessMembership.status to 'past_due' (the Subscription table)
+     * - Does NOT touch the User table
+     * - This status change will block ALL Dependents via checkAccess() function
      */
     private void handlePaymentFailed(com.stripe.model.Event event,
             com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService userBusinessService) {
@@ -773,19 +808,21 @@ public class PaymentController {
             
             System.out.println("❌ Payment failed for subscription: " + subscriptionId + ", invoice: " + invoiceId);
 
+            // Find the Subscription (UserBusinessMembership) by Stripe subscription ID
             com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership membership =
                     findMembershipByStripeSubscriptionId(subscriptionId);
 
             if (membership != null) {
+                // CRITICAL: Update Subscription.status to 'past_due' (NOT User table)
+                // This is the single source of truth for access control
+                membership.setStatus("past_due");
+                userBusinessMembershipRepository.save(membership);
+                
+                System.out.println("✅ Updated Subscription (UserBusinessMembership) status to 'past_due' for subscription: " + subscriptionId);
+                System.out.println("   This will block ALL Dependents via checkAccess() function");
+                
+                // Get user and business info for failed payment tracking (optional logging)
                 com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness userBusiness = membership.getUserBusiness();
-                
-                // Set isDelinquent flag on UserBusiness for this business-user relationship
-                userBusiness.setIsDelinquent(true);
-                userBusinessRepository.save(userBusiness);
-                
-                // Recalculate status and user type after payment failure
-                userBusinessService.calculateAndUpdateStatus(userBusiness);
-                
                 com.BossLiftingClub.BossLifting.User.User user = userBusiness.getUser();
                 Business business = userBusiness.getBusiness();
                 
@@ -851,22 +888,24 @@ public class PaymentController {
                     findMembershipByStripeSubscriptionId(subscriptionId);
 
             if (membership != null) {
-                com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness userBusiness = membership.getUserBusiness();
-                
-                // Clear isDelinquent flag when payment succeeds
-                userBusiness.setIsDelinquent(false);
-                userBusinessRepository.save(userBusiness);
-                
-                // Recalculate status and user type after payment success
-                userBusinessService.calculateAndUpdateStatus(userBusiness);
-                
-                if (!"ACTIVE".equalsIgnoreCase(membership.getStatus()) &&
+                // CRITICAL: Update Subscription.status to 'ACTIVE' if it was 'past_due' (NOT User table)
+                // This is the single source of truth for access control
+                if ("past_due".equalsIgnoreCase(membership.getStatus()) || 
+                    "PAST_DUE".equalsIgnoreCase(membership.getStatus())) {
+                    membership.setStatus("ACTIVE");
+                    userBusinessMembershipRepository.save(membership);
+                    
+                    System.out.println("✅ Updated Subscription (UserBusinessMembership) status to 'ACTIVE' for subscription: " + subscriptionId);
+                    System.out.println("   This restores access for ALL Dependents via checkAccess() function");
+                } else if (!"ACTIVE".equalsIgnoreCase(membership.getStatus()) &&
                     !"PAUSE_SCHEDULED".equalsIgnoreCase(membership.getStatus()) &&
                     !"CANCELLING".equalsIgnoreCase(membership.getStatus())) {
-
+                    // Handle other non-active statuses (legacy behavior)
                     userBusinessService.updateUserBusinessMembershipById(
                             membership.getId(), "ACTIVE", null, null, null);
                     System.out.println("✅ Membership " + membership.getId() + " reactivated after successful payment");
+                } else {
+                    System.out.println("ℹ️  Subscription status is already: " + membership.getStatus() + " (no change needed)");
                 }
             }
 

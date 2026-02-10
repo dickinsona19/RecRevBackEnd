@@ -7,6 +7,9 @@ import com.BossLiftingClub.BossLifting.Stripe.StripeService;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.Membership.MembershipRepository;
 import com.BossLiftingClub.BossLifting.User.Membership.MembershipService;
+import com.BossLiftingClub.BossLifting.User.Membership.MembershipPackage;
+import com.BossLiftingClub.BossLifting.User.Membership.PackageRepository;
+import com.BossLiftingClub.BossLifting.User.Membership.PackageMembershipRepository;
 import com.BossLiftingClub.BossLifting.User.User;
 import com.BossLiftingClub.BossLifting.User.UserRepository;
 import com.stripe.exception.StripeException;
@@ -52,6 +55,12 @@ public class UserBusinessService {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private PackageRepository packageRepository;
+
+    @Autowired
+    private PackageMembershipRepository packageMembershipRepository;
 
     /**
      * Create a new user-business relationship
@@ -213,6 +222,19 @@ public class UserBusinessService {
         userBusinessMembership.setStripeSubscriptionId(stripeSubscriptionId);
         userBusinessMembership.setActualPrice(resolveActualPrice(membership, overridePrice));
 
+        // Handle punch cards - set initial punch count and expiry
+        if ("PUNCH_CARD".equals(membership.getMembershipType()) && membership.getPunchCount() != null) {
+            userBusinessMembership.setPunchesRemaining(membership.getPunchCount());
+            if (membership.getExpiryDays() != null) {
+                userBusinessMembership.setPunchesExpiryDate(anchorDate.plusDays(membership.getExpiryDays()));
+            }
+        }
+
+        // Handle processing fee if set
+        if (membership.getProcessingFee() != null) {
+            userBusinessMembership.setProcessingFeePaid(membership.getProcessingFee());
+        }
+
         // Add to the UserBusiness (this will cascade save)
         userBusiness.addMembership(userBusinessMembership);
 
@@ -226,6 +248,87 @@ public class UserBusinessService {
         calculateAndUpdateStatus(userBusiness);
         
         return userBusinessMembership;
+    }
+
+    /**
+     * Add a package to an existing user-business relationship
+     * This creates UserBusinessMembership records for each membership in the package
+     */
+    @Transactional
+    public List<UserBusinessMembership> addPackageToUser(
+            Long userId,
+            String businessTag,
+            Long packageId,
+            String status,
+            LocalDateTime anchorDate) {
+
+        // Get the user-business relationship
+        UserBusiness userBusiness = userBusinessRepository.findByUserIdAndBusinessTag(userId, businessTag)
+                .orElseThrow(() -> new RuntimeException("User is not a member of business: " + businessTag));
+
+        // Get the package
+        MembershipPackage packageEntity = packageRepository.findById(packageId)
+                .orElseThrow(() -> new RuntimeException("Package not found with id: " + packageId));
+
+        // Get all memberships in the package
+        List<com.BossLiftingClub.BossLifting.User.Membership.PackageMembership> packageMemberships = 
+                packageMembershipRepository.findByPackageEntityId(packageId);
+
+        if (packageMemberships.isEmpty()) {
+            throw new RuntimeException("Package has no memberships");
+        }
+
+        // Create UserBusinessMembership for each membership in the package
+        List<UserBusinessMembership> createdMemberships = new java.util.ArrayList<>();
+        for (com.BossLiftingClub.BossLifting.User.Membership.PackageMembership pm : packageMemberships) {
+            Membership membership = pm.getMembership();
+            
+            // Check if user already has this membership
+            boolean alreadyHasMembership = userBusiness.getUserBusinessMemberships().stream()
+                    .anyMatch(ubm -> ubm.getMembership() != null && 
+                            ubm.getMembership().getId().equals(membership.getId()) && 
+                            "ACTIVE".equals(ubm.getStatus()));
+
+            if (!alreadyHasMembership) {
+                UserBusinessMembership userBusinessMembership = new UserBusinessMembership(
+                        userBusiness,
+                        membership,
+                        status,
+                        anchorDate
+                );
+                userBusinessMembership.setPackageEntity(packageEntity);
+                userBusinessMembership.setActualPrice(resolveActualPrice(membership, null));
+
+                // Handle punch cards
+                if ("PUNCH_CARD".equals(membership.getMembershipType()) && membership.getPunchCount() != null) {
+                    userBusinessMembership.setPunchesRemaining(membership.getPunchCount());
+                    if (membership.getExpiryDays() != null) {
+                        userBusinessMembership.setPunchesExpiryDate(anchorDate.plusDays(membership.getExpiryDays()));
+                    }
+                }
+
+                // Handle processing fee
+                if (membership.getProcessingFee() != null) {
+                    userBusinessMembership.setProcessingFeePaid(membership.getProcessingFee());
+                }
+
+                userBusiness.addMembership(userBusinessMembership);
+                createdMemberships.add(userBusinessMembership);
+            }
+        }
+
+        if (createdMemberships.isEmpty()) {
+            throw new RuntimeException("User already has all memberships in this package");
+        }
+
+        // Mark that this user has ever had a membership
+        userBusiness.setHasEverHadMembership(true);
+
+        // Save and return
+        userBusinessRepository.save(userBusiness);
+        calculateAndUpdateStatus(userBusiness);
+
+        return createdMemberships;
     }
 
     /**
@@ -962,7 +1065,7 @@ public class UserBusinessService {
      * Rules:
      * 1. Waiver Required: Always override if waiver not signed
      * 2. Cancelled: All memberships cancelled (takes precedence over everything except waiver)
-     * 3. Free Pass User: NO card AND waiver signed AND no memberships = Inactive
+     * 3. Free User: NO card AND waiver signed AND no memberships = Inactive
      * 4. Pending: Has card + No memberships + Never had memberships
      * 5. Paused: Any membership is paused
      * 6. Delinquent: isDelinquent = true AND has memberships
@@ -973,10 +1076,27 @@ public class UserBusinessService {
     public void calculateAndUpdateStatus(UserBusiness userBusiness) {
         User user = userBusiness.getUser();
         
-        // Check if user has a card/payment method (using stripeId as proxy)
-        boolean hasCard = userBusiness.getStripeId() != null && 
-                         !userBusiness.getStripeId().isEmpty() && 
-                         !userBusiness.getStripeId().equals("null");
+        // Check if user has a card/payment method - actually check Stripe for default payment method
+        boolean hasCard = false;
+        String stripeCustomerId = userBusiness.getStripeId();
+        if (stripeCustomerId != null && !stripeCustomerId.isEmpty() && !stripeCustomerId.equals("null")) {
+            try {
+                Business business = userBusiness.getBusiness();
+                String stripeAccountId = business != null ? business.getStripeAccountId() : null;
+                
+                // Check if customer actually has a default payment method in Stripe
+                if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+                    hasCard = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
+                } else {
+                    // Fallback: if no connected account, check on platform account
+                    hasCard = stripeService.hasDefaultPaymentMethod(stripeCustomerId, null);
+                }
+            } catch (Exception e) {
+                // If check fails, default to false (no card)
+                logger.warn("Failed to check payment method for customer {}: {}", stripeCustomerId, e.getMessage());
+                hasCard = false;
+            }
+        }
         
         // Check if waiver is signed
         boolean hasWaiver = user.getWaiverSignedDate() != null;
@@ -997,7 +1117,7 @@ public class UserBusinessService {
         // RULE 1: Check waiver first - if no waiver, ALWAYS show "Waiver Required"
         if (!hasWaiver) {
             calculatedStatus = "Waiver Required";
-            calculatedUserType = !hasCard ? "Free Pass User" : "Member";
+            calculatedUserType = !hasCard ? "Free User" : "Member";
             userBusiness.setCalculatedStatus(calculatedStatus);
             userBusiness.setCalculatedUserType(calculatedUserType);
             userBusinessRepository.save(userBusiness);
@@ -1022,10 +1142,10 @@ public class UserBusinessService {
             }
         }
         
-        // RULE 3: Free Pass User - NO card AND waiver signed AND no memberships
+        // RULE 3: Free User - NO card AND waiver signed AND no memberships
         if (!hasCard && !hasMemberships) {
             calculatedStatus = "Inactive";
-            calculatedUserType = "Free Pass User";
+            calculatedUserType = "Free User";
             userBusiness.setCalculatedStatus(calculatedStatus);
             userBusiness.setCalculatedUserType(calculatedUserType);
             userBusinessRepository.save(userBusiness);
@@ -1095,7 +1215,7 @@ public class UserBusinessService {
         
         // Default fallback
         calculatedStatus = "Inactive";
-        calculatedUserType = hasCard ? "Member" : "Free Pass User";
+        calculatedUserType = hasCard ? "Member" : "Free User";
         userBusiness.setCalculatedStatus(calculatedStatus);
         userBusiness.setCalculatedUserType(calculatedUserType);
         userBusinessRepository.save(userBusiness);

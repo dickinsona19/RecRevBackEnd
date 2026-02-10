@@ -12,10 +12,15 @@ public interface StaffService {
     // New methods for staff system
     StaffDTO inviteStaff(String email, String role, Long businessId, Integer invitedBy);
     StaffDTO acceptInvite(String inviteToken, String password);
+    StaffDTO acceptInvite(String inviteToken, String password, String firstName, String lastName);
     StaffDTO login(String email, String password);
     List<StaffDTO> getStaffByBusiness(Long businessId);
     List<StaffDTO> getStaffByBusinessTag(String businessTag);
     StaffDTO updateStaffRole(Integer staffId, String role);
     void activateStaff(Integer staffId);
     void deactivateStaff(Integer staffId);
+    
+    // Staff invitation methods
+    List<StaffInvitationDTO> getPendingInvitationsByBusiness(Long businessId);
+    void resendInvitationEmail(Long invitationId);
 }

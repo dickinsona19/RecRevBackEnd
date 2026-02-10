@@ -95,6 +95,48 @@ public class UserBusinessMembershipController {
     }
 
     /**
+     * Add a package to an existing user in a business
+     * POST /api/user-business/add-package
+     *
+     * Request body:
+     * {
+     *   "userId": 1,
+     *   "businessTag": "JFC001",
+     *   "packageId": 1,
+     *   "status": "ACTIVE",
+     *   "anchorDate": "2025-11-03T00:00:00"
+     * }
+     */
+    @PostMapping("/api/user-business/add-package")
+    public ResponseEntity<?> addPackageToUser(@Valid @RequestBody Map<String, Object> request) {
+        try {
+            Long userId = Long.valueOf(request.get("userId").toString());
+            String businessTag = request.get("businessTag").toString();
+            Long packageId = Long.valueOf(request.get("packageId").toString());
+            String status = request.get("status") != null ? request.get("status").toString() : "ACTIVE";
+            LocalDateTime anchorDate = request.get("anchorDate") != null 
+                ? LocalDateTime.parse(request.get("anchorDate").toString()) 
+                : LocalDateTime.now();
+
+            List<UserBusinessMembership> memberships = userBusinessService.addPackageToUser(
+                    userId,
+                    businessTag,
+                    packageId,
+                    status,
+                    anchorDate
+            );
+
+            return ResponseEntity.status(HttpStatus.CREATED).body(memberships);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to add package: " + e.getMessage()));
+        }
+    }
+
+    /**
      * Update an existing membership for a user in a business
      * PUT /api/businesses/{businessTag}/members/{userId}/memberships/{membershipId}
      *

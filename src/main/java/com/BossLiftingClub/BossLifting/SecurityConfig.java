@@ -40,6 +40,12 @@ public class SecurityConfig {
                         .requestMatchers("/api/clients/signup").permitAll()
                         .requestMatchers("/api/clients/refresh").permitAll()
                         
+                        // Staff signup endpoint (public)
+                        .requestMatchers("/api/staff/signup").permitAll()
+                        
+                        // Family signup endpoint (public)
+                        .requestMatchers("/api/users/family-signup").permitAll()
+                        
                         // Stripe webhooks (no authentication, verified by signature)
                         .requestMatchers("/api/stripe/webhook").permitAll()
                         .requestMatchers("/api/stripe/webhook/subscription").permitAll()
@@ -50,7 +56,7 @@ public class SecurityConfig {
                         // Test token endpoint (for development/testing)
                         .requestMatchers("/api/clients/test-token").permitAll()
                         
-                        // All other endpoints require authentication
+                        // All API endpoints require authentication (including /api/stripe/*/sendFamilyInviteEmail)
                         .requestMatchers("/api/**").authenticated()
                         .requestMatchers("/users/**").authenticated()
                         .requestMatchers("/products/**").authenticated()

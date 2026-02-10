@@ -178,4 +178,59 @@ public class StaffController {
                     .body(Map.of("error", e.getMessage()));
         }
     }
+    
+    @GetMapping("/business/{businessId}/pending-invitations")
+    public ResponseEntity<?> getPendingInvitations(@PathVariable Long businessId) {
+        // Check permission
+        if (!SecurityUtils.hasPermission("staff:view")) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "You don't have permission to view staff"));
+        }
+        
+        try {
+            return ResponseEntity.ok(staffService.getPendingInvitationsByBusiness(businessId));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", e.getMessage()));
+        }
+    }
+    
+    @PostMapping("/invitations/{invitationId}/resend")
+    public ResponseEntity<?> resendInvitation(@PathVariable Long invitationId) {
+        // Check permission
+        if (!SecurityUtils.hasPermission("staff:manage")) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "You don't have permission to manage staff"));
+        }
+        
+        try {
+            staffService.resendInvitationEmail(invitationId);
+            return ResponseEntity.ok(Map.of("message", "Invitation email resent successfully"));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", e.getMessage()));
+        }
+    }
+    
+    @PostMapping("/signup")
+    public ResponseEntity<?> staffSignup(@RequestBody Map<String, String> request) {
+        try {
+            String inviteToken = request.get("inviteToken");
+            String password = request.get("password");
+            String firstName = request.get("firstName");
+            String lastName = request.get("lastName");
+            
+            if (inviteToken == null || password == null) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "inviteToken and password are required"));
+            }
+            
+            StaffDTO staff = staffService.acceptInvite(inviteToken, password, firstName, lastName);
+            
+            return ResponseEntity.ok(Map.of("success", true, "staff", staff));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", e.getMessage()));
+        }
+    }
 }

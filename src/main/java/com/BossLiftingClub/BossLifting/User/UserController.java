@@ -1,11 +1,15 @@
 package com.BossLiftingClub.BossLifting.User;
 
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessCreateDTO;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService;
+import com.BossLiftingClub.BossLifting.User.FamilyInvitation;
+import com.BossLiftingClub.BossLifting.User.FamilyInvitationRepository;
 import com.BossLiftingClub.BossLifting.User.PasswordAuth.JwtUtil;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
 import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLogRepository;
 import com.stripe.model.Customer;
 import com.stripe.model.billingportal.Session;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
@@ -30,7 +34,7 @@ import java.util.Map;
 import java.util.Optional;
 
 @RestController
-@RequestMapping("/users")
+@RequestMapping({"/users", "/api/users"})
 public class UserController {
     private static final Logger logger = LoggerFactory.getLogger(UserController.class);
 
@@ -46,10 +50,200 @@ public class UserController {
     @Autowired
     private SignInLogRepository signInLogRepository;
     @Autowired
+    private UserBusinessService userBusinessService;
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+    @Autowired
+    private FamilyInvitationRepository familyInvitationRepository;
+    
+    @Autowired
     public UserController(UserService userService, BarcodeService barcodeService, FirebaseService firebaseService) {
         this.userService = userService;
         this.barcodeService = barcodeService;
         this.firebaseService = firebaseService;
+    }
+
+    /**
+     * Get family members (children/dependents) of a user
+     * GET /users/{userId}/family-members
+     */
+    @GetMapping("/{userId}/family-members")
+    public ResponseEntity<List<UserDTO>> getFamilyMembers(@PathVariable Long userId) {
+        try {
+            Optional<User> userOpt = userRepository.findById(userId);
+            if (userOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+
+            User user = userOpt.get();
+            List<UserDTO> familyMembers = user.getChildren().stream()
+                    .map(UserDTO::new)
+                    .toList();
+
+            return ResponseEntity.ok(familyMembers);
+        } catch (Exception e) {
+            logger.error("Error fetching family members for user {}: {}", userId, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * Get pending family invitations for a primary owner
+     * GET /users/{userId}/pending-invitations
+     */
+    @GetMapping("/{userId}/pending-invitations")
+    public ResponseEntity<List<Map<String, Object>>> getPendingInvitations(@PathVariable Long userId) {
+        try {
+            List<FamilyInvitation> invitations = familyInvitationRepository
+                .findByPrimaryOwnerIdAndStatus(userId, FamilyInvitation.InvitationStatus.PENDING);
+            
+            List<Map<String, Object>> invitationDTOs = invitations.stream()
+                .map(inv -> {
+                    Map<String, Object> dto = new HashMap<>();
+                    dto.put("id", inv.getId());
+                    dto.put("email", inv.getInvitedEmail());
+                    dto.put("firstName", inv.getInvitedFirstName());
+                    dto.put("lastName", inv.getInvitedLastName());
+                    dto.put("status", inv.getStatus().toString());
+                    dto.put("createdAt", inv.getCreatedAt());
+                    dto.put("membershipId", inv.getMembershipId());
+                    dto.put("customPrice", inv.getCustomPrice());
+                    dto.put("businessTag", inv.getBusinessTag());
+                    return dto;
+                })
+                .toList();
+            
+            return ResponseEntity.ok(invitationDTOs);
+        } catch (Exception e) {
+            logger.error("Error fetching pending invitations for user {}: {}", userId, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * Get the primary owner (parent) of a user
+     * GET /users/{userId}/primary-owner
+     */
+    @GetMapping("/{userId}/primary-owner")
+    public ResponseEntity<UserDTO> getPrimaryOwner(@PathVariable Long userId) {
+        try {
+            Optional<User> userOpt = userRepository.findById(userId);
+            if (userOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+
+            User user = userOpt.get();
+            if (user.getParent() == null) {
+                // This user is a Primary Owner (no parent)
+                return ResponseEntity.ok(new UserDTO(user));
+            }
+
+            // Return the parent (Primary Owner)
+            return ResponseEntity.ok(new UserDTO(user.getParent()));
+        } catch (Exception e) {
+            logger.error("Error fetching primary owner for user {}: {}", userId, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * Link a user as a dependent (family member) to a primary owner
+     * POST /users/{primaryOwnerId}/add-family-member
+     * Body: { "dependentUserId": 123 }
+     */
+    @PostMapping("/{primaryOwnerId}/add-family-member")
+    public ResponseEntity<?> addFamilyMember(
+            @PathVariable Long primaryOwnerId,
+            @RequestBody Map<String, Long> request) {
+        try {
+            Long dependentUserId = request.get("dependentUserId");
+            if (dependentUserId == null) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "dependentUserId is required"));
+            }
+
+            Optional<User> primaryOwnerOpt = userRepository.findById(primaryOwnerId);
+            if (primaryOwnerOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Primary owner not found"));
+            }
+
+            Optional<User> dependentOpt = userRepository.findById(dependentUserId);
+            if (dependentOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Dependent user not found"));
+            }
+
+            User primaryOwner = primaryOwnerOpt.get();
+            User dependent = dependentOpt.get();
+
+            // Check if dependent already has a parent
+            if (dependent.getParent() != null && !dependent.getParent().getId().equals(primaryOwnerId)) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "User already has a different primary owner"));
+            }
+
+            // Prevent circular reference (can't be your own parent)
+            if (primaryOwnerId.equals(dependentUserId)) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "A user cannot be their own primary owner"));
+            }
+
+            // Prevent parent from being a child of their dependent
+            if (primaryOwner.getParent() != null && primaryOwner.getParent().getId().equals(dependentUserId)) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Circular reference detected"));
+            }
+
+            // Link the dependent to the primary owner
+            dependent.setParent(primaryOwner);
+            userRepository.save(dependent);
+
+            logger.info("Linked user {} as dependent to primary owner {}", dependentUserId, primaryOwnerId);
+            return ResponseEntity.ok(Map.of(
+                    "message", "Family member added successfully",
+                    "primaryOwner", new UserDTO(primaryOwner),
+                    "dependent", new UserDTO(dependent)
+            ));
+        } catch (Exception e) {
+            logger.error("Error adding family member: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to add family member: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Remove a dependent from a primary owner (unlink family member)
+     * DELETE /users/{primaryOwnerId}/remove-family-member/{dependentUserId}
+     */
+    @DeleteMapping("/{primaryOwnerId}/remove-family-member/{dependentUserId}")
+    public ResponseEntity<?> removeFamilyMember(
+            @PathVariable Long primaryOwnerId,
+            @PathVariable Long dependentUserId) {
+        try {
+            Optional<User> dependentOpt = userRepository.findById(dependentUserId);
+            if (dependentOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Dependent user not found"));
+            }
+
+            User dependent = dependentOpt.get();
+            if (dependent.getParent() == null || !dependent.getParent().getId().equals(primaryOwnerId)) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "User is not a dependent of this primary owner"));
+            }
+
+            // Unlink the dependent
+            dependent.setParent(null);
+            userRepository.save(dependent);
+
+            logger.info("Removed user {} as dependent from primary owner {}", dependentUserId, primaryOwnerId);
+            return ResponseEntity.ok(Map.of("message", "Family member removed successfully"));
+        } catch (Exception e) {
+            logger.error("Error removing family member: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to remove family member: " + e.getMessage()));
+        }
     }
     @PutMapping("/{userId}/over18")
     public ResponseEntity<User> updateUserOver18(@PathVariable long userId) {
@@ -390,6 +584,122 @@ public class UserController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "Failed to update password: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Family member signup endpoint
+     * POST /api/users/family-signup
+     * Body: { "primaryOwnerId": 123, "firstName": "John", "lastName": "Doe", "email": "john@example.com", "password": "password123" }
+     */
+    @PostMapping(value = "/family-signup", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> familySignup(@RequestBody Map<String, Object> request) {
+        try {
+            Long primaryOwnerId = Long.valueOf(request.get("primaryOwnerId").toString());
+            String firstName = (String) request.get("firstName");
+            String lastName = (String) request.get("lastName");
+            String email = (String) request.get("email");
+            String password = (String) request.get("password");
+
+            if (primaryOwnerId == null || firstName == null || lastName == null || email == null || password == null) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("error", "All fields are required"));
+            }
+
+            // Check if email already exists
+            Optional<User> existingUser = userRepository.findByEmail(email);
+            if (existingUser.isPresent()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("error", "An account with this email already exists"));
+            }
+
+            // Get primary owner
+            Optional<User> primaryOwnerOpt = userRepository.findById(primaryOwnerId);
+            if (primaryOwnerOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Primary owner not found"));
+            }
+
+            User primaryOwner = primaryOwnerOpt.get();
+
+            // Get primary owner's business and Stripe info
+            List<com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness> userBusinesses = 
+                userBusinessService.getBusinessesForUser(primaryOwnerId);
+            
+            if (userBusinesses.isEmpty()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Primary owner is not associated with any business"));
+            }
+
+            com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness primaryUserBusiness = userBusinesses.get(0);
+            String stripeCustomerId = primaryUserBusiness.getStripeId();
+            com.BossLiftingClub.BossLifting.Business.Business business = primaryUserBusiness.getBusiness();
+            String stripeAccountId = business.getStripeAccountId();
+
+            if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Primary owner does not have a Stripe customer ID"));
+            }
+
+            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Business does not have Stripe configured"));
+            }
+
+            // Create new user
+            User newUser = new User();
+            newUser.setFirstName(firstName.trim());
+            newUser.setLastName(lastName.trim());
+            newUser.setEmail(email.trim().toLowerCase());
+            newUser.setPassword(passwordEncoder.encode(password));
+            newUser.setParent(primaryOwner);
+            newUser.setUserType(com.BossLiftingClub.BossLifting.User.UserType.DEPENDENT);
+            
+            newUser = userRepository.save(newUser);
+
+            // Mark pending invitation as accepted
+            Optional<FamilyInvitation> invitationOpt = familyInvitationRepository
+                .findByInvitedEmailAndPrimaryOwnerId(email.trim().toLowerCase(), primaryOwnerId);
+            if (invitationOpt.isPresent()) {
+                FamilyInvitation invitation = invitationOpt.get();
+                invitation.setStatus(FamilyInvitation.InvitationStatus.ACCEPTED);
+                invitation.setAcceptedAt(java.time.LocalDateTime.now());
+                invitation.setUserId(newUser.getId());
+                familyInvitationRepository.save(invitation);
+            }
+
+            // Create Customer Portal session for the primary owner's Stripe customer
+            // Family members use the primary owner's Stripe customer for billing
+            String frontendBaseUrl = System.getenv("FRONTEND_BASE_URL");
+            if (frontendBaseUrl == null || frontendBaseUrl.isEmpty()) {
+                frontendBaseUrl = "http://localhost:5173"; // Default to localhost for development
+            }
+            Map<String, Object> portalParams = new HashMap<>();
+            portalParams.put("customer", stripeCustomerId);
+            portalParams.put("return_url", request.get("returnUrl") != null 
+                ? request.get("returnUrl") 
+                : frontendBaseUrl + "/signin");
+
+            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                .setStripeAccount(stripeAccountId)
+                .build();
+
+            Session portalSession = Session.create(portalParams, requestOptions);
+
+            logger.info("Created family member account for user {} linked to primary owner {}", 
+                newUser.getId(), primaryOwnerId);
+
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Family member account created successfully",
+                "portalUrl", portalSession.getUrl(),
+                "userId", newUser.getId()
+            ));
+
+        } catch (Exception e) {
+            logger.error("Error creating family member account: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("error", "Failed to create account: " + e.getMessage()));
         }
     }
 

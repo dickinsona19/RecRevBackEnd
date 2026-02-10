@@ -33,4 +33,7 @@ public interface UserBusinessRepository extends JpaRepository<UserBusiness, Long
     // Update the existsBy method to use business
     @Query("SELECT COUNT(ub) > 0 FROM UserBusiness ub WHERE ub.user.id = :userId AND ub.business.id = :businessId")
     boolean existsByUser_IdAndBusiness_Id(@Param("userId") Long userId, @Param("businessId") Long businessId);
+
+    // Find UserBusiness by Stripe customer ID
+    List<UserBusiness> findByStripeId(String stripeId);
 }

@@ -35,6 +35,16 @@ public class MembershipDTO {
 
     private Integer memberCount = 0; // Number of members with this membership
 
+    private String membershipType = "UNLIMITED"; // UNLIMITED, PUNCH_CARD, ONE_OFF
+
+    private Integer punchCount; // For punch cards
+
+    private Integer expiryDays; // For punch cards (null = permanent)
+
+    private String oneOffType; // Format: "DURATION_UNIT" (e.g., "1_WEEK", "2_MONTH", "3_DAY", "1_YEAR") or legacy "WEEK_PASS", "MONTH_PASS"
+
+    private java.math.BigDecimal processingFee; // Optional processing fee
+
     // Getters and Setters
     public Long getId() {
         return id;
@@ -147,6 +157,11 @@ public class MembershipDTO {
         dto.setPublicDisplayName(membership.getPublicDisplayName());
         dto.setPublicDescription(membership.getPublicDescription());
         dto.setPublicBenefits(membership.getPublicBenefits());
+        dto.setMembershipType(membership.getMembershipType());
+        dto.setPunchCount(membership.getPunchCount());
+        dto.setExpiryDays(membership.getExpiryDays());
+        dto.setOneOffType(membership.getOneOffType());
+        dto.setProcessingFee(membership.getProcessingFee());
         return dto;
     }
 
@@ -164,6 +179,52 @@ public class MembershipDTO {
         membership.setPublicDisplayName(this.publicDisplayName);
         membership.setPublicDescription(this.publicDescription);
         membership.setPublicBenefits(this.publicBenefits);
+        membership.setMembershipType(this.membershipType);
+        membership.setPunchCount(this.punchCount);
+        membership.setExpiryDays(this.expiryDays);
+        membership.setOneOffType(this.oneOffType);
+        membership.setProcessingFee(this.processingFee);
         return membership;
+    }
+
+    // Getters and Setters for new fields
+    public String getMembershipType() {
+        return membershipType;
+    }
+
+    public void setMembershipType(String membershipType) {
+        this.membershipType = membershipType;
+    }
+
+    public Integer getPunchCount() {
+        return punchCount;
+    }
+
+    public void setPunchCount(Integer punchCount) {
+        this.punchCount = punchCount;
+    }
+
+    public Integer getExpiryDays() {
+        return expiryDays;
+    }
+
+    public void setExpiryDays(Integer expiryDays) {
+        this.expiryDays = expiryDays;
+    }
+
+    public String getOneOffType() {
+        return oneOffType;
+    }
+
+    public void setOneOffType(String oneOffType) {
+        this.oneOffType = oneOffType;
+    }
+
+    public java.math.BigDecimal getProcessingFee() {
+        return processingFee;
+    }
+
+    public void setProcessingFee(java.math.BigDecimal processingFee) {
+        this.processingFee = processingFee;
     }
 }
