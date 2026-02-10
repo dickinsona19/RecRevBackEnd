@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS failed_payment_attempts (
     business_id BIGINT NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
     failure_reason TEXT,
-    status VARCHAR(50) NOT NULL, -- PENDING_RETRY, RETRYING, SUCCEEDED, EXHAUSTED, MANUAL_RETRY
+    status VARCHAR(50) NOT NULL,
     retry_attempt_count INT DEFAULT 0,
     max_retry_attempts INT DEFAULT 4,
     next_retry_date DATETIME,
@@ -156,12 +156,13 @@ CREATE TABLE IF NOT EXISTS failed_payment_attempts (
     stripe_customer_id VARCHAR(255),
     stripe_subscription_id VARCHAR(255),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
-    INDEX idx_status (status),
-    INDEX idx_next_retry_date (next_retry_date),
-    INDEX idx_invoice_id (invoice_id),
-    INDEX idx_user_id (user_id)
+    FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_status ON failed_payment_attempts (status);
+CREATE INDEX IF NOT EXISTS idx_next_retry_date ON failed_payment_attempts (next_retry_date);
+CREATE INDEX IF NOT EXISTS idx_invoice_id ON failed_payment_attempts (invoice_id);
+CREATE INDEX IF NOT EXISTS idx_user_id ON failed_payment_attempts (user_id);
 
 -- UserBusiness table (links users to businesses/clubs)
 CREATE TABLE IF NOT EXISTS user_business (
