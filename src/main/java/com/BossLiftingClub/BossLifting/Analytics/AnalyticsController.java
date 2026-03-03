@@ -719,8 +719,9 @@ public class AnalyticsController {
             double revenue;
             // Always use optimized charge fetching - only fetch charges in the date range
             if (start == null) {
-                // For "all time", fetch all charges (but do it efficiently)
-                List<Charge> allCharges = fetchAllCharges(requestOptions);
+                // For "all time", use wide date range (e.g. 10 years) instead of unbounded fetch
+                LocalDateTime chargeStart = LocalDateTime.now().minusYears(10);
+                List<Charge> allCharges = fetchChargesForDateRange(requestOptions, chargeStart, LocalDateTime.now());
                 revenue = calculateTotalRevenueFromCache(allCharges, null, LocalDateTime.now());
             } else {
                 // For date ranges, only fetch charges in that range (much faster)
@@ -803,8 +804,9 @@ public class AnalyticsController {
                     ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
                     : null;
             
-            // Fetch all charges for lifetime revenue (optimized - only once)
-            List<Charge> allCharges = fetchAllCharges(requestOptions);
+            // Fetch charges in practical range for lifetime revenue (10 years)
+            LocalDateTime chargeStart = LocalDateTime.now().minusYears(10);
+            List<Charge> allCharges = fetchChargesForDateRange(requestOptions, chargeStart, LocalDateTime.now());
             double lifetimeRevenue = calculateLifetimeRevenueFromCache(allCharges);
             
             double ltv = userBusinesses.size() > 0 ? lifetimeRevenue / userBusinesses.size() : 0.0;
@@ -953,31 +955,6 @@ public class AnalyticsController {
             errorResponse.put("error", "An unexpected error occurred. Please try again later.");
             return errorResponse;
         }
-    }
-
-    /** Fetch charges for a date range - much faster than fetching all when dates are known. */
-    private List<Charge> fetchChargesForDateRange(com.stripe.net.RequestOptions requestOptions,
-            LocalDateTime start, LocalDateTime end) {
-        List<Charge> charges = new ArrayList<>();
-        try {
-            long startEpoch = start.atZone(ZoneId.systemDefault()).toEpochSecond();
-            long endEpoch = end.atZone(ZoneId.systemDefault()).toEpochSecond();
-            ChargeListParams params = ChargeListParams.builder()
-                    .setLimit(100L)
-                    .setCreated(ChargeListParams.Created.builder()
-                            .setGte(startEpoch)
-                            .setLte(endEpoch)
-                            .build())
-                    .build();
-            ChargeCollection coll = requestOptions != null ? Charge.list(params, requestOptions) : Charge.list(params);
-            for (Charge c : coll.autoPagingIterable()) {
-                charges.add(c);
-            }
-            logger.debug("Fetched {} charges from Stripe (date-filtered)", charges.size());
-        } catch (Exception e) {
-            logger.error("Error fetching charges: {}", e.getMessage(), e);
-        }
-        return charges;
     }
 
     // OPTIMIZATION: Fetch all refunds once and cache them
@@ -1369,7 +1346,18 @@ public class AnalyticsController {
         String stripeAccountId = null;
         com.stripe.net.RequestOptions ro = (stripeAccountId != null && !stripeAccountId.isEmpty())
                 ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build() : null;
-        com.stripe.model.Balance balance = ro != null ? com.stripe.model.Balance.retrieve(ro) : com.stripe.model.Balance.retrieve();
+        com.stripe.model.Balance balance;
+        try {
+            balance = ro != null ? com.stripe.model.Balance.retrieve(ro) : com.stripe.model.Balance.retrieve();
+        } catch (com.stripe.exception.StripeException e) {
+            logger.warn("Failed to retrieve Stripe balance: {}", e.getMessage());
+            BalanceResponse empty = new BalanceResponse();
+            empty.setAvailable(0.0);
+            empty.setPending(0.0);
+            empty.setCurrency("usd");
+            empty.setPendingByDate(Collections.emptyMap());
+            return empty;
+        }
         double totalAvailable = 0.0, totalPending = 0.0;
         String currency = "usd";
         for (int i = 0; i < balance.getAvailable().size(); i++) {
