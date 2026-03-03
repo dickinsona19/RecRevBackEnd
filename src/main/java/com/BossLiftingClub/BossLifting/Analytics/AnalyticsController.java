@@ -33,12 +33,16 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @RequestMapping("/api/analytics")
 public class AnalyticsController {
 
     private static final Logger logger = LoggerFactory.getLogger(AnalyticsController.class);
+
+    private static final long OVERVIEW_CACHE_TTL_MS = 5 * 60 * 1000;
+    private static final Map<String, CachedOverviewBundle> overviewBundleCache = new ConcurrentHashMap<>();
 
     private static final Map<String, String> MONTH_MAP = createMonthMap();
 
@@ -903,11 +907,16 @@ public class AnalyticsController {
                     ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
                     : null;
             
-            // Fetch ALL charges once (for lifetime revenue calculations)
-            List<Charge> allCharges = fetchAllCharges(requestOptions);
+            // Use date-filtered charge fetch when we have dates - much faster than fetching ALL charges
+            LocalDateTime chargeStart = start;
+            LocalDateTime chargeEnd = end;
+            if (chargeStart == null) {
+                chargeStart = LocalDateTime.now().minusYears(2);
+                chargeEnd = LocalDateTime.now();
+            }
+            List<Charge> allCharges = fetchChargesForDateRange(requestOptions, chargeStart, chargeEnd);
             
-            // Fetch refunds once
-            List<Refund> allRefunds = fetchAllRefunds(requestOptions, start, end);
+            List<Refund> allRefunds = fetchAllRefunds(requestOptions, chargeStart, chargeEnd);
 
             Map<String, Object> metrics = new HashMap<>();
 
@@ -946,22 +955,29 @@ public class AnalyticsController {
         }
     }
 
-    // OPTIMIZATION: Fetch all charges once and cache them
-    private List<Charge> fetchAllCharges(com.stripe.net.RequestOptions requestOptions) {
-        List<Charge> allCharges = new ArrayList<>();
+    /** Fetch charges for a date range - much faster than fetching all when dates are known. */
+    private List<Charge> fetchChargesForDateRange(com.stripe.net.RequestOptions requestOptions,
+            LocalDateTime start, LocalDateTime end) {
+        List<Charge> charges = new ArrayList<>();
         try {
+            long startEpoch = start.atZone(ZoneId.systemDefault()).toEpochSecond();
+            long endEpoch = end.atZone(ZoneId.systemDefault()).toEpochSecond();
             ChargeListParams params = ChargeListParams.builder()
                     .setLimit(100L)
+                    .setCreated(ChargeListParams.Created.builder()
+                            .setGte(startEpoch)
+                            .setLte(endEpoch)
+                            .build())
                     .build();
-            ChargeCollection charges = requestOptions != null ? Charge.list(params, requestOptions) : Charge.list(params);
-            for (Charge charge : charges.autoPagingIterable()) {
-                allCharges.add(charge);
+            ChargeCollection coll = requestOptions != null ? Charge.list(params, requestOptions) : Charge.list(params);
+            for (Charge c : coll.autoPagingIterable()) {
+                charges.add(c);
             }
-            logger.debug("Fetched {} charges from Stripe", allCharges.size());
+            logger.debug("Fetched {} charges from Stripe (date-filtered)", charges.size());
         } catch (Exception e) {
             logger.error("Error fetching charges: {}", e.getMessage(), e);
         }
-        return allCharges;
+        return charges;
     }
 
     // OPTIMIZATION: Fetch all refunds once and cache them
@@ -1289,6 +1305,185 @@ public class AnalyticsController {
     }
 
     /**
+     * Combined overview bundle: stats + balance + activity in one request.
+     * Cached for 5 minutes. Use this for fast initial Overview page load.
+     */
+    @GetMapping("/overview-bundle")
+    @Transactional
+    public ResponseEntity<?> getOverviewBundle(
+            @RequestParam Long businessId,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        try {
+            LocalDateTime start = parseOverviewDate(startDate);
+            LocalDateTime end = parseOverviewDate(endDate);
+            String cacheKey = "bundle_" + businessId + "_" + (startDate != null ? startDate : "") + "_" + (endDate != null ? endDate : "");
+            CachedOverviewBundle cached = overviewBundleCache.get(cacheKey);
+            long now = System.currentTimeMillis();
+            if (cached != null && now < cached.expiresAt) {
+                return ResponseEntity.ok(cached.data);
+            }
+            if (overviewBundleCache.size() > 50) {
+                overviewBundleCache.entrySet().removeIf(e -> {
+                    CachedOverviewBundle c = e.getValue();
+                    return c != null && now >= c.expiresAt;
+                });
+            }
+            Map<String, Object> bundle = new HashMap<>();
+            ClubOverviewResponse overview = getClubOverviewInternal(businessId, start, end);
+            bundle.put("overview", Map.of(
+                    "totalRevenue", overview.getTotalRevenue(),
+                    "mrr", overview.getMrr(),
+                    "totalActiveMembers", overview.getTotalActiveMembers(),
+                    "newMembers", overview.getNewMembers()));
+            try {
+                BalanceResponse balance = getBalanceInternal(businessId);
+                bundle.put("balance", Map.of(
+                        "available", balance.getAvailable(),
+                        "pending", balance.getPending(),
+                        "currency", balance.getCurrency() != null ? balance.getCurrency() : "usd",
+                        "pendingByDate", balance.getPendingByDate() != null ? balance.getPendingByDate() : Map.of()));
+            } catch (Exception e) {
+                logger.warn("Balance fetch failed in bundle: {}", e.getMessage());
+                bundle.put("balance", Map.of("available", 0.0, "pending", 0.0, "currency", "usd", "pendingByDate", Map.of()));
+            }
+            try {
+                List<Map<String, Object>> activity = getOverviewActivityInternal(businessId);
+                bundle.put("activity", activity);
+            } catch (Exception e) {
+                logger.warn("Activity fetch failed in bundle: {}", e.getMessage());
+                bundle.put("activity", List.of());
+            }
+            overviewBundleCache.put(cacheKey, new CachedOverviewBundle(bundle, System.currentTimeMillis() + OVERVIEW_CACHE_TTL_MS));
+            return ResponseEntity.ok(bundle);
+        } catch (Exception e) {
+            logger.error("Error fetching overview bundle for businessId={}: {}", businessId, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to fetch overview: " + e.getMessage()));
+        }
+    }
+
+    private BalanceResponse getBalanceInternal(Long businessId) {
+        Business business = businessRepository.findById(businessId)
+                .orElseThrow(() -> new RuntimeException("Business not found"));
+        String stripeAccountId = null;
+        com.stripe.net.RequestOptions ro = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build() : null;
+        com.stripe.model.Balance balance = ro != null ? com.stripe.model.Balance.retrieve(ro) : com.stripe.model.Balance.retrieve();
+        double totalAvailable = 0.0, totalPending = 0.0;
+        String currency = "usd";
+        for (int i = 0; i < balance.getAvailable().size(); i++) {
+            var m = balance.getAvailable().get(i);
+            totalAvailable += m.getAmount() / 100.0;
+            currency = m.getCurrency() != null ? String.valueOf(m.getCurrency()) : "usd";
+        }
+        for (int i = 0; i < balance.getPending().size(); i++) {
+            totalPending += balance.getPending().get(i).getAmount() / 100.0;
+        }
+        Map<String, Double> pendingByDate = new HashMap<>();
+        try {
+            long now = java.time.Instant.now().getEpochSecond();
+            var params = com.stripe.param.BalanceTransactionListParams.builder().setLimit(50L).build();
+            var txns = ro != null ? com.stripe.model.BalanceTransaction.list(params, ro) : com.stripe.model.BalanceTransaction.list(params);
+            for (var t : txns.getData()) {
+                Long avOn = t.getAvailableOn();
+                if (avOn != null && avOn > now && t.getAmount() > 0) {
+                    String key = java.time.Instant.ofEpochSecond(avOn).atZone(ZoneId.systemDefault()).toLocalDate().toString();
+                    pendingByDate.merge(key, t.getAmount() / 100.0, Double::sum);
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Pending by date fetch failed: {}", e.getMessage());
+        }
+        BalanceResponse resp = new BalanceResponse();
+        resp.setAvailable(totalAvailable);
+        resp.setPending(totalPending);
+        resp.setCurrency(currency);
+        resp.setPendingByDate(pendingByDate);
+        return resp;
+    }
+
+    private List<Map<String, Object>> getOverviewActivityInternal(Long businessId) throws Exception {
+        Business business = businessRepository.findById(businessId)
+                .orElseThrow(() -> new RuntimeException("Business not found"));
+        String stripeAccountId = null;
+        List<Map<String, Object>> activities = new ArrayList<>();
+        LocalDateTime sevenDaysAgo = LocalDateTime.now().minusDays(7);
+        long sevenDaysEpoch = sevenDaysAgo.atZone(ZoneId.systemDefault()).toEpochSecond();
+        com.stripe.net.RequestOptions ro = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build() : null;
+        ChargeListParams chargeParams = ChargeListParams.builder()
+                .setLimit(50L)
+                .setCreated(ChargeListParams.Created.builder().setGte(sevenDaysEpoch).build())
+                .build();
+        var chargeColl = ro != null ? Charge.list(chargeParams, ro) : Charge.list(chargeParams);
+        for (Charge charge : chargeColl.getData()) {
+            if (charge.getCreated() < sevenDaysEpoch) break;
+            if ("succeeded".equals(charge.getStatus()) && charge.getPaid()) {
+                Map<String, Object> a = new HashMap<>();
+                a.put("type", "PAYMENT");
+                a.put("icon", "DollarSign");
+                a.put("text", "Payment received from " + (charge.getBillingDetails() != null && charge.getBillingDetails().getName() != null ? charge.getBillingDetails().getName() : "Customer"));
+                a.put("amount", charge.getAmount() / 100.0);
+                a.put("time", formatTimeAgo(charge.getCreated()));
+                a.put("timestamp", charge.getCreated());
+                activities.add(a);
+            }
+        }
+        InvoiceListParams openParams = InvoiceListParams.builder().setStatus(InvoiceListParams.Status.OPEN).setLimit(20L).build();
+        var openInvs = ro != null ? Invoice.list(openParams, ro) : Invoice.list(openParams);
+        for (Invoice inv : openInvs.getData()) {
+            if (inv.getCreated() < sevenDaysEpoch) break;
+            Map<String, Object> a = new HashMap<>();
+            a.put("type", "FAILED_PAYMENT");
+            a.put("icon", "AlertCircle");
+            a.put("text", "Failed payment from " + (inv.getCustomerName() != null ? inv.getCustomerName() : "Customer"));
+            a.put("amount", inv.getAmountDue() / 100.0);
+            a.put("time", formatTimeAgo(inv.getCreated()));
+            a.put("timestamp", inv.getCreated());
+            activities.add(a);
+        }
+        List<UserBusiness> newMembers = userBusinessRepository.findByBusinessIdWithMemberships(businessId).stream()
+                .filter(ub -> ub.getCreatedAt() != null && ub.getCreatedAt().isAfter(sevenDaysAgo))
+                .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
+                .limit(20)
+                .collect(java.util.stream.Collectors.toList());
+        for (UserBusiness ub : newMembers) {
+            Map<String, Object> a = new HashMap<>();
+            a.put("type", "NEW_MEMBER");
+            a.put("icon", "UserPlus");
+            a.put("text", "New member " + ub.getUser().getFirstName() + " " + ub.getUser().getLastName() + " joined");
+            a.put("time", formatTimeAgo(ub.getCreatedAt().atZone(ZoneId.systemDefault()).toEpochSecond()));
+            a.put("timestamp", ub.getCreatedAt().atZone(ZoneId.systemDefault()).toEpochSecond());
+            activities.add(a);
+        }
+        activities.sort((x, y) -> Long.compare((Long) y.get("timestamp"), (Long) x.get("timestamp")));
+        return activities.stream().limit(20).collect(java.util.stream.Collectors.toList());
+    }
+
+    private LocalDateTime parseOverviewDate(String dateStr) {
+        if (dateStr == null || dateStr.isBlank()) return null;
+        try {
+            return java.time.ZonedDateTime.parse(dateStr).toLocalDateTime();
+        } catch (Exception e) {
+            try {
+                return LocalDate.parse(dateStr).atStartOfDay();
+            } catch (Exception e2) {
+                return null;
+            }
+        }
+    }
+
+    private static class CachedOverviewBundle {
+        final Map<String, Object> data;
+        final long expiresAt;
+        CachedOverviewBundle(Map<String, Object> data, long expiresAt) {
+            this.data = data;
+            this.expiresAt = expiresAt;
+        }
+    }
+
+    /**
      * Get business-specific overview analytics
      * GET /api/analytics/business-overview?businessId={id}&startDate={date}&endDate={date}
      * startDate and endDate are optional - if not provided, calculates revenue for all time
@@ -1332,8 +1527,7 @@ public class AnalyticsController {
             Business business = businessRepository.findById(businessId)
                     .orElseThrow(() -> new RuntimeException("Business not found with id: " + businessId));
 
-            // Get all UserBusiness records for this business
-            List<UserBusiness> userBusinesses = userBusinessRepository.findByBusinessId(businessId);
+            List<UserBusiness> userBusinesses = userBusinessRepository.findByBusinessIdWithMemberships(businessId);
             logger.info("Found {} UserBusiness records for businessId={}", userBusinesses.size(), businessId);
 
             String stripeAccountId = null; // Single-tenant: platform account only
@@ -1390,21 +1584,26 @@ public class AnalyticsController {
 
                     int totalCharges = 0;
 
-                    ChargeListParams.Builder paramsBuilder = ChargeListParams.builder()
-                            .setLimit(100L);
-                    
+                    long startEpoch;
+                    long endEpoch;
                     if (startDate != null && endDate != null) {
-                        long startEpoch = startDate.atZone(ZoneId.systemDefault()).toEpochSecond();
-                        long endEpoch = endDate.atZone(ZoneId.systemDefault()).toEpochSecond();
-                        paramsBuilder.setCreated(ChargeListParams.Created.builder()
-                                .setGte(startEpoch)
-                                .setLte(endEpoch)
-                                .build());
-                        logger.info("Filtering revenue by date range: {} to {} (epoch: {} to {})", 
-                            startDate, endDate, startEpoch, endEpoch);
+                        startEpoch = startDate.atZone(ZoneId.systemDefault()).toEpochSecond();
+                        endEpoch = endDate.atZone(ZoneId.systemDefault()).toEpochSecond();
+                    } else {
+                        LocalDateTime defEnd = LocalDateTime.now();
+                        LocalDateTime defStart = defEnd.minusMonths(12);
+                        startEpoch = defStart.atZone(ZoneId.systemDefault()).toEpochSecond();
+                        endEpoch = defEnd.atZone(ZoneId.systemDefault()).toEpochSecond();
                     }
+                    ChargeListParams params = ChargeListParams.builder()
+                            .setLimit(100L)
+                            .setCreated(ChargeListParams.Created.builder()
+                                    .setGte(startEpoch)
+                                    .setLte(endEpoch)
+                                    .build())
+                            .build();
 
-                    ChargeCollection charges = requestOptions != null ? Charge.list(paramsBuilder.build(), requestOptions) : Charge.list(paramsBuilder.build());
+                    ChargeCollection charges = requestOptions != null ? Charge.list(params, requestOptions) : Charge.list(params);
 
                     for (Charge charge : charges.autoPagingIterable()) {
                         // Only count successful charges that haven't been refunded
@@ -1699,8 +1898,7 @@ public class AnalyticsController {
             boolean isSingleDay = startDateTime.toLocalDate().isEqual(endDateTime.toLocalDate());
             Map<String, Long> membersByDate = new TreeMap<>();
 
-            // Get all UserBusiness records for this business created in the date range
-            List<UserBusiness> userBusinesses = userBusinessRepository.findByBusinessId(businessId);
+            List<UserBusiness> userBusinesses = userBusinessRepository.findByBusinessIdWithMemberships(businessId);
             
             for (UserBusiness userBusiness : userBusinesses) {
                 LocalDateTime createdAt = userBusiness.getCreatedAt();
@@ -1789,8 +1987,7 @@ public class AnalyticsController {
             boolean isSingleDay = startDateTime.toLocalDate().isEqual(endDateTime.toLocalDate());
             Map<String, Long> membersByDate = new TreeMap<>();
 
-            // Get all UserBusiness records for this business
-            List<UserBusiness> userBusinesses = userBusinessRepository.findByBusinessId(businessId);
+            List<UserBusiness> userBusinesses = userBusinessRepository.findByBusinessIdWithMemberships(businessId);
             
             // For each date/hour in range, count members who existed at that point
             if (isSingleDay) {
@@ -2338,9 +2535,8 @@ public class AnalyticsController {
                     logger.error("Error fetching Stripe data for recent activity: {}", e.getMessage(), e);
                 }
 
-            // Get new members (UserBusiness records created in last 7 days)
             LocalDateTime sevenDaysAgo = LocalDateTime.now().minusDays(7);
-            List<UserBusiness> newMembers = userBusinessRepository.findByBusinessId(businessId).stream()
+            List<UserBusiness> newMembers = userBusinessRepository.findByBusinessIdWithMemberships(businessId).stream()
                     .filter(ub -> ub.getCreatedAt() != null && ub.getCreatedAt().isAfter(sevenDaysAgo))
                     .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
                     .limit(20)

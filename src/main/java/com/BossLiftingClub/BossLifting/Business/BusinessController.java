@@ -12,15 +12,21 @@ import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+
+import com.BossLiftingClub.BossLifting.User.BusinessUser.MemberListProjection;
 
 @RestController
 @RequestMapping("/api/businesses")
@@ -76,8 +82,184 @@ public class BusinessController {
     }
 
     /**
-     * Get all members (users) for a specific business by businessTag
+     * Lightweight member list with pagination. Use this for the members table - avoids loading
+     * full UserDTO, referrer, signInLogs, and calculateAndUpdateStatus per member.
      */
+    @GetMapping("/{businessTag}/members/list")
+    public ResponseEntity<?> getMembersList(@PathVariable String businessTag,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "false") boolean delinquentOnly) {
+        try {
+            Pageable pageable = PageRequest.of(page, Math.min(size, 100));
+            String searchTerm = (search != null && !search.isBlank()) ? search.trim() : "";
+            var result = userBusinessRepository.findMemberListByBusinessTag(businessTag, searchTerm, delinquentOnly, pageable);
+            List<Map<String, Object>> items = result.getContent().stream()
+                    .map(p -> {
+                        Map<String, Object> m = new HashMap<>();
+                        m.put("userBusinessId", p.getUserBusinessId());
+                        m.put("userId", p.getUserId());
+                        m.put("firstName", p.getFirstName());
+                        m.put("lastName", p.getLastName());
+                        m.put("email", p.getEmail());
+                        m.put("phoneNumber", p.getPhoneNumber());
+                        m.put("profilePictureUrl", p.getProfilePictureUrl());
+                        m.put("userType", p.getUserType());
+                        m.put("calculatedStatus", p.getCalculatedStatus());
+                        m.put("calculatedUserType", p.getCalculatedUserType());
+                        m.put("createdAt", p.getCreatedAt());
+                        m.put("hasEverHadMembership", p.getHasEverHadMembership() != null && p.getHasEverHadMembership());
+                        m.put("isDelinquent", p.getIsDelinquent() != null && p.getIsDelinquent());
+                        m.put("stripeId", p.getStripeId() != null ? p.getStripeId() : "");
+                        String titles = p.getMembershipTitles();
+                        if (titles != null && !titles.isEmpty()) {
+                            m.put("membershipTitles", java.util.Arrays.asList(titles.split(",")));
+                        } else {
+                            m.put("membershipTitles", new ArrayList<String>());
+                        }
+                        return m;
+                    })
+                    .collect(Collectors.toList());
+            Map<String, Object> response = new HashMap<>();
+            response.put("content", items);
+            response.put("totalElements", result.getTotalElements());
+            response.put("totalPages", result.getTotalPages());
+            response.put("size", result.getSize());
+            response.put("number", result.getNumber());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to retrieve members list: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Get member IDs only - for bulk email and similar use cases.
+     */
+    @GetMapping("/{businessTag}/members/ids")
+    public ResponseEntity<?> getMemberIds(@PathVariable String businessTag) {
+        try {
+            List<Long> ids = userBusinessRepository.findUserBusinessIdsByBusinessTag(businessTag);
+            return ResponseEntity.ok(ids);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to retrieve member IDs: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Get full member details by userBusinessId. Call when a member is selected from the list.
+     */
+    @GetMapping("/{businessTag}/members/{userBusinessId}")
+    @org.springframework.transaction.annotation.Transactional
+    public ResponseEntity<?> getMemberById(@PathVariable String businessTag, @PathVariable Long userBusinessId) {
+        try {
+            Optional<UserBusiness> opt = userBusinessRepository.findByIdAndBusinessTag(userBusinessId, businessTag);
+            if (opt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Member not found"));
+            }
+            return ResponseEntity.ok(buildFullMemberMap(opt.get()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to retrieve member: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Get full member by userId (for Analytics failed payment flow).
+     */
+    @GetMapping("/{businessTag}/members/by-user/{userId}")
+    @org.springframework.transaction.annotation.Transactional
+    public ResponseEntity<?> getMemberByUserId(@PathVariable String businessTag, @PathVariable Long userId) {
+        try {
+            Optional<UserBusiness> opt = userBusinessRepository.findByUserIdAndBusinessTag(userId, businessTag);
+            if (opt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Member not found"));
+            }
+            return ResponseEntity.ok(buildFullMemberMap(opt.get()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to retrieve member: " + e.getMessage()));
+        }
+    }
+
+    private Map<String, Object> buildFullMemberMap(UserBusiness ub) {
+        Map<String, Object> member = new HashMap<>();
+        UserDTO userDTO = new UserDTO(ub.getUser());
+        if (userDTO.getReferredById() != null) {
+            User referredBy = ub.getUser().getReferredBy();
+            if (referredBy == null) {
+                referredBy = userRepository.findById(userDTO.getReferredById()).orElse(null);
+            }
+            if (referredBy != null) {
+                Map<String, Object> referrerInfo = new HashMap<>();
+                referrerInfo.put("id", referredBy.getId());
+                referrerInfo.put("firstName", referredBy.getFirstName());
+                referrerInfo.put("lastName", referredBy.getLastName());
+                referrerInfo.put("email", referredBy.getEmail());
+                referrerInfo.put("referralCode", referredBy.getReferralCode());
+                member.put("referrerInfo", referrerInfo);
+            }
+        }
+        List<Map<String, Object>> memberships = ub.getUserBusinessMemberships().stream()
+                .map(ubm -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("id", ubm.getId());
+                    m.put("membershipId", ubm.getMembership().getId());
+                    m.put("title", ubm.getMembership().getTitle());
+                    m.put("price", ubm.getMembership().getPrice());
+                    m.put("chargeInterval", ubm.getMembership().getChargeInterval());
+                    m.put("status", ubm.getStatus());
+                    m.put("anchorDate", ubm.getAnchorDate());
+                    m.put("endDate", ubm.getEndDate());
+                    m.put("stripeSubscriptionId", ubm.getStripeSubscriptionId());
+                    m.put("pauseStartDate", ubm.getPauseStartDate());
+                    m.put("pauseEndDate", ubm.getPauseEndDate());
+                    if (ubm.getActualPrice() != null) m.put("actualPrice", ubm.getActualPrice());
+                    Double planPrice = parsePriceToDouble(ubm.getMembership().getPrice());
+                    if (planPrice != null) m.put("planPrice", planPrice);
+                    return m;
+                })
+                .collect(Collectors.toList());
+        userDTO.setMemberships(memberships);
+        boolean hasAccount = userBusinessService.hasAccount(ub.getUser());
+        String calculatedStatus = ub.getCalculatedStatus();
+        String calculatedUserType = ub.getCalculatedUserType();
+        boolean waiverSignedButStatusWrong = "Waiver Required".equalsIgnoreCase(calculatedStatus)
+                && ub.getUser() != null && ub.getUser().getWaiverSignedDate() != null;
+        if (calculatedStatus == null || calculatedUserType == null || waiverSignedButStatusWrong) {
+            try {
+                userBusinessService.calculateAndUpdateStatus(ub);
+                var reloaded = userBusinessRepository.findById(ub.getId());
+                if (reloaded.isPresent()) {
+                    calculatedStatus = reloaded.get().getCalculatedStatus();
+                    calculatedUserType = reloaded.get().getCalculatedUserType();
+                }
+            } catch (Exception e) {
+                System.err.println("Warning: Failed to calculate status for UserBusiness " + ub.getId() + ": " + e.getMessage());
+            }
+        }
+        if (calculatedStatus == null) calculatedStatus = "Inactive";
+        if (calculatedUserType == null) calculatedUserType = "Member";
+        member.put("user", userDTO);
+        member.put("userBusinessId", ub.getId());
+        member.put("status", calculatedStatus);
+        member.put("calculatedStatus", calculatedStatus);
+        member.put("calculatedUserType", calculatedUserType);
+        member.put("stripeId", ub.getStripeId() != null ? ub.getStripeId() : "");
+        member.put("createdAt", ub.getCreatedAt());
+        member.put("hasAccount", hasAccount);
+        member.put("hasEverHadMembership", ub.getHasEverHadMembership() != null ? ub.getHasEverHadMembership() : false);
+        member.put("isDelinquent", ub.getIsDelinquent() != null ? ub.getIsDelinquent() : false);
+        return member;
+    }
+
+    /**
+     * Get all members (users) for a specific business by businessTag
+     * @deprecated Use /members/list for the table and /members/{userBusinessId} for detail.
+     */
+    @Deprecated
     @GetMapping("/{businessTag}/members")
     @org.springframework.transaction.annotation.Transactional // Allow writes to calculate status if needed
     public ResponseEntity<?> getMembersByBusinessTag(@PathVariable String businessTag) {
