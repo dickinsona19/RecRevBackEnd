@@ -60,7 +60,7 @@ public interface UserBusinessRepository extends JpaRepository<UserBusiness, Long
             "COALESCE(ub.has_ever_had_membership, false) AS has_ever_had_membership, " +
             "COALESCE(ub.is_delinquent, false) AS is_delinquent, " +
             "ub.stripe_id AS stripe_id, " +
-            "(SELECT GROUP_CONCAT(m.title) FROM user_business_membership ubm " +
+            "(SELECT STRING_AGG(m.title, ', ') FROM user_business_membership ubm " +
             " JOIN membership m ON m.id = ubm.membership_id WHERE ubm.user_business_id = ub.id) AS membership_titles " +
             "FROM user_business ub " +
             "JOIN users u ON u.id = ub.user_id " +
