@@ -47,11 +47,8 @@ public class AnalyticsService {
         Business business = businessRepository.findByBusinessTag(businessTag)
                 .orElseThrow(() -> new RuntimeException("Business not found: " + businessTag));
 
-        if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-            throw new IllegalStateException("Stripe integration not complete");
-        }
-
-        String stripeAccountId = business.getStripeAccountId();
+        // Single-tenant: use platform account (null)
+        String stripeAccountId = null;
 
         // Use current time if endDate is null
         if (endDate == null) {

@@ -634,16 +634,12 @@ public class UserController {
             com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness primaryUserBusiness = userBusinesses.get(0);
             String stripeCustomerId = primaryUserBusiness.getStripeId();
             com.BossLiftingClub.BossLifting.Business.Business business = primaryUserBusiness.getBusiness();
-            String stripeAccountId = business.getStripeAccountId();
+            // Single-tenant: use platform account (null)
+            String stripeAccountId = null;
 
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
                 return ResponseEntity.badRequest()
                     .body(Map.of("error", "Primary owner does not have a Stripe customer ID"));
-            }
-
-            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Business does not have Stripe configured"));
             }
 
             // Create new user

@@ -38,12 +38,6 @@ public class Business {
     @Column(name = "business_tag")
     private String businessTag;
 
-    @Column(name = "stripe_account_id")
-    private String stripeAccountId;
-
-    @Column(name = "onboarding_status")
-    private String onboardingStatus;
-
     @Column(name = "contact_email")
     private String contactEmail;
 
@@ -143,22 +137,6 @@ public class Business {
 
     public void setUserBusinesses(List<UserBusiness> userBusinesses) {
         this.userBusinesses = userBusinesses;
-    }
-
-    public String getStripeAccountId() {
-        return stripeAccountId;
-    }
-
-    public void setStripeAccountId(String stripeAccountId) {
-        this.stripeAccountId = stripeAccountId;
-    }
-
-    public String getOnboardingStatus() {
-        return onboardingStatus;
-    }
-
-    public void setOnboardingStatus(String onboardingStatus) {
-        this.onboardingStatus = onboardingStatus;
     }
 
     public String getContactEmail() {

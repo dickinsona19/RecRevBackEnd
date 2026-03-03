@@ -103,26 +103,22 @@ public class PromoServiceImpl implements PromoService {
              throw new RuntimeException("Promo code already exists: " + createDTO.getCodeToken());
         }
 
-        // Create in Stripe
-        String stripeAccountId = business.getStripeAccountId();
+        // Create in Stripe (single-tenant: platform account)
         String stripeCouponId = null;
         String stripePromoCodeId = null;
-
-        if (stripeAccountId != null) {
-            try {
-                Map<String, String> stripeResult = stripeService.createPromoCode(
-                        createDTO.getCodeToken(),
-                        createDTO.getDiscountType(),
-                        createDTO.getDiscountValue(),
-                        createDTO.getDuration(),
-                        createDTO.getDurationInMonths(),
-                        stripeAccountId
-                );
-                stripeCouponId = stripeResult.get("couponId");
-                stripePromoCodeId = stripeResult.get("promoCodeId");
-            } catch (StripeException e) {
-                throw new RuntimeException("Failed to create promo code in Stripe: " + e.getMessage());
-            }
+        try {
+            Map<String, String> stripeResult = stripeService.createPromoCode(
+                    createDTO.getCodeToken(),
+                    createDTO.getDiscountType(),
+                    createDTO.getDiscountValue(),
+                    createDTO.getDuration(),
+                    createDTO.getDurationInMonths(),
+                    null
+            );
+            stripeCouponId = stripeResult.get("couponId");
+            stripePromoCodeId = stripeResult.get("promoCodeId");
+        } catch (StripeException e) {
+            throw new RuntimeException("Failed to create promo code in Stripe: " + e.getMessage());
         }
 
         Promo promo = new Promo();

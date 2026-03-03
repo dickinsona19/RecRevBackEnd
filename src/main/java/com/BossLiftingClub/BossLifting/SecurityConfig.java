@@ -56,7 +56,12 @@ public class SecurityConfig {
                         // Test token endpoint (for development/testing)
                         .requestMatchers("/api/clients/test-token").permitAll()
                         
-                        // All API endpoints require authentication (including /api/stripe/*/sendFamilyInviteEmail)
+                        // Waiver signing flow (accessed via email link - user may not be logged in)
+                        .requestMatchers("/api/waivers/sign").permitAll()
+                        .requestMatchers("/api/waivers/business/*/template").permitAll()
+                        .requestMatchers("/api/user-businesses/user/*").permitAll()
+                        
+                        // All other API endpoints require authentication
                         .requestMatchers("/api/**").authenticated()
                         .requestMatchers("/users/**").authenticated()
                         .requestMatchers("/products/**").authenticated()

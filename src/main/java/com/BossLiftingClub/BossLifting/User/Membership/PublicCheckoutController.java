@@ -65,11 +65,8 @@ public class PublicCheckoutController {
             }
             Business business = businessOpt.get();
 
-            // Check if Stripe is configured
-            if (business.getStripeAccountId() == null || business.getStripeAccountId().isEmpty()) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Business does not have Stripe configured"));
-            }
+            // Single-tenant: use platform account (null)
+            String stripeAccountId = null;
 
             // Fetch membership
             Optional<Membership> membershipOpt = membershipRepository.findById(request.getMembershipId());
@@ -80,7 +77,7 @@ public class PublicCheckoutController {
             Membership membership = membershipOpt.get();
 
             // Verify membership is public and belongs to this business
-            if (!membership.isPublic()) {
+            if (!membership.isPublic()){
                 return ResponseEntity.status(HttpStatus.FORBIDDEN)
                         .body(Map.of("error", "Membership is not available for public signup"));
             }
@@ -128,7 +125,7 @@ public class PublicCheckoutController {
             // Create Stripe Checkout Session
             String checkoutUrl = stripeService.createPublicCheckoutSession(
                     membership.getStripePriceId(),
-                    business.getStripeAccountId(),
+                    stripeAccountId,
                     successUrl,
                     cancelUrl,
                     stripePromoCodeId,

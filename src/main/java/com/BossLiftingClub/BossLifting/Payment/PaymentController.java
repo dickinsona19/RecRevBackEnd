@@ -63,15 +63,7 @@ public class PaymentController {
                 return ResponseEntity.ok(Map.of("hasPaymentMethod", false));
             }
 
-            Business business = userBusiness.getBusiness();
-            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
-            }
-
-            String stripeAccountId = business.getStripeAccountId();
-
-            boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
+            boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, null);
 
             return ResponseEntity.ok(Map.of("hasPaymentMethod", hasPaymentMethod));
         } catch (Exception e) {
@@ -103,15 +95,7 @@ public class PaymentController {
                         .body(Map.of("error", "No Stripe customer ID found"));
             }
 
-            Business business = userBusiness.getBusiness();
-            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
-            }
-
-            String stripeAccountId = business.getStripeAccountId();
-
-            Map<String, String> paymentMethodDetails = stripeService.getPaymentMethodDetails(stripeCustomerId, stripeAccountId);
+            Map<String, String> paymentMethodDetails = stripeService.getPaymentMethodDetails(stripeCustomerId, null);
 
             return ResponseEntity.ok(paymentMethodDetails);
         } catch (Exception e) {
@@ -152,48 +136,25 @@ public class PaymentController {
                         .body(Map.of("error", "User does not have a Stripe customer ID"));
             }
 
-            Business business = userBusiness.getBusiness();
-            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
-            }
+            stripeService.attachPaymentMethodOnConnectedAccount(stripeCustomerId, paymentMethodId, null);
 
-            if (business.getStripeAccountId() == null) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Business does not have Stripe configured"));
-            }
-
-            // Attach and set as default payment method
-            stripeService.attachPaymentMethodOnConnectedAccount(
-                    stripeCustomerId,
-                    paymentMethodId,
-                    business.getStripeAccountId()
-            );
-
-            // Update all subscriptions for this customer to use the new payment method
+            // Update all subscriptions for this customer to use the new payment method (platform account)
             try {
-                com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                        .setStripeAccount(business.getStripeAccountId())
-                        .build();
-
                 com.stripe.param.SubscriptionListParams listParams = com.stripe.param.SubscriptionListParams.builder()
                         .setCustomer(stripeCustomerId)
                         .setStatus(com.stripe.param.SubscriptionListParams.Status.ALL)
                         .setLimit(100L)
                         .build();
 
-                com.stripe.model.SubscriptionCollection subscriptions = com.stripe.model.Subscription.list(listParams, requestOptions);
+                com.stripe.model.SubscriptionCollection subscriptions = com.stripe.model.Subscription.list(listParams);
 
                 for (com.stripe.model.Subscription subscription : subscriptions.getData()) {
-                    // Only update active subscriptions (not cancelled/paused)
                     if ("active".equalsIgnoreCase(subscription.getStatus()) || 
                         "trialing".equalsIgnoreCase(subscription.getStatus())) {
-                        
                         com.stripe.param.SubscriptionUpdateParams updateParams = com.stripe.param.SubscriptionUpdateParams.builder()
                                 .setDefaultPaymentMethod(paymentMethodId)
                                 .build();
-
-                        subscription.update(updateParams, requestOptions);
+                        subscription.update(updateParams);
                         System.out.println("✅ Updated subscription " + subscription.getId() + " to use new payment method");
                     }
                 }
@@ -254,20 +215,9 @@ public class PaymentController {
                         .body(Map.of("error", "User does not have a Stripe customer ID"));
             }
 
-            Business business = userBusiness.getBusiness();
-            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
-            }
-
-            if (business.getStripeAccountId() == null) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Business does not have Stripe configured"));
-            }
-
             String checkoutUrl = stripeService.createPaymentMethodCheckoutSession(
                     stripeCustomerId,
-                    business.getStripeAccountId(),
+                    null,
                     successUrl,
                     cancelUrl
             );
@@ -310,25 +260,14 @@ public class PaymentController {
                         .body(Map.of("error", "User does not have a Stripe customer ID"));
             }
 
-            Business business = userBusiness.getBusiness();
-            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
-            }
-
-            if (business.getStripeAccountId() == null) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Business does not have Stripe configured"));
-            }
-
-            // Create checkout session
             String checkoutUrl = stripeService.createPaymentMethodCheckoutSession(
                     stripeCustomerId,
-                    business.getStripeAccountId(),
+                    null,
                     successUrl,
                     cancelUrl
             );
 
+            Business business = userBusiness.getBusiness();
             // Send email
             String userEmail = userBusiness.getUser().getEmail();
             String userName = userBusiness.getUser().getFirstName() + " " + userBusiness.getUser().getLastName();
@@ -372,27 +311,17 @@ public class PaymentController {
 
             String stripeCustomerId = userBusiness.getStripeId();
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
-                // Return empty structure if no Stripe customer
                 Map<String, Object> emptyResponse = new java.util.HashMap<>();
                 emptyResponse.put("payments", List.of());
                 emptyResponse.put("upcomingDiscounts", List.of());
                 return ResponseEntity.ok(emptyResponse);
             }
 
-            Business business = userBusiness.getBusiness();
-            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
-            }
+            List<Map<String, Object>> paymentHistory = stripeService.getPaymentHistory(stripeCustomerId, null);
 
-            String stripeAccountId = business.getStripeAccountId();
-
-            List<Map<String, Object>> paymentHistory = stripeService.getPaymentHistory(stripeCustomerId, stripeAccountId);
-            
-            // Get active subscription discounts
             List<Map<String, Object>> upcomingDiscounts = new java.util.ArrayList<>();
             try {
-                upcomingDiscounts = stripeService.getSubscriptionDiscounts(stripeCustomerId, stripeAccountId);
+                upcomingDiscounts = stripeService.getSubscriptionDiscounts(stripeCustomerId, null);
             } catch (Exception e) {
                 System.err.println("Error fetching subscription discounts: " + e.getMessage());
                 // Don't fail the request if discount fetching fails
@@ -567,12 +496,16 @@ public class PaymentController {
                 String customerId = session.getCustomer();
                 String setupIntentId = session.getSetupIntent();
 
-                if (setupIntentId != null && stripeAccountId != null) {
-                    com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                            .setStripeAccount(stripeAccountId)
-                            .build();
-
-                    com.stripe.model.SetupIntent setupIntent = com.stripe.model.SetupIntent.retrieve(setupIntentId, requestOptions);
+                if (setupIntentId != null) {
+                    com.stripe.model.SetupIntent setupIntent;
+                    if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+                        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                                .setStripeAccount(stripeAccountId)
+                                .build();
+                        setupIntent = com.stripe.model.SetupIntent.retrieve(setupIntentId, requestOptions);
+                    } else {
+                        setupIntent = com.stripe.model.SetupIntent.retrieve(setupIntentId);
+                    }
                     String paymentMethodId = setupIntent.getPaymentMethod();
 
                     if (paymentMethodId != null) {
@@ -957,28 +890,14 @@ public class PaymentController {
                         .body(Map.of("error", "Charge ID is required"));
             }
 
-            // Get stripe account ID from user business if provided
-            String stripeAccountId = null;
-            if (userBusinessId != null) {
-                UserBusiness userBusiness = userBusinessRepository.findById(userBusinessId)
-                        .orElseThrow(() -> new RuntimeException("UserBusiness not found"));
-                Business business = userBusiness.getBusiness();
-                if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-                    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                            .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
-                }
-                stripeAccountId = business.getStripeAccountId();
-            }
-
             System.out.println("💰 Processing refund for charge: " + chargeId);
             System.out.println("💵 Amount: " + (amountInCents != null ?
                 "$" + (amountInCents / 100.0) + " (" + amountInCents + " cents)" : "Full refund"));
 
-            // Process refund
             Map<String, Object> refundResult = stripeService.createRefund(
                     chargeId,
                     amountInCents,
-                    stripeAccountId
+                    null
             );
 
             String status = (String) refundResult.get("status");
@@ -1067,21 +986,7 @@ public class PaymentController {
                         .body(Map.of("error", "User does not have a Stripe customer ID"));
             }
 
-            Business business = userBusiness.getBusiness();
-            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
-            }
-
-            if (business.getStripeAccountId() == null) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Business does not have Stripe configured"));
-            }
-
-            String stripeAccountId = business.getStripeAccountId();
-
-            // Check if user has payment method
-            boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
+            boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, null);
             if (!hasPaymentMethod) {
                 return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
                         .body(Map.of(
@@ -1119,20 +1024,18 @@ public class PaymentController {
             System.out.println("💰 Amount: $" + total + " (" + amountInCents + " cents)");
             System.out.println("📝 Description: " + description);
 
-            // Process payment
             Map<String, Object> paymentResult = stripeService.createOneTimePayment(
                     stripeCustomerId,
                     amountInCents,
                     "usd",
                     description.toString(),
-                    stripeAccountId
+                    null
             );
 
             String status = (String) paymentResult.get("status");
             System.out.println("✅ Payment status: " + status);
 
             if ("succeeded".equals(status)) {
-                // Payment successful
                 return ResponseEntity.ok(Map.of(
                         "success", true,
                         "message", "Payment processed successfully!",
@@ -1229,14 +1132,7 @@ public class PaymentController {
                         .body(Map.of("error", "User does not have a Stripe customer ID"));
             }
 
-            Business business = userBusiness.getBusiness();
-            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Stripe integration not complete. Please complete Stripe onboarding first."));
-            }
-
-            String stripeAccountId = business.getStripeAccountId();
-            boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
+            boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, null);
             if (!hasPaymentMethod) {
                 return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
                         .body(Map.of(
@@ -1252,7 +1148,7 @@ public class PaymentController {
                     amountInCents,
                     "usd",
                     description,
-                    stripeAccountId
+                    null
             );
 
             return ResponseEntity.ok(Map.of(

@@ -17,9 +17,6 @@ public interface BusinessRepository extends JpaRepository<Business, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT b FROM Business b WHERE b.businessTag = :businessTag")
     Optional<Business> findByBusinessTagWithLock(@Param("businessTag") String businessTag);
-
-    Optional<Business> findByStripeAccountId(String stripeAccountId);
-
 }
 
 

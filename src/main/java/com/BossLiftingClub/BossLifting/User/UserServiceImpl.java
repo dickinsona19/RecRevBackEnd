@@ -121,9 +121,8 @@ public class UserServiceImpl implements UserService {
                     return new IllegalArgumentException("Invalid business ID: " + businessId);
                 });
         
-        logger.info("Business found: id={}, title={}, businessTag={}, stripeAccountId={}, onboardingStatus={}", 
-                business.getId(), business.getTitle(), business.getBusinessTag(), 
-                business.getStripeAccountId(), business.getOnboardingStatus());
+        logger.info("Business found: id={}, title={}, businessTag={}", 
+                business.getId(), business.getTitle(), business.getBusinessTag());
 
         if (existingUserOpt.isPresent()) {
             // User exists, check if they're already in this business
@@ -152,16 +151,8 @@ public class UserServiceImpl implements UserService {
             logger.info("Existing Stripe customer ID from DTO (existing user path): {}", stripeCustomerId);
             
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
-                String stripeAccountId = business.getStripeAccountId();
-                logger.info("Business stripeAccountId (existing user path): {}", stripeAccountId);
-                
-                if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                    logger.error("Business {} (ID: {}) does not have a Stripe account ID. Onboarding status: {}", 
-                            business.getBusinessTag(), business.getId(), business.getOnboardingStatus());
-                    throw new IllegalStateException(
-                            String.format("Business '%s' has not completed Stripe onboarding. Please complete Stripe setup before adding members. Current status: %s", 
-                                    business.getTitle(), business.getOnboardingStatus() != null ? business.getOnboardingStatus() : "NOT_STARTED"));
-                }
+                String stripeAccountId = null; // Single-tenant: use platform account
+                logger.info("Creating Stripe customer on platform account (existing user path)");
                 
                 try {
                     String fullName = user.getFirstName() + " " + user.getLastName();
@@ -190,15 +181,10 @@ public class UserServiceImpl implements UserService {
                     userDTO.getPaymentMethodId(), stripeCustomerId);
             
             if (userDTO.getPaymentMethodId() != null && !userDTO.getPaymentMethodId().isEmpty() && stripeCustomerId != null && !stripeCustomerId.isEmpty()) {
-                String stripeAccountId = business.getStripeAccountId();
+                String stripeAccountId = null; // Single-tenant: use platform account
                 try {
-                    if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                        logger.error("Cannot attach payment method (existing user): Business does not have Stripe account ID");
-                        throw new IllegalStateException("Business has not completed Stripe onboarding. Cannot attach payment method.");
-                    }
-                    
-                    logger.info("Attaching payment method {} to customer {} on account {} (existing user)", 
-                            userDTO.getPaymentMethodId(), stripeCustomerId, stripeAccountId);
+                    logger.info("Attaching payment method {} to customer {} (existing user)", 
+                            userDTO.getPaymentMethodId(), stripeCustomerId);
                     stripeService.attachPaymentMethodOnConnectedAccount(
                         stripeCustomerId,
                         userDTO.getPaymentMethodId(),
@@ -278,16 +264,8 @@ public class UserServiceImpl implements UserService {
             logger.info("Existing Stripe customer ID from DTO (new user path): {}", stripeCustomerId);
             
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
-                String stripeAccountId = business.getStripeAccountId();
-                logger.info("Business stripeAccountId (new user path): {}", stripeAccountId);
-                
-                if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                    logger.error("Business {} (ID: {}) does not have a Stripe account ID. Onboarding status: {}", 
-                            business.getBusinessTag(), business.getId(), business.getOnboardingStatus());
-                    throw new IllegalStateException(
-                            String.format("Business '%s' has not completed Stripe onboarding. Please complete Stripe setup before adding members. Current status: %s", 
-                                    business.getTitle(), business.getOnboardingStatus() != null ? business.getOnboardingStatus() : "NOT_STARTED"));
-                }
+                String stripeAccountId = null; // Single-tenant: use platform account
+                logger.info("Creating Stripe customer on platform account (new user path)");
                 
                 try {
                     String fullName = user.getFirstName() + " " + user.getLastName();
@@ -317,15 +295,10 @@ public class UserServiceImpl implements UserService {
                     userDTO.getPaymentMethodId(), stripeCustomerId);
             
             if (userDTO.getPaymentMethodId() != null && !userDTO.getPaymentMethodId().isEmpty() && stripeCustomerId != null && !stripeCustomerId.isEmpty()) {
-                String stripeAccountId = business.getStripeAccountId();
+                String stripeAccountId = null; // Single-tenant: use platform account
                 try {
-                    if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                        logger.error("Cannot attach payment method (new user): Business does not have Stripe account ID");
-                        throw new IllegalStateException("Business has not completed Stripe onboarding. Cannot attach payment method.");
-                    }
-                    
-                    logger.info("Attaching payment method {} to customer {} on account {} (new user)", 
-                            userDTO.getPaymentMethodId(), stripeCustomerId, stripeAccountId);
+                    logger.info("Attaching payment method {} to customer {} (new user)", 
+                            userDTO.getPaymentMethodId(), stripeCustomerId);
                     stripeService.attachPaymentMethodOnConnectedAccount(
                         stripeCustomerId,
                         userDTO.getPaymentMethodId(),
@@ -678,12 +651,8 @@ public class UserServiceImpl implements UserService {
                 return;
             }
 
-            // Get the business's Stripe account
-            String stripeAccountId = business.getStripeAccountId();
-            if (stripeAccountId == null) {
-                System.err.println("Client or Stripe account ID not found for business: " + business.getBusinessTag());
-                return;
-            }
+            // Single-tenant: use platform account (null = platform)
+            String stripeAccountId = null;
 
             // Get the customer's Stripe ID from UserBusiness
             UserBusiness userBusiness = userBusinessMembership.getUserBusiness();

@@ -312,6 +312,14 @@ public class User {
         this.referredBy = referredBy;
     }
 
+    public Set<User> getReferredMembers() {
+        return referredMembers;
+    }
+
+    public void setReferredMembers(Set<User> referredMembers) {
+        this.referredMembers = referredMembers != null ? referredMembers : new HashSet<>();
+    }
+
     public Boolean isOver18() {
         return isOver18;
     }

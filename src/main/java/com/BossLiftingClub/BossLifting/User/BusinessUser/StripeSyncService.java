@@ -64,13 +64,7 @@ public class StripeSyncService {
             Business business = businessRepository.findByBusinessTag(businessTag)
                     .orElseThrow(() -> new RuntimeException("Business not found with tag: " + businessTag));
             
-            String stripeAccountId = business.getStripeAccountId();
-            
-            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                result.put("success", false);
-                result.put("message", "Business does not have Stripe account configured");
-                return result;
-            }
+            String stripeAccountId = null; // Single-tenant: platform account only
             
             List<UserBusiness> userBusinesses = userBusinessRepository.findByBusinessId(business.getId());
             logger.info("Syncing {} user-business relationships for business {}", userBusinesses.size(), businessTag);
@@ -83,9 +77,9 @@ public class StripeSyncService {
                         continue;
                     }
                     
-                    com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                            .setStripeAccount(stripeAccountId)
-                            .build();
+                    com.stripe.net.RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                            ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                            : null;
                     
                     SubscriptionListParams params = SubscriptionListParams.builder()
                             .setCustomer(stripeCustomerId)
@@ -93,7 +87,9 @@ public class StripeSyncService {
                             .setLimit(100L)
                             .build();
                     
-                    com.stripe.model.SubscriptionCollection subscriptions = Subscription.list(params, requestOptions);
+                    com.stripe.model.SubscriptionCollection subscriptions = requestOptions != null
+                            ? Subscription.list(params, requestOptions)
+                            : Subscription.list(params);
                     
                     boolean needsRecalculation = false;
                     boolean hasPastDueSubscription = false;
@@ -115,7 +111,7 @@ public class StripeSyncService {
                                 String productId = item.getPrice().getProduct();
                                 if (productId != null) {
                                     try {
-                                        Product product = Product.retrieve(productId, requestOptions);
+                                        Product product = requestOptions != null ? Product.retrieve(productId, requestOptions) : Product.retrieve(productId);
                                         productNameRef[0] = product.getName();
                                     } catch (Exception e) {
                                         logger.warn("Could not retrieve product {}: {}", productId, e.getMessage());
@@ -368,31 +364,22 @@ public class StripeSyncService {
             int totalErrors = 0;
             
             for (Business business : businesses) {
-                String stripeAccountId = business.getStripeAccountId();
-                
-                // Skip businesses without Stripe account
-                if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                    logger.debug("Skipping business {} - no Stripe account ID", business.getId());
-                    continue;
-                }
-                
-                // Get all UserBusiness relationships for this business
+                String stripeAccountId = null; // Single-tenant: platform account only
+
                 List<UserBusiness> userBusinesses = userBusinessRepository.findByBusinessId(business.getId());
                 logger.debug("Found {} user-business relationships for business {}", userBusinesses.size(), business.getId());
-                
+
                 for (UserBusiness userBusiness : userBusinesses) {
                     try {
                         String stripeCustomerId = userBusiness.getStripeId();
-                        
-                        // Skip if no Stripe customer ID
+
                         if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
                             continue;
                         }
-                        
-                        // Fetch subscriptions from Stripe for this customer
-                        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                                .setStripeAccount(stripeAccountId)
-                                .build();
+
+                        com.stripe.net.RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                                ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                                : null;
                         
                         SubscriptionListParams params = SubscriptionListParams.builder()
                                 .setCustomer(stripeCustomerId)
@@ -400,7 +387,9 @@ public class StripeSyncService {
                                 .setLimit(100L)
                                 .build();
                         
-                        com.stripe.model.SubscriptionCollection subscriptions = Subscription.list(params, requestOptions);
+                        com.stripe.model.SubscriptionCollection subscriptions = requestOptions != null
+                                ? Subscription.list(params, requestOptions)
+                                : Subscription.list(params);
                         
                         // Track if we need to recalculate status
                         boolean needsRecalculation = false;

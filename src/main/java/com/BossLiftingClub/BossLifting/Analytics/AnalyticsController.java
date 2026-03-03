@@ -704,17 +704,13 @@ public class AnalyticsController {
             String tag = businessTag != null ? businessTag : clubTag;
             Business business = businessRepository.findByBusinessTag(tag)
                     .orElseThrow(() -> new RuntimeException("Business not found"));
-            String stripeAccountId = business.getStripeAccountId();
-            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                throw new RuntimeException("Business does not have Stripe configured");
-            }
-
+            String stripeAccountId = null; // Single-tenant: platform account only
             LocalDateTime start = parseDate(startDate);
             LocalDateTime end = parseDate(endDate, LocalDateTime.now());
 
-            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                    .setStripeAccount(stripeAccountId)
-                    .build();
+            com.stripe.net.RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                    ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                    : null;
 
             double revenue;
             // Always use optimized charge fetching - only fetch charges in the date range
@@ -797,15 +793,11 @@ public class AnalyticsController {
             String tag = businessTag != null ? businessTag : clubTag;
             Business business = businessRepository.findByBusinessTag(tag)
                     .orElseThrow(() -> new RuntimeException("Business not found"));
-            String stripeAccountId = business.getStripeAccountId();
-            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                throw new RuntimeException("Business does not have Stripe configured");
-            }
+            String stripeAccountId = null; // Single-tenant: platform account only
             List<UserBusiness> userBusinesses = userBusinessRepository.findAllByBusinessTag(tag);
-            
-            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                    .setStripeAccount(stripeAccountId)
-                    .build();
+            com.stripe.net.RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                    ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                    : null;
             
             // Fetch all charges for lifetime revenue (optimized - only once)
             List<Charge> allCharges = fetchAllCharges(requestOptions);
@@ -855,7 +847,7 @@ public class AnalyticsController {
                             .build())
                     .build();
             
-            ChargeCollection chargeCollection = Charge.list(params, requestOptions);
+            ChargeCollection chargeCollection = requestOptions != null ? Charge.list(params, requestOptions) : Charge.list(params);
             for (Charge charge : chargeCollection.autoPagingIterable()) {
                 charges.add(charge);
             }
@@ -885,11 +877,7 @@ public class AnalyticsController {
             Business business = businessRepository.findByBusinessTag(tag)
                     .orElseThrow(() -> new RuntimeException("Business not found with tag: " + tag));
 
-            String stripeAccountId = business.getStripeAccountId();
-
-            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                throw new RuntimeException("Business does not have Stripe configured");
-            }
+            String stripeAccountId = null; // Single-tenant: platform account only
 
             // Parse date range - handle ISO 8601 format with timezone (Z suffix)
             LocalDateTime start = null;
@@ -897,7 +885,6 @@ public class AnalyticsController {
 
             try {
                 if (startDate != null && !startDate.isEmpty()) {
-                    // Parse ISO 8601 date with timezone and convert to LocalDateTime
                     start = java.time.ZonedDateTime.parse(startDate).toLocalDateTime();
                 }
                 if (endDate != null && !endDate.isEmpty()) {
@@ -910,13 +897,11 @@ public class AnalyticsController {
                 return errorResponse;
             }
 
-            // Get all UserBusiness records for this business
             List<UserBusiness> userBusinesses = userBusinessRepository.findAllByBusinessTag(tag);
 
-            // OPTIMIZATION: Fetch all Stripe data once and cache it to avoid multiple API calls
-            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                    .setStripeAccount(stripeAccountId)
-                    .build();
+            com.stripe.net.RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                    ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                    : null;
             
             // Fetch ALL charges once (for lifetime revenue calculations)
             List<Charge> allCharges = fetchAllCharges(requestOptions);
@@ -968,7 +953,7 @@ public class AnalyticsController {
             ChargeListParams params = ChargeListParams.builder()
                     .setLimit(100L)
                     .build();
-            ChargeCollection charges = Charge.list(params, requestOptions);
+            ChargeCollection charges = requestOptions != null ? Charge.list(params, requestOptions) : Charge.list(params);
             for (Charge charge : charges.autoPagingIterable()) {
                 allCharges.add(charge);
             }
@@ -990,7 +975,7 @@ public class AnalyticsController {
                         .setLte(end.atZone(ZoneId.systemDefault()).toEpochSecond())
                         .build());
             }
-            RefundCollection refunds = Refund.list(paramsBuilder.build(), requestOptions);
+            RefundCollection refunds = requestOptions != null ? Refund.list(paramsBuilder.build(), requestOptions) : Refund.list(paramsBuilder.build());
             for (Refund refund : refunds.autoPagingIterable()) {
                 allRefunds.add(refund);
             }
@@ -1018,11 +1003,10 @@ public class AnalyticsController {
         return totalRevenue;
     }
 
-    // Legacy method kept for backward compatibility (but should use cached version)
     private double calculateTotalRevenue(String stripeAccountId, LocalDateTime start, LocalDateTime end) throws Exception {
-        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                .setStripeAccount(stripeAccountId)
-                .build();
+        com.stripe.net.RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                : null;
 
         ChargeListParams.Builder paramsBuilder = ChargeListParams.builder().setLimit(100L);
 
@@ -1033,7 +1017,7 @@ public class AnalyticsController {
                     .build());
         }
 
-        ChargeCollection charges = Charge.list(paramsBuilder.build(), requestOptions);
+        ChargeCollection charges = requestOptions != null ? Charge.list(paramsBuilder.build(), requestOptions) : Charge.list(paramsBuilder.build());
         double totalRevenue = 0.0;
 
         for (Charge charge : charges.autoPagingIterable()) {
@@ -1228,16 +1212,14 @@ public class AnalyticsController {
         return refunded;
     }
 
-    // Legacy method kept for backward compatibility
     private Map<String, Object> getRefundedPayments(String stripeAccountId, LocalDateTime start, LocalDateTime end) throws Exception {
         Map<String, Object> refunded = new HashMap<>();
         int count = 0;
         double amount = 0.0;
 
-        // Query refunds from Stripe
-        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                .setStripeAccount(stripeAccountId)
-                .build();
+        com.stripe.net.RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                : null;
 
         RefundListParams.Builder paramsBuilder = RefundListParams.builder();
         if (start != null) {
@@ -1247,7 +1229,7 @@ public class AnalyticsController {
                     .build());
         }
 
-        RefundCollection refunds = Refund.list(paramsBuilder.build(), requestOptions);
+        RefundCollection refunds = requestOptions != null ? Refund.list(paramsBuilder.build(), requestOptions) : Refund.list(paramsBuilder.build());
         for (Refund refund : refunds.autoPagingIterable()) {
             count++;
             amount += refund.getAmount() / 100.0;
@@ -1354,8 +1336,7 @@ public class AnalyticsController {
             List<UserBusiness> userBusinesses = userBusinessRepository.findByBusinessId(businessId);
             logger.info("Found {} UserBusiness records for businessId={}", userBusinesses.size(), businessId);
 
-            // Get Stripe Account ID from business
-            String stripeAccountId = business.getStripeAccountId();
+            String stripeAccountId = null; // Single-tenant: platform account only
 
             // Calculate Total Active Members (users with at least one ACTIVE membership)
             int totalActiveMembers = 0;
@@ -1402,25 +1383,17 @@ public class AnalyticsController {
             // Calculate Total Revenue from Stripe - Pull ALL charges from the connected account
             double totalRevenue = 0.0;
 
-            // Fetch ALL charges directly from the connected account
-            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                logger.error("Cannot fetch revenue from Stripe: Stripe Account ID is null or empty for businessId={}. " +
-                    "Please ensure the business's client has a valid stripe_account_id configured.", businessId);
-            } else {
-                try {
-                    com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                            .setStripeAccount(stripeAccountId)
-                            .build();
+            try {
+                    com.stripe.net.RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                            ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                            : null;
 
                     int totalCharges = 0;
 
-                    // Fetch charges from this connected account
-                    // Filter by date range if provided, otherwise fetch all charges
                     ChargeListParams.Builder paramsBuilder = ChargeListParams.builder()
                             .setLimit(100L);
                     
                     if (startDate != null && endDate != null) {
-                        // Filter charges by date range
                         long startEpoch = startDate.atZone(ZoneId.systemDefault()).toEpochSecond();
                         long endEpoch = endDate.atZone(ZoneId.systemDefault()).toEpochSecond();
                         paramsBuilder.setCreated(ChargeListParams.Created.builder()
@@ -1431,7 +1404,7 @@ public class AnalyticsController {
                             startDate, endDate, startEpoch, endEpoch);
                     }
 
-                    ChargeCollection charges = Charge.list(paramsBuilder.build(), requestOptions);
+                    ChargeCollection charges = requestOptions != null ? Charge.list(paramsBuilder.build(), requestOptions) : Charge.list(paramsBuilder.build());
 
                     for (Charge charge : charges.autoPagingIterable()) {
                         // Only count successful charges that haven't been refunded
@@ -1447,7 +1420,6 @@ public class AnalyticsController {
                 } catch (Exception e) {
                     logger.error("Error fetching Stripe data for businessId={}: {}", businessId, e.getMessage(), e);
                 }
-            }
 
             ClubOverviewResponse response = new ClubOverviewResponse();
             response.setTotalRevenue(totalRevenue);
@@ -1513,16 +1485,7 @@ public class AnalyticsController {
                         .body(Map.of("error", "Business not found with id: " + actualBusinessId));
             }
 
-            // Get Stripe Account ID from business
-            String stripeAccountId = business.getStripeAccountId();
-
-            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                logger.error("No Stripe account ID found for businessId={}", actualBusinessId);
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Business does not have a Stripe account configured"));
-            }
-
-            logger.info("Using Stripe account ID: {} for businessId={}", stripeAccountId, actualBusinessId);
+            String stripeAccountId = null; // Single-tenant: platform account only
 
             // Calculate date range based on period or custom dates
             LocalDateTime endDateTime = LocalDateTime.now();
@@ -1572,14 +1535,11 @@ public class AnalyticsController {
             Map<String, Double> revenueByDate = new TreeMap<>(); // TreeMap to keep dates sorted
             int totalChargesProcessed = 0;
 
-            // Fetch ALL charges directly from the connected account
             try {
-                com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                        .setStripeAccount(stripeAccountId)
-                        .build();
+                com.stripe.net.RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                        ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                        : null;
 
-                // Fetch all charges from this connected account (no customer filter)
-                // We need to handle pagination to get all charges in the range
                 ChargeListParams.Builder paramsBuilder = ChargeListParams.builder()
                         .setCreated(ChargeListParams.Created.builder()
                                 .setGte(startEpoch)
@@ -1587,10 +1547,7 @@ public class AnalyticsController {
                                 .build())
                         .setLimit(100L);
 
-                logger.debug("Fetching charges for Stripe account: {}", stripeAccountId);
-                
-                // Use autoPagingIterable to get all results
-                ChargeCollection charges = Charge.list(paramsBuilder.build(), requestOptions);
+                ChargeCollection charges = requestOptions != null ? Charge.list(paramsBuilder.build(), requestOptions) : Charge.list(paramsBuilder.build());
                 Iterable<Charge> chargesIterable = charges.autoPagingIterable();
 
                 for (Charge charge : chargesIterable) {
@@ -1901,13 +1858,8 @@ public class AnalyticsController {
                         .body(Map.of("error", "Business not found"));
             }
 
-            String stripeAccountId = business.getStripeAccountId();
-            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "Business does not have a Stripe account configured"));
-            }
+            String stripeAccountId = null; // Single-tenant: platform account only
 
-            // Calculate date range
             LocalDateTime endDateTime = LocalDateTime.now();
             LocalDateTime startDateTime;
 
@@ -1923,15 +1875,14 @@ public class AnalyticsController {
             boolean isSingleDay = startDateTime.toLocalDate().isEqual(endDateTime.toLocalDate());
             Map<String, Double> mrrByDate = new TreeMap<>();
 
-            // Fetch all subscriptions (active, past_due, etc.) to calculate MRR over time
-            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                    .setStripeAccount(stripeAccountId)
-                    .build();
+            com.stripe.net.RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                    ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                    : null;
 
             SubscriptionListParams.Builder paramsBuilder = SubscriptionListParams.builder()
                     .setLimit(100L);
 
-            SubscriptionCollection subscriptions = Subscription.list(paramsBuilder.build(), requestOptions);
+            SubscriptionCollection subscriptions = requestOptions != null ? Subscription.list(paramsBuilder.build(), requestOptions) : Subscription.list(paramsBuilder.build());
             Iterable<Subscription> subscriptionsIterable = subscriptions.autoPagingIterable();
 
             // Collect all subscriptions with their monthly amounts and dates
@@ -2046,20 +1997,13 @@ public class AnalyticsController {
             Business business = businessRepository.findById(actualBusinessId)
                     .orElseThrow(() -> new RuntimeException("Business not found with id: " + actualBusinessId));
 
-            // Get Stripe Account ID from business
-            String stripeAccountId = business.getStripeAccountId();
+            String stripeAccountId = null; // Single-tenant: platform account only
 
-            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                logger.error("No Stripe account ID found for businessId={}", actualBusinessId);
-                throw new RuntimeException("Business does not have a Stripe account configured");
-            }
+            com.stripe.net.RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                    ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                    : null;
 
-            // Fetch balance from Stripe
-            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                    .setStripeAccount(stripeAccountId)
-                    .build();
-
-            com.stripe.model.Balance balance = com.stripe.model.Balance.retrieve(requestOptions);
+            com.stripe.model.Balance balance = requestOptions != null ? com.stripe.model.Balance.retrieve(requestOptions) : com.stripe.model.Balance.retrieve();
 
             // Calculate total available balance across all currencies
             double totalAvailable = 0.0;
@@ -2069,7 +2013,7 @@ public class AnalyticsController {
             for (int i = 0; i < balance.getAvailable().size(); i++) {
                 var money = balance.getAvailable().get(i);
                 totalAvailable += money.getAmount() / 100.0;
-                currency = money.getCurrency();
+                currency = money.getCurrency() != null ? String.valueOf(money.getCurrency()) : "usd";
             }
 
             // Calculate total pending from balance
@@ -2088,7 +2032,7 @@ public class AnalyticsController {
                         .setLimit(100L)
                         .build();
                 
-                com.stripe.model.BalanceTransactionCollection transactions = com.stripe.model.BalanceTransaction.list(params, requestOptions);
+                com.stripe.model.BalanceTransactionCollection transactions = requestOptions != null ? com.stripe.model.BalanceTransaction.list(params, requestOptions) : com.stripe.model.BalanceTransaction.list(params);
                 
                 for (com.stripe.model.BalanceTransaction transaction : transactions.getData()) {
                     Long availableOn = transaction.getAvailableOn();
@@ -2159,20 +2103,13 @@ public class AnalyticsController {
             Business business = businessRepository.findById(actualBusinessId)
                     .orElseThrow(() -> new RuntimeException("Business not found with id: " + actualBusinessId));
 
-            // Get Stripe Account ID from business
-            String stripeAccountId = business.getStripeAccountId();
+            String stripeAccountId = null; // Single-tenant: platform account only
 
-            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                logger.error("No Stripe account ID found for businessId={}", clubId);
-                throw new RuntimeException("Business does not have a Stripe account configured");
-            }
+            com.stripe.net.RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                    ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                    : null;
 
-            // Fetch balance to determine available funds
-            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                    .setStripeAccount(stripeAccountId)
-                    .build();
-
-            com.stripe.model.Balance balance = com.stripe.model.Balance.retrieve(requestOptions);
+            com.stripe.model.Balance balance = requestOptions != null ? com.stripe.model.Balance.retrieve(requestOptions) : com.stripe.model.Balance.retrieve();
 
             double availableBalance = 0.0;
             String currency = "usd";
@@ -2180,7 +2117,7 @@ public class AnalyticsController {
             for (int i = 0; i < balance.getAvailable().size(); i++) {
                 var money = balance.getAvailable().get(i);
                 availableBalance += money.getAmount() / 100.0;
-                currency = money.getCurrency();
+                currency = money.getCurrency() != null ? String.valueOf(money.getCurrency()) : "usd";
             }
 
             if (availableBalance <= 0) {
@@ -2209,7 +2146,7 @@ public class AnalyticsController {
                     .setDescription("Payout for business " + business.getTitle())
                     .build();
 
-            com.stripe.model.Payout payout = com.stripe.model.Payout.create(params, requestOptions);
+            com.stripe.model.Payout payout = requestOptions != null ? com.stripe.model.Payout.create(params, requestOptions) : com.stripe.model.Payout.create(params);
 
             PayoutResponse response = new PayoutResponse();
             response.setPayoutId(payout.getId());
@@ -2326,25 +2263,23 @@ public class AnalyticsController {
             // For now, we allow all authenticated users to access any business
             // This will be secured once we verify the staff business relationship is properly loaded
             
-            String stripeAccountId = business.getStripeAccountId();
+            String stripeAccountId = null; // Single-tenant: platform account only
             List<Map<String, Object>> activities = new ArrayList<>();
 
-            // Get recent successful payments (last 7 days)
-            if (stripeAccountId != null && !stripeAccountId.isEmpty() && "COMPLETED".equals(business.getOnboardingStatus())) {
-                try {
+            try {
                     LocalDateTime sevenDaysAgo = LocalDateTime.now().minusDays(7);
                     long sevenDaysAgoEpoch = sevenDaysAgo.atZone(ZoneId.systemDefault()).toEpochSecond();
 
-                    com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                            .setStripeAccount(stripeAccountId)
-                            .build();
+                    com.stripe.net.RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                            ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                            : null;
 
-                    // Get successful charges
                     ChargeListParams chargeParams = ChargeListParams.builder()
                             .setLimit(50L)
                             .build();
 
-                    for (Charge charge : Charge.list(chargeParams, requestOptions).autoPagingIterable()) {
+                    com.stripe.model.ChargeCollection chargeColl = requestOptions != null ? Charge.list(chargeParams, requestOptions) : Charge.list(chargeParams);
+                    for (Charge charge : chargeColl.autoPagingIterable()) {
                         if (charge.getCreated() < sevenDaysAgoEpoch) break;
                         if ("succeeded".equals(charge.getStatus()) && charge.getPaid()) {
                             Map<String, Object> activity = new HashMap<>();
@@ -2367,7 +2302,8 @@ public class AnalyticsController {
                             .setLimit(50L)
                             .build();
 
-                    for (Invoice invoice : Invoice.list(openParams, requestOptions).autoPagingIterable()) {
+                    com.stripe.model.InvoiceCollection openInvoices = requestOptions != null ? Invoice.list(openParams, requestOptions) : Invoice.list(openParams);
+                    for (Invoice invoice : openInvoices.autoPagingIterable()) {
                         if (invoice.getCreated() < sevenDaysAgoEpoch) break;
                         Map<String, Object> activity = new HashMap<>();
                         activity.put("type", "FAILED_PAYMENT");
@@ -2385,7 +2321,8 @@ public class AnalyticsController {
                             .setLimit(50L)
                             .build();
 
-                    for (Invoice invoice : Invoice.list(uncollectibleParams, requestOptions).autoPagingIterable()) {
+                    com.stripe.model.InvoiceCollection uncollectibleInvoices = requestOptions != null ? Invoice.list(uncollectibleParams, requestOptions) : Invoice.list(uncollectibleParams);
+                    for (Invoice invoice : uncollectibleInvoices.autoPagingIterable()) {
                         if (invoice.getCreated() < sevenDaysAgoEpoch) break;
                         Map<String, Object> activity = new HashMap<>();
                         activity.put("type", "FAILED_PAYMENT");
@@ -2400,7 +2337,6 @@ public class AnalyticsController {
                 } catch (Exception e) {
                     logger.error("Error fetching Stripe data for recent activity: {}", e.getMessage(), e);
                 }
-            }
 
             // Get new members (UserBusiness records created in last 7 days)
             LocalDateTime sevenDaysAgo = LocalDateTime.now().minusDays(7);

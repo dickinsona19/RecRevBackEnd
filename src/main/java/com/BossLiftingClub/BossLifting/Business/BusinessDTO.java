@@ -23,10 +23,6 @@ public class BusinessDTO {
 
     private Integer staffId;
 
-    private String onboardingStatus;
-
-    private String stripeAccountId;
-
     private String contactEmail;
 
     // Referral program settings
@@ -45,9 +41,6 @@ public class BusinessDTO {
         dto.setBusinessTag(business.getBusinessTag());
         dto.setClientId(business.getClient() != null ? business.getClient().getId() : null);
         dto.setStaffId(business.getStaff() != null ? business.getStaff().getId() : null);
-        dto.setOnboardingStatus(business.getOnboardingStatus());
-        dto.setStripeAccountId(business.getStripeAccountId());
-        dto.setContactEmail(business.getContactEmail());
         dto.setContactEmail(business.getContactEmail());
         dto.setReferredUserDiscountMonths(business.getReferredUserDiscountMonths());
         dto.setReferredUserWaiveActivationFee(business.getReferredUserWaiveActivationFee());
@@ -118,22 +111,6 @@ public class BusinessDTO {
 
     public void setStaffId(Integer staffId) {
         this.staffId = staffId;
-    }
-
-    public String getOnboardingStatus() {
-        return onboardingStatus;
-    }
-
-    public void setOnboardingStatus(String onboardingStatus) {
-        this.onboardingStatus = onboardingStatus;
-    }
-
-    public String getStripeAccountId() {
-        return stripeAccountId;
-    }
-
-    public void setStripeAccountId(String stripeAccountId) {
-        this.stripeAccountId = stripeAccountId;
     }
 
     public String getContactEmail() {

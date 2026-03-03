@@ -63,11 +63,8 @@ public class FailedPaymentDetailsEndpoint {
             Business business = businessRepository.findByBusinessTag(tag)
                     .orElseThrow(() -> new RuntimeException("Business not found with tag: " + tag));
 
-            String stripeAccountId = business.getStripeAccountId();
-
-            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                throw new RuntimeException("Business does not have Stripe configured");
-            }
+            // Single-tenant: use platform account (null)
+            String stripeAccountId = null;
 
             // Parse date range
             LocalDateTime start = null;

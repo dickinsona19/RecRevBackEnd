@@ -14,6 +14,10 @@ import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts.FontName;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import org.apache.pdfbox.pdmodel.interactive.form.PDAcroForm;
+import org.apache.pdfbox.pdmodel.interactive.form.PDField;
+import org.apache.pdfbox.pdmodel.interactive.form.PDTextField;
+import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationWidget;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,9 +29,11 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -219,70 +225,231 @@ public class WaiverSigningService {
                 .findFirst();
     }
 
+    /**
+     * Migration-safe: attempts full waiver signing but never throws. On any failure, sets user's
+     * signature/waiver fields and returns. Prevents transaction rollback when PDF merge fails (e.g. encrypted template).
+     */
+    @Transactional
+    public void signWaiverFromSignatureUrlForMigration(Long userId, Long businessId, String signatureImageUrl, LocalDateTime signedAt) {
+        try {
+            UserWaiver w = signWaiverFromSignatureUrl(userId, businessId, signatureImageUrl, signedAt);
+            if (w != null) {
+                logger.info("Waiver attached from migration for user {}", userId);
+            }
+        } catch (Exception e) {
+            logger.warn("Could not attach waiver PDF for user {}: {} - creating UserWaiver with signature URL only", userId, e.getMessage());
+            User user = userRepository.findById(userId).orElse(null);
+            Business business = businessRepository.findById(businessId).orElse(null);
+            WaiverTemplate template = waiverTemplateRepository.findFirstByBusinessIdAndActiveTrueOrderByVersionDesc(businessId).orElse(null);
+            if (user != null && business != null && template != null) {
+                LocalDateTime signDate = signedAt != null ? signedAt : LocalDateTime.now();
+                user.setSignatureData(signatureImageUrl);
+                user.setWaiverSignedDate(signDate);
+                user.setWaiverStatus(WaiverStatus.SIGNED);
+                userRepository.save(user);
+                UserWaiver userWaiver = new UserWaiver();
+                userWaiver.setUser(user);
+                userWaiver.setBusiness(business);
+                userWaiver.setWaiverTemplate(template);
+                userWaiver.setSignedAt(signDate);
+                userWaiver.setSignatureImageUrl(signatureImageUrl);
+                userWaiver.setFinalPdfUrl(null);
+                userWaiverRepository.save(userWaiver);
+            }
+        }
+    }
 
-    private byte[] mergeSignatureIntoPdf(byte[] templatePdfBytes, String userName, String signatureBase64, String signerIp) throws IOException {
-        try (PDDocument document = Loader.loadPDF(templatePdfBytes)) {
-            // Add a new page for signature
-            PDPage signaturePage = new PDPage(PDRectangle.A4);
-            document.addPage(signaturePage);
+    /**
+     * Sign waiver for a migrated user using an existing signature image URL.
+     * Fetches the image from the URL, merges it into the waiver PDF (same as manual flow), and creates the UserWaiver record.
+     */
+    @Transactional
+    public UserWaiver signWaiverFromSignatureUrl(Long userId, Long businessId, String signatureImageUrl, LocalDateTime signedAt) {
+        if (signatureImageUrl == null || signatureImageUrl.isBlank()) {
+            throw new IllegalArgumentException("signatureImageUrl is required");
+        }
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        Business business = businessRepository.findById(businessId)
+                .orElseThrow(() -> new IllegalArgumentException("Business not found"));
+        WaiverTemplate template = waiverTemplateRepository
+                .findFirstByBusinessIdAndActiveTrueOrderByVersionDesc(businessId)
+                .orElseThrow(() -> new IllegalStateException("No active waiver template found for this business"));
 
-            try (PDPageContentStream contentStream = new PDPageContentStream(document, signaturePage)) {
-                float pageHeight = signaturePage.getMediaBox().getHeight();
-                float margin = 50;
-                float yPosition = pageHeight - margin;
+        Optional<UserWaiver> existingWaiver = userWaiverRepository.findByUserIdAndWaiverTemplateId(userId, template.getId());
+        if (existingWaiver.isPresent()) {
+            return existingWaiver.get();
+        }
 
-                // Title
-                PDType1Font helveticaBold = new PDType1Font(FontName.HELVETICA_BOLD);
-                contentStream.beginText();
-                contentStream.setFont(helveticaBold, 16);
-                contentStream.newLineAtOffset(margin, yPosition);
-                contentStream.showText("Waiver Signature Page");
-                contentStream.endText();
-                yPosition -= 30;
+        try {
+            byte[] signatureBytes = fetchImageFromUrl(signatureImageUrl);
+            byte[] templatePdfBytes = firebaseService.downloadFile(template.getFileUrl());
+            byte[] signedPdfBytes = mergeSignatureIntoPdf(templatePdfBytes, user.getFirstName() + " " + user.getLastName(),
+                    signatureBytes, null, signedAt != null ? signedAt : LocalDateTime.now());
 
-                // User name
-                PDType1Font helvetica = new PDType1Font(FontName.HELVETICA);
-                contentStream.beginText();
-                contentStream.setFont(helvetica, 12);
-                contentStream.newLineAtOffset(margin, yPosition);
-                contentStream.showText("Signed by: " + userName);
-                contentStream.endText();
-                yPosition -= 25;
+            String signedPdfUrl = uploadSignedPdf(signedPdfBytes, userId, template.getId());
 
-                // Signature image
-                try {
-                    String base64Data = signatureBase64.contains(",") ? signatureBase64.split(",")[1] : signatureBase64;
-                    byte[] signatureBytes = Base64.getDecoder().decode(base64Data);
-                    PDImageXObject pdImage = PDImageXObject.createFromByteArray(document, signatureBytes, "signature");
-                    
-                    float imageWidth = 200;
-                    float imageHeight = (imageWidth / pdImage.getWidth()) * pdImage.getHeight();
-                    yPosition -= imageHeight + 10;
-                    
-                    contentStream.drawImage(pdImage, margin, yPosition, imageWidth, imageHeight);
-                    yPosition -= imageHeight + 20;
-                } catch (Exception e) {
-                    logger.warn("Failed to embed signature image: {}", e.getMessage());
-                }
+            UserWaiver userWaiver = new UserWaiver();
+            userWaiver.setUser(user);
+            userWaiver.setBusiness(business);
+            userWaiver.setWaiverTemplate(template);
+            userWaiver.setSignedAt(signedAt != null ? signedAt : LocalDateTime.now());
+            userWaiver.setSignatureImageUrl(signatureImageUrl);
+            userWaiver.setFinalPdfUrl(signedPdfUrl);
 
-                // Timestamp
-                String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-                contentStream.beginText();
-                contentStream.setFont(helvetica, 10);
-                contentStream.newLineAtOffset(margin, yPosition);
-                contentStream.showText("Signed on: " + timestamp + " UTC");
-                contentStream.endText();
-                yPosition -= 20;
+            UserWaiver savedWaiver = userWaiverRepository.save(userWaiver);
+            user.setWaiverStatus(WaiverStatus.SIGNED);
+            user.setWaiverSignedDate(signedAt != null ? signedAt : LocalDateTime.now());
+            user.setSignatureData(signatureImageUrl);
+            userRepository.save(user);
 
-                // IP Address (if provided)
-                if (signerIp != null && !signerIp.isEmpty()) {
-                    contentStream.beginText();
-                    contentStream.setFont(helvetica, 10);
-                    contentStream.newLineAtOffset(margin, yPosition);
-                    contentStream.showText("IP Address: " + signerIp);
-                    contentStream.endText();
+            for (com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness ub : user.getUserBusinesses()) {
+                userBusinessService.calculateAndUpdateStatus(ub);
+            }
+            logger.info("Waiver signed from migration for user {} (template version {})", userId, template.getVersion());
+            return savedWaiver;
+        } catch (Exception e) {
+            logger.error("Failed to sign waiver from URL for user {}: {}", userId, e.getMessage(), e);
+            throw new RuntimeException("Failed to sign waiver from migration: " + e.getMessage(), e);
+        }
+    }
+
+    private byte[] fetchImageFromUrl(String url) throws IOException {
+        try (InputStream in = URI.create(url).toURL().openStream()) {
+            return in.readAllBytes();
+        }
+    }
+
+    /**
+     * Fills "Digital Signature" and "Date" on the waiver template.
+     * 1) If template has AcroForm fields, fills those.
+     * 2) Otherwise draws signature + date on the last page (for templates with static labels/underlines).
+     */
+    private void fillWaiverFormFields(PDDocument document, String userName, byte[] signatureImageBytes, LocalDateTime signedAt) {
+        boolean drewInFormField = fillWaiverAcroFormFields(document, userName, signatureImageBytes, signedAt);
+        if (!drewInFormField) {
+            drawSignatureOnLastPage(document, userName, signatureImageBytes, signedAt);
+        }
+    }
+
+    /** Returns true if we drew the signature image (in a form field widget). If false, caller should draw on last page. */
+    private boolean fillWaiverAcroFormFields(PDDocument document, String userName, byte[] signatureImageBytes, LocalDateTime signedAt) {
+        try {
+            PDAcroForm acroForm = document.getDocumentCatalog().getAcroForm();
+            if (acroForm == null || acroForm.getFields() == null || acroForm.getFields().isEmpty()) return false;
+
+            String dateStr = signedAt.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            PDPage signatureWidgetPage = null;
+            PDRectangle signatureRect = null;
+            boolean drewSignatureImage = false;
+
+            for (PDField field : acroForm.getFields()) {
+                String name = (field.getFullyQualifiedName() != null ? field.getFullyQualifiedName() : "").toLowerCase();
+                if (name.contains("date")) {
+                    try {
+                        if (field instanceof PDTextField) {
+                            ((PDTextField) field).setValue(dateStr);
+                            logger.debug("Filled Date form field: {}", field.getFullyQualifiedName());
+                        }
+                    } catch (Exception e) {
+                        logger.warn("Could not fill Date field {}: {}", field.getFullyQualifiedName(), e.getMessage());
+                    }
+                } else if (name.contains("signature") || name.contains("digital")) {
+                    try {
+                        if (field instanceof PDTextField) {
+                            ((PDTextField) field).setValue(userName);
+                            logger.debug("Filled Signature form field with name: {}", field.getFullyQualifiedName());
+                        }
+                        List<PDAnnotationWidget> widgets = field.getWidgets();
+                        if (widgets != null && !widgets.isEmpty() && signatureRect == null) {
+                            PDAnnotationWidget w = widgets.get(0);
+                            if (w.getRectangle() != null) {
+                                signatureRect = w.getRectangle();
+                                signatureWidgetPage = w.getPage();
+                            }
+                        }
+                    } catch (Exception e) {
+                        logger.warn("Could not fill Signature field {}: {}", field.getFullyQualifiedName(), e.getMessage());
+                    }
                 }
             }
+
+            if (signatureWidgetPage != null && signatureRect != null && signatureImageBytes != null && signatureImageBytes.length > 0) {
+                try {
+                    PDImageXObject pdImage = PDImageXObject.createFromByteArray(document, signatureImageBytes, "signature");
+                    float w = signatureRect.getWidth();
+                    float h = Math.min(signatureRect.getHeight(), w * pdImage.getHeight() / pdImage.getWidth());
+                    try (PDPageContentStream cs = new PDPageContentStream(document, signatureWidgetPage, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                        cs.drawImage(pdImage, signatureRect.getLowerLeftX(), signatureRect.getLowerLeftY(), w, h);
+                    }
+                    drewSignatureImage = true;
+                } catch (Exception e) {
+                    logger.warn("Could not draw signature image into form field: {}", e.getMessage());
+                }
+            }
+            return drewSignatureImage;
+        } catch (Exception e) {
+            logger.debug("Waiver template has no AcroForm or error filling fields: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Fallback for templates with static "Digital Signature" and "Date" labels (no form fields).
+     * Draws signature image and date on the last page in a clean, professional layout.
+     */
+    private void drawSignatureOnLastPage(PDDocument document, String userName, byte[] signatureImageBytes, LocalDateTime signedAt) {
+        org.apache.pdfbox.pdmodel.PDPageTree pages = document.getPages();
+        if (pages == null || pages.getCount() == 0) return;
+        PDPage lastPage = pages.get(pages.getCount() - 1);
+        float margin = 72;
+        float sigWidth = 200;
+        float lineSpacing = 8;
+
+        try (PDPageContentStream cs = new PDPageContentStream(document, lastPage, PDPageContentStream.AppendMode.APPEND, true, true)) {
+            PDType1Font helvetica = new PDType1Font(FontName.HELVETICA);
+
+            // Position: waiver signature block (below legal text); PDF origin is bottom-left
+            float yPos = 200;
+
+
+            if (signatureImageBytes != null && signatureImageBytes.length > 0) {
+                try {
+                    PDImageXObject pdImage = PDImageXObject.createFromByteArray(document, signatureImageBytes, "signature");
+                    float h = (sigWidth / pdImage.getWidth()) * pdImage.getHeight();
+                    cs.drawImage(pdImage, margin, yPos, sigWidth, h);
+                    yPos -= h + lineSpacing;
+                } catch (Exception e) {
+                    logger.warn("Could not draw signature on last page: {}", e.getMessage());
+                }
+            }
+
+            // Clean, professional sign-off line: "Signed by: Name on yyyy-MM-dd"
+            String signLine = "Signed by: " + userName + " on " + signedAt.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            cs.beginText();
+            cs.setFont(helvetica, 11);
+            cs.newLineAtOffset(margin, yPos);
+            cs.showText(signLine);
+            cs.endText();
+
+            logger.debug("Drew signature and date on last template page (no form fields)");
+        } catch (Exception e) {
+            logger.warn("Could not draw signature on last page: {}", e.getMessage());
+        }
+    }
+
+    private byte[] mergeSignatureIntoPdf(byte[] templatePdfBytes, String userName, String signatureBase64, String signerIp) throws IOException {
+        String base64Data = signatureBase64.contains(",") ? signatureBase64.split(",")[1] : signatureBase64;
+        byte[] signatureBytes = Base64.getDecoder().decode(base64Data);
+        return mergeSignatureIntoPdf(templatePdfBytes, userName, signatureBytes, signerIp, LocalDateTime.now());
+    }
+
+    private byte[] mergeSignatureIntoPdf(byte[] templatePdfBytes, String userName, byte[] signatureImageBytes, String signerIp, LocalDateTime signedAt) throws IOException {
+        try (PDDocument document = Loader.loadPDF(templatePdfBytes)) {
+            document.setAllSecurityToBeRemoved(true);
+
+            // Fill "Digital Signature" and "Date" on the template (no extra page)
+            fillWaiverFormFields(document, userName, signatureImageBytes, signedAt);
 
             // Save to byte array
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();

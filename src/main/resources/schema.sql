@@ -25,8 +25,6 @@ CREATE TABLE IF NOT EXISTS businesses (
     business_tag VARCHAR(100),
     client_id INTEGER NOT NULL,
     staff_id INTEGER,
-    stripe_account_id VARCHAR(100),
-    onboarding_status VARCHAR(50) DEFAULT 'NOT_STARTED',
     contact_email VARCHAR(255),
     referred_user_discount_months INT DEFAULT 1,
     referred_user_waive_activation_fee BOOLEAN DEFAULT TRUE,
@@ -190,6 +188,7 @@ CREATE TABLE IF NOT EXISTS packages (
     business_id BIGINT NOT NULL,
     business_tag VARCHAR(100) NOT NULL,
     price DECIMAL(10, 2) NOT NULL,
+    processing_fee DECIMAL(10, 2) NULL,
     stripe_product_id VARCHAR(255),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME,
@@ -380,11 +379,11 @@ INSERT INTO clients (id, email, password, created_at, status) VALUES
 ON DUPLICATE KEY UPDATE email = VALUES(email);
 
 -- Insert businesses (without staff_id initially to avoid circular dependency)
-INSERT INTO businesses (id, title, logo_url, status, created_at, business_tag, client_id, staff_id, stripe_account_id, onboarding_status) VALUES
-(1, 'John''s Fitness Club', 'https://example.com/logos/johns_fitness.png', 'ACTIVE', '2025-08-19 12:00:00', 'JFC001', 1, NULL, 'acct_1SAhtKLfLLcJtrGn', 'COMPLETED'),
-(2, 'John''s Yoga Studio', 'https://example.com/logos/yoga_studio.png', 'ACTIVE', '2025-08-19 13:00:00', 'JYS002', 1, NULL, NULL, 'NOT_STARTED'),
-(3, 'Jane''s Gym', 'https://example.com/logos/janes_gym.png', 'INACTIVE', '2025-08-18 10:00:00', 'JG003', 2, NULL, NULL, 'NOT_STARTED'),
-(4, 'Bob''s Weightlifting Center', NULL, 'ACTIVE', '2025-08-17 15:00:00', 'BWC004', 3, NULL, NULL, 'NOT_STARTED')
+INSERT INTO businesses (id, title, logo_url, status, created_at, business_tag, client_id, staff_id) VALUES
+(1, 'John''s Fitness Club', 'https://example.com/logos/johns_fitness.png', 'ACTIVE', '2025-08-19 12:00:00', 'JFC001', 1, NULL),
+(2, 'John''s Yoga Studio', 'https://example.com/logos/yoga_studio.png', 'ACTIVE', '2025-08-19 13:00:00', 'JYS002', 1, NULL),
+(3, 'Jane''s Gym', 'https://example.com/logos/janes_gym.png', 'INACTIVE', '2025-08-18 10:00:00', 'JG003', 2, NULL),
+(4, 'Bob''s Weightlifting Center', NULL, 'ACTIVE', '2025-08-17 15:00:00', 'BWC004', 3, NULL)
 ON DUPLICATE KEY UPDATE business_tag = VALUES(business_tag);
 
 

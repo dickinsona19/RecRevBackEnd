@@ -399,16 +399,9 @@ public class UserBusinessService {
             throw new RuntimeException("No Stripe subscription linked to this membership.");
         }
 
-        // 4. Delete in Stripe
+        // 4. Delete in Stripe (single-tenant: platform account only)
         try {
-            // Get the connected account ID from the business
-            Business business = userBusiness.getBusiness();
-            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-                throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
-            }
-            String stripeAccountId = business.getStripeAccountId();
-
-            stripeService.cancelSubscription(stripeSubscriptionId, stripeAccountId); // Your Stripe wrapper
+            stripeService.cancelSubscription(stripeSubscriptionId, null);
         } catch (StripeException e) {
             // Log the error (use your logger)
             log.error("Failed to cancel Stripe subscription {}: {}", stripeSubscriptionId, e.getMessage());
@@ -477,21 +470,14 @@ public class UserBusinessService {
         // Only create Stripe subscription if signature is provided (membership is being activated)
         // For PENDING memberships, subscription will be created when user signs
         if (shouldActivateNow) {
-            // Check onboarding status and payment method only when activating
-            if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-                throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
-            }
-
-            // Check if user has a payment method
+            // Check if user has a payment method (single-tenant: platform account)
             String stripeCustomerId = userBusiness.getStripeId();
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
                 throw new RuntimeException("User must have a payment method before activating a membership. Please add payment method first.");
             }
 
-            // Verify payment method exists in Stripe
-            String stripeAccountId = business.getStripeAccountId();
             try {
-                boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
+                boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, null);
                 if (!hasPaymentMethod) {
                     throw new RuntimeException("User must have a valid payment method before activating a membership. Please add payment method first.");
                 }
@@ -518,7 +504,7 @@ public class UserBusinessService {
                             100.0, // 100% off
                             "repeating",
                             business.getReferredUserDiscountMonths(),
-                            stripeAccountId
+                            null
                     );
                     // Use the referral promo code if no other promo code was provided
                     if (finalPromoCode == null || finalPromoCode.trim().isEmpty()) {
@@ -535,7 +521,7 @@ public class UserBusinessService {
                 com.stripe.model.Subscription subscription = stripeService.createSubscription(
                         stripeCustomerId,
                         stripePriceId,
-                        stripeAccountId,
+                        null,
                         anchorDate != null ? anchorDate : LocalDateTime.now(),
                         finalPromoCode,
                         actualPrice
@@ -566,7 +552,7 @@ public class UserBusinessService {
                             stripeService.chargeApplicationFee(
                                     stripeCustomerId,
                                     feeToCharge,
-                                    stripeAccountId,
+                                    null,
                                     "Application fee - Membership: " + membership.getTitle()
                             );
                             applicationFeePaid = feeToCharge;
@@ -747,11 +733,8 @@ public class UserBusinessService {
             throw new RuntimeException("Membership does not have a linked Stripe subscription");
         }
 
-        Business business = membership.getUserBusiness().getBusiness();
-        String stripeAccountId = business.getStripeAccountId();
-
         try {
-            stripeService.applyPromoCodeToSubscription(stripeSubscriptionId, promoCode, stripeAccountId);
+            stripeService.applyPromoCodeToSubscription(stripeSubscriptionId, promoCode, null);
             System.out.println("Applied promo code " + promoCode + " to subscription " + stripeSubscriptionId);
         } catch (StripeException e) {
             System.err.println("Failed to apply promo code: " + e.getMessage());
@@ -834,28 +817,18 @@ public class UserBusinessService {
         String stripeSubscriptionId = membership.getStripeSubscriptionId();
         if (stripeSubscriptionId != null && !stripeSubscriptionId.isEmpty()) {
             try {
-                // Get the connected account ID from the business
                 UserBusiness userBusiness = membership.getUserBusiness();
-                Business business = userBusiness.getBusiness();
-                if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-                    throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
-                }
-                String stripeAccountId = business.getStripeAccountId();
-
                 if (cancelAtPeriodEnd) {
-                    // Cancel at period end - get current period end date
-                    LocalDateTime periodEnd = stripeService.cancelSubscriptionAtPeriodEnd(stripeSubscriptionId, stripeAccountId);
+                    LocalDateTime periodEnd = stripeService.cancelSubscriptionAtPeriodEnd(stripeSubscriptionId, null);
                     membership.setStatus("CANCELLING");
                     membership.setEndDate(periodEnd);
                     System.out.println("Scheduled Stripe subscription cancellation: " + stripeSubscriptionId + " at period end: " + periodEnd);
 
-                    // Save and return - DON'T delete from database yet
                     userBusinessRepository.save(userBusiness);
                     return membership;
                 } else {
-                    // Cancel immediately
-                    stripeService.cancelSubscription(stripeSubscriptionId, stripeAccountId);
-                    System.out.println("Cancelled Stripe subscription immediately: " + stripeSubscriptionId + " on account: " + stripeAccountId);
+                    stripeService.cancelSubscription(stripeSubscriptionId, null);
+                    System.out.println("Cancelled Stripe subscription immediately: " + stripeSubscriptionId);
                 }
             } catch (StripeException e) {
                 System.err.println("Failed to cancel Stripe subscription: " + e.getMessage());
@@ -913,24 +886,14 @@ public class UserBusinessService {
         String stripeSubscriptionId = membership.getStripeSubscriptionId();
         if (stripeSubscriptionId != null && !stripeSubscriptionId.isEmpty()) {
             try {
-                // Get the connected account ID from the business
-                UserBusiness userBusiness = membership.getUserBusiness();
-                Business business = userBusiness.getBusiness();
-                if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-                    throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
-                }
-                String stripeAccountId = business.getStripeAccountId();
-
-                // Pass the pause end date to Stripe - it will pause at next billing cycle
-                stripeService.pauseSubscription(stripeSubscriptionId, pauseEnd, stripeAccountId);
-                System.out.println("Scheduled Stripe subscription pause: " + stripeSubscriptionId + " from " + pauseStart + " until " + pauseEnd + " on account: " + stripeAccountId);
+                stripeService.pauseSubscription(stripeSubscriptionId, pauseEnd, null);
+                System.out.println("Scheduled Stripe subscription pause: " + stripeSubscriptionId + " from " + pauseStart + " until " + pauseEnd);
             } catch (StripeException e) {
                 System.err.println("Failed to pause Stripe subscription: " + e.getMessage());
                 throw new RuntimeException("Failed to pause Stripe subscription: " + e.getMessage());
             }
         }
 
-        // Save
         UserBusiness userBusiness = membership.getUserBusiness();
         userBusinessRepository.save(userBusiness);
 
@@ -968,20 +931,11 @@ public class UserBusinessService {
             membership.setAnchorDate(currentAnchor.plusDays(pausedDays));
         }
 
-        // Resume the Stripe subscription if a subscription ID exists
         String stripeSubscriptionId = membership.getStripeSubscriptionId();
         if (stripeSubscriptionId != null && !stripeSubscriptionId.isEmpty()) {
             try {
-                // Get the connected account ID from the business
-                UserBusiness userBusiness = membership.getUserBusiness();
-                Business business = userBusiness.getBusiness();
-                if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-                    throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
-                }
-                String stripeAccountId = business.getStripeAccountId();
-
-                stripeService.resumeSubscription(stripeSubscriptionId, stripeAccountId);
-                System.out.println("Resumed Stripe subscription: " + stripeSubscriptionId + " on account: " + stripeAccountId);
+                stripeService.resumeSubscription(stripeSubscriptionId, null);
+                System.out.println("Resumed Stripe subscription: " + stripeSubscriptionId);
             } catch (StripeException e) {
                 System.err.println("Failed to resume Stripe subscription: " + e.getMessage());
                 throw new RuntimeException("Failed to resume Stripe subscription: " + e.getMessage());
@@ -1121,16 +1075,7 @@ public class UserBusinessService {
         String stripeCustomerId = userBusiness.getStripeId();
         if (stripeCustomerId != null && !stripeCustomerId.isEmpty() && !stripeCustomerId.equals("null")) {
             try {
-                Business business = userBusiness.getBusiness();
-                String stripeAccountId = business != null ? business.getStripeAccountId() : null;
-                
-                // Check if customer actually has a default payment method in Stripe
-                if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
-                    hasCard = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
-                } else {
-                    // Fallback: if no connected account, check on platform account
-                    hasCard = stripeService.hasDefaultPaymentMethod(stripeCustomerId, null);
-                }
+                hasCard = stripeService.hasDefaultPaymentMethod(stripeCustomerId, null);
             } catch (Exception e) {
                 // If check fails, default to false (no card)
                 logger.warn("Failed to check payment method for customer {}: {}", stripeCustomerId, e.getMessage());

@@ -3,7 +3,6 @@ package com.BossLiftingClub.BossLifting.Stripe;
 import com.BossLiftingClub.BossLifting.Analytics.RecentActivity;
 import com.BossLiftingClub.BossLifting.Analytics.RecentActivityRepository;
 import com.BossLiftingClub.BossLifting.Business.Business;
-import com.BossLiftingClub.BossLifting.Business.BusinessDTO;
 import com.BossLiftingClub.BossLifting.Business.BusinessService;
 import com.BossLiftingClub.BossLifting.Email.EmailService;
 import com.BossLiftingClub.BossLifting.Promo.PromoDTO;
@@ -426,14 +425,7 @@ public class StripeController {
                             Customer newCustomer = Customer.retrieve(newCustomerId);
                             String customerName = newCustomer.getName() != null ? newCustomer.getName() : "New Member";
 
-                            Long businessId = 1L; // Default business ID
-                            String stripeAccountId = event.getAccount();
-                            if (stripeAccountId != null) {
-                                Optional<BusinessDTO> businessOpt = businessService.findByStripeAccountId(stripeAccountId);
-                                if (businessOpt.isPresent()) {
-                                    businessId = businessOpt.get().getId();
-                                }
-                            }
+                            Long businessId = 1L; // Single-tenant: one business / platform
 
                             RecentActivity activity = new RecentActivity();
                             activity.setBusinessId(businessId);
@@ -471,14 +463,7 @@ public class StripeController {
                             Customer chargeCustomer = Customer.retrieve(chargeCustomerId);
                             String payerName = chargeCustomer.getName() != null ? chargeCustomer.getName() : "Customer";
 
-                            Long businessId = 1L; // Default
-                            String stripeAccountId = event.getAccount();
-                            if (stripeAccountId != null) {
-                                Optional<BusinessDTO> businessOpt = businessService.findByStripeAccountId(stripeAccountId);
-                                if (businessOpt.isPresent()) {
-                                    businessId = businessOpt.get().getId();
-                                }
-                            }
+                            Long businessId = 1L; // Single-tenant: one business / platform
 
                             RecentActivity activity = new RecentActivity();
                             activity.setBusinessId(businessId);
@@ -506,37 +491,6 @@ public class StripeController {
                 case "customer.subscription.deleted":
                     Subscription deletedSubscription = (Subscription) dataObjectDeserializer.getObject().get();
                     userService.updateUserAfterPayment(deletedSubscription.getCustomer(), false);
-                    break;
-
-                case "account.updated":
-                    Account account = (Account) dataObjectDeserializer.getObject().get();
-                    String accountId = account.getId();
-
-                    // Check if the account has completed onboarding
-                    boolean chargesEnabled = account.getChargesEnabled();
-                    boolean detailsSubmitted = account.getDetailsSubmitted();
-
-                    String onboardingStatus;
-                    if (chargesEnabled && detailsSubmitted) {
-                        onboardingStatus = "COMPLETED";
-                        System.out.println("Stripe account " + accountId + " completed onboarding");
-                    } else if (detailsSubmitted) {
-                        onboardingStatus = "PENDING";
-                        System.out.println("Stripe account " + accountId + " details submitted, pending review");
-                    } else if (account.getRequirements() != null && !account.getRequirements().getCurrentlyDue().isEmpty()) {
-                        onboardingStatus = "RESTRICTED";
-                        System.out.println("Stripe account " + accountId + " has requirements currently due");
-                    } else {
-                        onboardingStatus = "PENDING";
-                        System.out.println("Stripe account " + accountId + " is pending onboarding");
-                    }
-
-                    try {
-                        businessService.updateOnboardingStatus(accountId, onboardingStatus);
-                        System.out.println("Updated business onboarding status for account " + accountId + " to " + onboardingStatus);
-                    } catch (Exception e) {
-                        System.err.println("Failed to update onboarding status for account " + accountId + ": " + e.getMessage());
-                    }
                     break;
 
                 default:
@@ -1035,12 +989,7 @@ public class StripeController {
                 .orElseThrow(() -> new RuntimeException("Primary owner is not a member of business: " + businessTag));
 
             Business business = primaryOwnerUserBusiness.getBusiness();
-            String stripeAccountId = business.getStripeAccountId();
-            
-            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Business does not have Stripe configured"));
-            }
+            String stripeAccountId = null; // Single-tenant: platform account only
 
             String stripeCustomerId = primaryOwnerUserBusiness.getStripeId();
             if (stripeCustomerId == null || stripeCustomerId.isEmpty()) {
@@ -1108,9 +1057,9 @@ public class StripeController {
                     subscription = stripeService.createSubscription(
                         stripeCustomerId,
                         stripePriceId,
-                        stripeAccountId,
+                        null,
                         java.time.LocalDateTime.now(),
-                        null, // no promo code
+                        null,
                         actualPrice
                     );
 
@@ -1138,13 +1087,8 @@ public class StripeController {
                     .orElse(null);
                 if (userBusinessMembership != null && userBusinessMembership.getStripeSubscriptionId() != null) {
                     try {
-                        // Retrieve the existing subscription
-                        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                            .setStripeAccount(stripeAccountId)
-                            .build();
                         subscription = com.stripe.model.Subscription.retrieve(
-                            userBusinessMembership.getStripeSubscriptionId(),
-                            requestOptions
+                            userBusinessMembership.getStripeSubscriptionId()
                         );
                     } catch (Exception e) {
                         logger.warn("Could not retrieve existing subscription: {}", e.getMessage());

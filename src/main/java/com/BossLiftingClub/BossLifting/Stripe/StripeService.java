@@ -146,9 +146,10 @@ public class StripeService {
     }
 
     /**
-     * Charge a one-time application/processing fee to a customer on a connected account.
-     * Uses an InvoiceItem + Invoice (charge automatically) and finalizes the invoice.
+     * Charge a one-time application/processing fee to a customer.
+     * Uses platform account when stripeAccountId is null (single-tenant).
      *
+     * @param stripeAccountId Connected account ID, or null for platform account
      * @return Stripe Invoice ID if created, otherwise null
      */
     public String chargeApplicationFee(String customerId,
@@ -158,9 +159,6 @@ public class StripeService {
         if (customerId == null || customerId.isEmpty()) {
             throw new IllegalArgumentException("Customer ID cannot be null or empty");
         }
-        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-            throw new IllegalArgumentException("Stripe Account ID cannot be null or empty");
-        }
         if (feeAmount == null || feeAmount.compareTo(BigDecimal.ZERO) <= 0) {
             return null;
         }
@@ -168,9 +166,12 @@ public class StripeService {
         BigDecimal normalized = feeAmount.setScale(2, RoundingMode.HALF_UP);
         long amountCents = normalized.movePointRight(2).longValueExact();
 
-        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                .setStripeAccount(stripeAccountId)
-                .build();
+        com.stripe.net.RequestOptions requestOptions = null;
+        if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+            requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+        }
 
         com.stripe.param.InvoiceItemCreateParams.Builder itemBuilder =
                 com.stripe.param.InvoiceItemCreateParams.builder()
@@ -182,7 +183,11 @@ public class StripeService {
             itemBuilder.setDescription(description);
         }
 
-        com.stripe.model.InvoiceItem.create(itemBuilder.build(), requestOptions);
+        if (requestOptions != null) {
+            com.stripe.model.InvoiceItem.create(itemBuilder.build(), requestOptions);
+        } else {
+            com.stripe.model.InvoiceItem.create(itemBuilder.build());
+        }
 
         com.stripe.param.InvoiceCreateParams invoiceParams =
                 com.stripe.param.InvoiceCreateParams.builder()
@@ -190,8 +195,10 @@ public class StripeService {
                         .setCollectionMethod(com.stripe.param.InvoiceCreateParams.CollectionMethod.CHARGE_AUTOMATICALLY)
                         .build();
 
-        com.stripe.model.Invoice invoice = com.stripe.model.Invoice.create(invoiceParams, requestOptions);
-        com.stripe.model.Invoice finalized = invoice.finalizeInvoice(requestOptions);
+        com.stripe.model.Invoice invoice = requestOptions != null
+                ? com.stripe.model.Invoice.create(invoiceParams, requestOptions)
+                : com.stripe.model.Invoice.create(invoiceParams);
+        com.stripe.model.Invoice finalized = requestOptions != null ? invoice.finalizeInvoice(requestOptions) : invoice.finalizeInvoice();
         return finalized.getId();
     }
     public String createCustomer(String email, String fullName, String paymentMethodId) throws StripeException {
@@ -267,13 +274,9 @@ public class StripeService {
     }
 
     /**
-     * Create a Checkout Session for payment method collection on a connected account
-     * @param customerId The Stripe customer ID
-     * @param stripeAccountId The connected account ID
-     * @param successUrl The URL to redirect to after successful setup
-     * @param cancelUrl The URL to redirect to if setup is cancelled
+     * Create a Checkout Session for payment method collection.
+     * @param stripeAccountId Connected account ID, or null for platform account (single-tenant)
      * @return The Checkout Session URL
-     * @throws StripeException if the Stripe API call fails
      */
     public String createPaymentMethodCheckoutSession(
             String customerId,
@@ -284,9 +287,6 @@ public class StripeService {
         if (customerId == null || customerId.isEmpty()) {
             throw new IllegalArgumentException("Customer ID cannot be null or empty");
         }
-        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-            throw new IllegalArgumentException("Stripe Account ID cannot be null or empty");
-        }
 
         SessionCreateParams params = SessionCreateParams.builder()
                 .setCustomer(customerId)
@@ -296,11 +296,15 @@ public class StripeService {
                 .setCancelUrl(cancelUrl)
                 .build();
 
-        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                .setStripeAccount(stripeAccountId)
-                .build();
-
-        Session session = Session.create(params, requestOptions);
+        Session session;
+        if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+            session = Session.create(params, requestOptions);
+        } else {
+            session = Session.create(params);
+        }
         return session.getUrl();
     }
 
@@ -385,26 +389,21 @@ public class StripeService {
     }
 
     /**
-     * Create a Coupon and associated Promotion Code in Stripe
-     * @param code The customer-facing code (e.g. "SUMMER50")
-     * @param discountType "percent" or "amount"
-     * @param discountValue The value (e.g. 50.0 for 50%, or 10.0 for $10)
-     * @param duration "forever", "once", or "repeating"
-     * @param durationInMonths Number of months if duration is "repeating"
-     * @param stripeAccountId The connected account ID
+     * Create a Coupon and associated Promotion Code in Stripe.
+     * @param stripeAccountId Connected account ID, or null for platform account (single-tenant)
      * @return Map containing "couponId" and "promoCodeId"
      */
     public Map<String, String> createPromoCode(String code, String discountType, Double discountValue, String duration, Integer durationInMonths, String stripeAccountId) throws StripeException {
         if (code == null || code.isEmpty()) {
             throw new IllegalArgumentException("Code cannot be empty");
         }
-        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-            throw new IllegalArgumentException("Stripe Account ID cannot be null or empty");
-        }
 
-        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                .setStripeAccount(stripeAccountId)
-                .build();
+        com.stripe.net.RequestOptions requestOptions = null;
+        if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+            requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+        }
 
         // 1. Create Coupon
         CouponCreateParams.Builder couponBuilder = CouponCreateParams.builder()
@@ -428,7 +427,7 @@ public class StripeService {
             couponBuilder.setDuration(CouponCreateParams.Duration.FOREVER);
         }
 
-        Coupon coupon = Coupon.create(couponBuilder.build(), requestOptions);
+        Coupon coupon = requestOptions != null ? Coupon.create(couponBuilder.build(), requestOptions) : Coupon.create(couponBuilder.build());
 
         // 2. Create Promotion Code
         PromotionCodeCreateParams promoBuilder = PromotionCodeCreateParams.builder()
@@ -436,7 +435,7 @@ public class StripeService {
                 .setCode(code)
                 .build();
 
-        PromotionCode promotionCode = PromotionCode.create(promoBuilder, requestOptions);
+        PromotionCode promotionCode = requestOptions != null ? PromotionCode.create(promoBuilder, requestOptions) : PromotionCode.create(promoBuilder);
 
         Map<String, String> result = new HashMap<>();
         result.put("couponId", coupon.getId());
@@ -500,11 +499,8 @@ public class StripeService {
     }
 
     /**
-     * Attach payment method to customer on connected account and set as default
-     * @param customerId The Stripe customer ID
-     * @param paymentMethodId The payment method ID to attach
-     * @param stripeAccountId The connected account ID
-     * @throws StripeException if the Stripe API call fails
+     * Attach payment method to customer and set as default.
+     * When stripeAccountId is null, uses platform account (single-tenant).
      */
     public void attachPaymentMethodOnConnectedAccount(String customerId, String paymentMethodId, String stripeAccountId) throws StripeException {
         if (customerId == null || customerId.isEmpty()) {
@@ -513,8 +509,10 @@ public class StripeService {
         if (paymentMethodId == null || paymentMethodId.isEmpty()) {
             throw new IllegalArgumentException("Payment Method ID cannot be null or empty");
         }
+
         if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-            throw new IllegalArgumentException("Stripe Account ID cannot be null or empty");
+            attachPaymentMethod(customerId, paymentMethodId);
+            return;
         }
 
         // Create request options for connected account
@@ -587,34 +585,27 @@ public class StripeService {
     }
 
     /**
-     * Create a Stripe customer on a connected account
-     * @param email The customer's email address
-     * @param fullName The customer's full name
-     * @param stripeAccountId The connected account ID
-     * @return The created customer ID
-     * @throws StripeException if the Stripe API call fails
+     * Create a Stripe customer. Uses platform account when stripeAccountId is null (single-tenant).
      */
     public String createCustomerOnConnectedAccount(String email, String fullName, String stripeAccountId) throws StripeException {
         if (email == null || email.isEmpty()) {
             throw new IllegalArgumentException("Email cannot be null or empty");
         }
-        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-            throw new IllegalArgumentException("Stripe Account ID cannot be null or empty");
-        }
 
-        // Create customer params
         Map<String, Object> customerParams = new HashMap<>();
         customerParams.put("email", email);
         if (fullName != null && !fullName.isEmpty()) {
             customerParams.put("name", fullName);
         }
 
-        // Create request options for connected account
+        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
+            Customer customer = Customer.create(customerParams);
+            return customer.getId();
+        }
+
         com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
                 .setStripeAccount(stripeAccountId)
                 .build();
-
-        // Create customer on the connected account
         Customer customer = Customer.create(customerParams, requestOptions);
         return customer.getId();
     }
@@ -627,21 +618,25 @@ public class StripeService {
     }
 
     /**
-     * Find a Promotion Code ID by its customer-facing code
+     * Find a Promotion Code ID by its customer-facing code.
+     * Uses platform account when stripeAccountId is null.
      */
     public String findPromotionCodeId(String code, String stripeAccountId) throws StripeException {
         if (code == null || code.isEmpty()) return null;
 
-        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                .setStripeAccount(stripeAccountId)
-                .build();
+        com.stripe.net.RequestOptions requestOptions = null;
+        if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+            requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+        }
 
         Map<String, Object> params = new HashMap<>();
         params.put("code", code);
         params.put("active", true);
         params.put("limit", 1);
 
-        PromotionCodeCollection codes = PromotionCode.list(params, requestOptions);
+        PromotionCodeCollection codes = requestOptions != null ? PromotionCode.list(params, requestOptions) : PromotionCode.list(params);
         if (codes.getData().isEmpty()) {
             // Fallback: Check if the input is a Coupon ID or name
             // Note: Stripe Subscriptions use setCoupon for Coupons or setPromotionCode for Promotion Codes.
@@ -685,9 +680,6 @@ public class StripeService {
         if (stripePriceId == null || stripePriceId.isEmpty()) {
             throw new IllegalArgumentException("Price ID cannot be null or empty");
         }
-        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-            throw new IllegalArgumentException("Stripe Account ID cannot be null or empty");
-        }
 
         // Convert anchorDate to Unix timestamp using system default timezone
         // If anchorDate is in the past or today, use "now" to avoid Stripe errors
@@ -708,7 +700,7 @@ public class StripeService {
                 com.stripe.param.SubscriptionCreateParams.Item.builder();
 
         if (overridePrice != null && overridePrice.compareTo(BigDecimal.ZERO) > 0) {
-            Price priceDetails = retrievePrice(stripePriceId, stripeAccountId);
+            Price priceDetails = retrievePrice(stripePriceId, stripeAccountId); // null account = platform
             if (priceDetails == null || priceDetails.getProduct() == null) {
                 throw new IllegalStateException("Stripe price details required for custom pricing");
             }
@@ -770,18 +762,23 @@ public class StripeService {
             paramsBuilder.setBillingCycleAnchor(billingCycleAnchor);
         }
 
-        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                .setStripeAccount(stripeAccountId)
-                .build();
-
-        return Subscription.create(paramsBuilder.build(), requestOptions);
+        if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+            return Subscription.create(paramsBuilder.build(), requestOptions);
+        }
+        return Subscription.create(paramsBuilder.build());
     }
 
     private Price retrievePrice(String priceId, String stripeAccountId) throws StripeException {
-        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                .setStripeAccount(stripeAccountId)
-                .build();
-        return Price.retrieve(priceId, requestOptions);
+        if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+            return Price.retrieve(priceId, requestOptions);
+        }
+        return Price.retrieve(priceId);
     }
 
     private com.stripe.param.SubscriptionCreateParams.Item.PriceData.Recurring.Interval mapInterval(String interval) {
@@ -802,7 +799,8 @@ public class StripeService {
     }
 
     /**
-     * Apply a promo code to an existing subscription
+     * Apply a promo code to an existing subscription.
+     * Uses platform account when stripeAccountId is null.
      */
     public Subscription applyPromoCodeToSubscription(String subscriptionId, String promoCode, String stripeAccountId) throws StripeException {
         if (subscriptionId == null || subscriptionId.isEmpty()) {
@@ -821,11 +819,13 @@ public class StripeService {
                 .setPromotionCode(promotionCodeId)
                 .build();
 
-        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                .setStripeAccount(stripeAccountId)
-                .build();
-
-        return Subscription.retrieve(subscriptionId, requestOptions).update(updateParams, requestOptions);
+        if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+            return Subscription.retrieve(subscriptionId, requestOptions).update(updateParams, requestOptions);
+        }
+        return Subscription.retrieve(subscriptionId).update(updateParams);
     }
 
     /**
@@ -946,7 +946,7 @@ public class StripeService {
                 Map<String, Object> chargeData = new HashMap<>();
                 chargeData.put("id", charge.getId());
                 chargeData.put("amount", charge.getAmount() / 100.0); // Convert cents to dollars
-                chargeData.put("currency", charge.getCurrency().toUpperCase());
+                chargeData.put("currency", charge.getCurrency() != null ? charge.getCurrency().toUpperCase() : "USD");
                 chargeData.put("status", charge.getStatus());
                 chargeData.put("created", charge.getCreated()); // Unix timestamp
                 chargeData.put("description", charge.getDescription());
@@ -958,7 +958,8 @@ public class StripeService {
                     chargeData.put("amountRefunded", charge.getAmountRefunded() / 100.0); // Convert cents to dollars
 
                     // Determine if it's a full or partial refund
-                    boolean isFullRefund = charge.getAmountRefunded().equals(charge.getAmount());
+                    boolean isFullRefund = charge.getAmountRefunded() != null
+                            && charge.getAmountRefunded().longValue() == charge.getAmount();
                     chargeData.put("refundType", isFullRefund ? "full" : "partial");
 
                     // Get detailed refund information
@@ -1141,7 +1142,7 @@ public class StripeService {
             Map<String, Object> result = new HashMap<>();
             result.put("id", refund.getId());
             result.put("amount", refund.getAmount());
-            result.put("currency", refund.getCurrency());
+            result.put("currency", refund.getCurrency() != null ? String.valueOf(refund.getCurrency()) : "usd");
             result.put("status", refund.getStatus());
             result.put("chargeId", refund.getCharge());
             result.put("created", refund.getCreated());
@@ -1236,7 +1237,7 @@ public class StripeService {
             Map<String, Object> result = new HashMap<>();
             result.put("id", paymentIntent.getId());
             result.put("amount", paymentIntent.getAmount());
-            result.put("currency", paymentIntent.getCurrency());
+            result.put("currency", paymentIntent.getCurrency() != null ? String.valueOf(paymentIntent.getCurrency()) : "usd");
             result.put("status", paymentIntent.getStatus());
             result.put("description", paymentIntent.getDescription());
 
@@ -1267,17 +1268,8 @@ public class StripeService {
     }
 
     /**
-     * Create a Stripe Checkout Session for public membership signup
-     * @param stripePriceId The Stripe Price ID for the membership
-     * @param stripeAccountId The connected account ID
-     * @param successUrl URL to redirect after successful checkout
-     * @param cancelUrl URL to redirect if checkout is cancelled
-     * @param promoCodeId Optional Stripe Promotion Code ID
-     * @param businessTag Business tag for metadata
-     * @param membershipId Membership ID for metadata
-     * @param referredById Optional referrer user ID for metadata
-     * @return The Checkout Session URL
-     * @throws StripeException if the Stripe API call fails
+     * Create a Stripe Checkout Session for public membership signup.
+     * Uses platform account when stripeAccountId is null (single-tenant).
      */
     public String createPublicCheckoutSession(
             String stripePriceId,
@@ -1291,9 +1283,6 @@ public class StripeService {
     ) throws StripeException {
         if (stripePriceId == null || stripePriceId.isEmpty()) {
             throw new IllegalArgumentException("Stripe Price ID cannot be null or empty");
-        }
-        if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-            throw new IllegalArgumentException("Stripe Account ID cannot be null or empty");
         }
 
         SessionCreateParams.Builder paramsBuilder = SessionCreateParams.builder()
@@ -1327,11 +1316,15 @@ public class StripeService {
 
         SessionCreateParams params = paramsBuilder.build();
 
-        com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                .setStripeAccount(stripeAccountId)
-                .build();
-
-        Session session = Session.create(params, requestOptions);
+        Session session;
+        if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+            session = Session.create(params, requestOptions);
+        } else {
+            session = Session.create(params);
+        }
         return session.getUrl();
     }
 

@@ -15,7 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.annotation.Nullable;
+import org.springframework.lang.Nullable;
 import java.io.IOException;
 import java.util.*;
 
@@ -90,22 +90,20 @@ interface PotentialUserRepository extends JpaRepository<PotentialUser, Long> {
 // Service
 @Service
 class PotentialUserService {
-    @Autowired
-    private PotentialUserRepository repository;
+    private final PotentialUserRepository potentialUserRepository;
     @Autowired
     private PromoRepository promoRepository;
-    private final PotentialUserRepository potentialUserRepository;
 
     public PotentialUserService(PotentialUserRepository potentialUserRepository) {
         this.potentialUserRepository = potentialUserRepository;
     }
     public List<PotentialUser> getAllUsers() {
-        return repository.findAll();
+        return potentialUserRepository.findAll();
     }
 
     public PotentialUser addUser(PotentialUser user, String promoCode) {
         // Check if a user with the same email already exists
-        PotentialUser existingUser = repository.findByEmail(user.getEmail());
+        PotentialUser existingUser = potentialUserRepository.findByEmail(user.getEmail());
         if (existingUser != null) {
             return existingUser; // Don't add a new one, return the existing user
         }
@@ -122,11 +120,11 @@ class PotentialUserService {
         }
 
         // Save and return the new user
-        return repository.save(user);
+        return potentialUserRepository.save(user);
     }
 
     public void deleteUser(Long id) {
-        repository.deleteById(id);
+        potentialUserRepository.deleteById(id);
     }
 
     public Optional<PotentialUser> updateWaiverSignature(Long id, String imageUrl) {

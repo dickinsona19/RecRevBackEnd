@@ -166,10 +166,8 @@ public class FailedPaymentRetryService {
             Business business = businessRepository.findById(attempt.getBusinessId())
                     .orElseThrow(() -> new RuntimeException("Business not found: " + attempt.getBusinessId()));
             
-            String stripeAccountId = business.getStripeAccountId();
-            if (stripeAccountId == null || stripeAccountId.isEmpty()) {
-                throw new RuntimeException("Business does not have Stripe account configured");
-            }
+            // Single-tenant: use platform account (null)
+            String stripeAccountId = null;
             
             // Update status to RETRYING
             attempt.setStatus("RETRYING");
@@ -178,26 +176,30 @@ public class FailedPaymentRetryService {
             attemptRepository.save(attempt);
             
             // Attempt to pay the invoice via Stripe API
-            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
-                    .setStripeAccount(stripeAccountId)
-                    .build();
+            com.stripe.net.RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                    ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                    : null;
             
-            Invoice invoice = Invoice.retrieve(attempt.getInvoiceId(), requestOptions);
+            Invoice invoice = requestOptions != null
+                    ? Invoice.retrieve(attempt.getInvoiceId(), requestOptions)
+                    : Invoice.retrieve(attempt.getInvoiceId());
             
             // If invoice is draft, finalize it first
             if ("draft".equals(invoice.getStatus())) {
-                invoice = invoice.finalizeInvoice(requestOptions);
+                invoice = requestOptions != null ? invoice.finalizeInvoice(requestOptions) : invoice.finalizeInvoice();
             }
             
             // Pay the invoice (only if it's open)
             Invoice paidInvoice = invoice;
             if ("open".equals(invoice.getStatus())) {
                 InvoicePayParams params = InvoicePayParams.builder().build();
-                paidInvoice = invoice.pay(params, requestOptions);
+                paidInvoice = requestOptions != null ? invoice.pay(params, requestOptions) : invoice.pay(params);
             }
             
             // Refresh invoice to get latest status
-            paidInvoice = Invoice.retrieve(attempt.getInvoiceId(), requestOptions);
+            paidInvoice = requestOptions != null
+                    ? Invoice.retrieve(attempt.getInvoiceId(), requestOptions)
+                    : Invoice.retrieve(attempt.getInvoiceId());
             
             // Check if payment succeeded
             if ("paid".equals(paidInvoice.getStatus())) {

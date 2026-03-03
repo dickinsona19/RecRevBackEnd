@@ -48,7 +48,9 @@ public class StaffServiceImpl implements StaffService {
         Staff staff = new Staff();
         staff.setEmail(staffDTO.getEmail());
         staff.setPassword(staffDTO.getPassword());
-        staff.setType(staffDTO.getType());
+        String role = staffDTO.getRole() != null ? staffDTO.getRole() : "TEAM_MEMBER";
+        staff.setRole(role);
+        staff.setType(role); // Backward compatibility for type column
         Staff savedStaff = staffRepository.save(staff);
         return mapToDTO(savedStaff);
     }
@@ -73,7 +75,9 @@ public class StaffServiceImpl implements StaffService {
                 .orElseThrow(() -> new RuntimeException("Staff not found"));
         staff.setEmail(staffDTO.getEmail());
         staff.setPassword(staffDTO.getPassword());
-        staff.setType(staffDTO.getType());
+        String role = staffDTO.getRole() != null ? staffDTO.getRole() : staff.getRole();
+        staff.setRole(role);
+        staff.setType(role); // Backward compatibility for type column
         Staff updatedStaff = staffRepository.save(staff);
         return mapToDTO(updatedStaff);
     }
@@ -137,7 +141,6 @@ public class StaffServiceImpl implements StaffService {
         StaffDTO dto = new StaffDTO();
         dto.setEmail(email);
         dto.setRole(role != null ? role : "TEAM_MEMBER");
-        dto.setType(role != null ? role : "TEAM_MEMBER");
         dto.setBusinessId(businessId);
         dto.setIsActive(false);
         dto.setInvitedBy(invitedBy);
@@ -386,9 +389,8 @@ public class StaffServiceImpl implements StaffService {
         dto.setEmail(staff.getEmail());
         dto.setPassword(staff.getPassword());
         dto.setRole(staff.getRole());
-        dto.setType(staff.getType()); // Backward compatibility
         dto.setBusinessId(staff.getBusiness() != null ? staff.getBusiness().getId() : null);
-        dto.setClubId(staff.getClub() != null ? staff.getClub().getId() : null); // Backward compatibility
+        dto.setClubId(staff.getBusiness() != null ? staff.getBusiness().getId() : null); // Backward compatibility
         dto.setInviteToken(staff.getInviteToken());
         dto.setInviteTokenExpiry(staff.getInviteTokenExpiry());
         dto.setIsActive(staff.getIsActive());

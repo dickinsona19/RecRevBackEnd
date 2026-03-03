@@ -2,7 +2,6 @@ package com.BossLiftingClub.BossLifting.Client;
 
 import com.BossLiftingClub.BossLifting.Business.Business;
 import com.BossLiftingClub.BossLifting.Business.BusinessDTO;
-import com.stripe.exception.StripeException;
 import jakarta.persistence.EntityNotFoundException;
 import org.hibernate.Hibernate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,23 +42,6 @@ public class ClientServiceImpl implements ClientService {
 
         // Save client to database
         return clientRepository.save(client);
-    }
-
-    /**
-     * @deprecated Stripe onboarding has been moved to the business/club level.
-     * Use BusinessService.createStripeOnboardingLink() instead.
-     */
-    @Deprecated
-    @Transactional
-    public String createStripeOnboardingLink(Integer clientId, String country, String businessType) throws StripeException {
-        // NOTE: Stripe account ID is now associated with businesses/clubs, not clients
-        // This method is deprecated and always throws UnsupportedOperationException
-        // Use BusinessService.createStripeOnboardingLink(businessTag, returnUrl, refreshUrl) instead
-        throw new UnsupportedOperationException(
-            "Stripe onboarding has been moved to the business/club level. " +
-            "Please use BusinessService.createStripeOnboardingLink() instead. " +
-            "Each business/club should have its own Stripe connected account."
-        );
     }
 
     @Override
@@ -137,10 +119,6 @@ public class ClientServiceImpl implements ClientService {
         List<Business> businesses = client.getBusinesses();
         if (businesses != null) {
             dto.setBusinesses(businesses.stream()
-                    .map(BusinessDTO::mapToBusinessDTO)
-                    .collect(Collectors.toSet()));
-            // Backward compatibility - also set clubs
-            dto.setClubs(businesses.stream()
                     .map(BusinessDTO::mapToBusinessDTO)
                     .collect(Collectors.toSet()));
         }

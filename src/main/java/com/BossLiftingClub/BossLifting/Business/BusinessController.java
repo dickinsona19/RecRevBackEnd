@@ -147,9 +147,11 @@ public class BusinessController {
                         String calculatedStatus = ub.getCalculatedStatus();
                         String calculatedUserType = ub.getCalculatedUserType();
                         
-                        // If not calculated yet, calculate it now (for existing records or if calculation was missed)
-                        // This ensures all records have calculated values, even old ones
-                        if (calculatedStatus == null || calculatedUserType == null) {
+                        // If not calculated yet, or status shows "Waiver Required" but user has signed waiver (stale),
+                        // recalculate now. This fixes migrated members whose status wasn't updated after waiver signing.
+                        boolean waiverSignedButStatusWrong = "Waiver Required".equalsIgnoreCase(calculatedStatus)
+                                && ub.getUser() != null && ub.getUser().getWaiverSignedDate() != null;
+                        if (calculatedStatus == null || calculatedUserType == null || waiverSignedButStatusWrong) {
                             try {
                                 userBusinessService.calculateAndUpdateStatus(ub);
                                 // Reload from database to get updated calculated values
@@ -300,106 +302,9 @@ public class BusinessController {
     }
 
     /**
-     * Check and update Stripe onboarding status for a business
-     * This queries Stripe directly to get the current status
-     * GET /api/businesses/{businessTag}/check-onboarding-status
+     * Single-tenant: Stripe onboarding and per-business dashboard links have been removed.
+     * Stripe is configured at the platform level with one account.
      */
-    @GetMapping("/{businessTag}/check-onboarding-status")
-    public ResponseEntity<?> checkOnboardingStatus(@PathVariable String businessTag) {
-        try {
-            businessService.checkAndUpdateOnboardingStatus(businessTag);
-            
-            // Return updated business data
-            BusinessDTO business = businessService.getBusinessByTag(businessTag);
-            if (business == null) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(Map.of("error", "Business not found with tag: " + businessTag));
-            }
-            
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Onboarding status checked and updated",
-                    "business", business
-            ));
-        } catch (EntityNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", e.getMessage()));
-        } catch (com.stripe.exception.StripeException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to check Stripe status: " + e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to check onboarding status: " + e.getMessage()));
-        }
-    }
-    
-    /**
-     * Create Stripe onboarding link for a business
-     * This initiates or continues the Stripe Express account setup process
-     */
-    @PostMapping("/{businessTag}/stripe-onboarding")
-    public ResponseEntity<?> createStripeOnboardingLink(
-            @PathVariable String businessTag,
-            @RequestBody Map<String, String> request) {
-        try {
-            String returnUrl = request.get("returnUrl");
-            String refreshUrl = request.get("refreshUrl");
-
-            if (returnUrl == null || returnUrl.trim().isEmpty()) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "returnUrl is required"));
-            }
-
-            if (refreshUrl == null || refreshUrl.trim().isEmpty()) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "refreshUrl is required"));
-            }
-
-            String onboardingUrl = businessService.createStripeOnboardingLink(businessTag, returnUrl, refreshUrl);
-
-            return ResponseEntity.ok(Map.of(
-                    "url", onboardingUrl,
-                    "message", "Stripe onboarding link created successfully"
-            ));
-        } catch (EntityNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", e.getMessage()));
-        } catch (StripeException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Stripe error: " + e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to create onboarding link: " + e.getMessage()));
-        }
-    }
-
-    /**
-     * Get Stripe Express Dashboard link for a business
-     * Allows business owners to access their Stripe dashboard to view payments, payouts, etc.
-     */
-    @GetMapping("/{businessTag}/stripe-dashboard-link")
-    public ResponseEntity<?> getStripeDashboardLink(@PathVariable String businessTag) {
-        try {
-            String dashboardUrl = businessService.createStripeDashboardLink(businessTag);
-
-            return ResponseEntity.ok(Map.of(
-                    "url", dashboardUrl,
-                    "message", "Stripe dashboard link created successfully"
-            ));
-        } catch (EntityNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", e.getMessage()));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", e.getMessage()));
-        } catch (StripeException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Stripe error: " + e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to create dashboard link: " + e.getMessage()));
-        }
-    }
 
     @GetMapping("/id/{id}")
     public ResponseEntity<?> getBusinessById(@PathVariable Long id) {

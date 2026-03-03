@@ -231,12 +231,8 @@ public class MembershipController {
                 ));
             }
 
-            // Verify payment method exists
-            Business business = userBusiness.getBusiness();
-            String stripeAccountId = business.getStripeAccountId();
-            
             try {
-                boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, stripeAccountId);
+                boolean hasPaymentMethod = stripeService.hasDefaultPaymentMethod(stripeCustomerId, null);
                 if (!hasPaymentMethod) {
                     // Save the membership with signature but keep it PENDING
                     userBusinessRepository.save(userBusiness);
@@ -255,6 +251,8 @@ public class MembershipController {
                     "status", "PENDING"
                 ));
             }
+
+            Business business = userBusiness.getBusiness();
 
             // Create Stripe subscription
             String stripePriceId = membership.getMembership().getStripePriceId();
@@ -287,11 +285,11 @@ public class MembershipController {
                     com.stripe.model.Subscription subscription = stripeService.createSubscription(
                         stripeCustomerId,
                         stripePriceId,
-                        stripeAccountId,
+                        null,
                         membership.getAnchorDate() != null ? membership.getAnchorDate() : LocalDateTime.now(),
-                        promoCode, // promoCode (optional)
+                        promoCode,
                         actualPrice,
-                        billingInterval // Pass the interval for one-offs
+                        billingInterval
                     );
 
                     // Charge application fee (one-time) if configured and not waived
@@ -334,7 +332,7 @@ public class MembershipController {
 
                         if (!waived && feeToCharge != null && feeToCharge.compareTo(BigDecimal.ZERO) > 0) {
                             try {
-                                stripeService.chargeApplicationFee(stripeCustomerId, feeToCharge, stripeAccountId, feeDescription);
+                                stripeService.chargeApplicationFee(stripeCustomerId, feeToCharge, null, feeDescription);
                                 membership.setProcessingFeePaid(feeToCharge);
                             } catch (StripeException feeEx) {
                                 // Fee failed - don't block subscription activation, but log it
@@ -383,7 +381,7 @@ public class MembershipController {
                                 cancelDate = startDate.plusWeeks(duration); // default to weeks
                             }
                             
-                            stripeService.cancelSubscriptionAtDate(subscription.getId(), cancelDate, stripeAccountId);
+                            stripeService.cancelSubscriptionAtDate(subscription.getId(), cancelDate, null);
                             System.out.println("One-off membership subscription set to cancel at: " + cancelDate + " (duration: " + duration + " periods)");
                         } catch (StripeException cancelException) {
                             // Log but don't fail - subscription is created, just won't auto-cancel
@@ -393,7 +391,7 @@ public class MembershipController {
                             System.err.println("Warning: Failed to parse one-off duration, using default: " + e.getMessage());
                             try {
                                 // Fallback to cancel at period end
-                                stripeService.cancelSubscriptionAtPeriodEnd(subscription.getId(), stripeAccountId);
+                                stripeService.cancelSubscriptionAtPeriodEnd(subscription.getId(), null);
                             } catch (StripeException ex) {
                                 System.err.println("Warning: Failed to set cancel_at_period_end: " + ex.getMessage());
                             }

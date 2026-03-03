@@ -76,21 +76,11 @@ public class MembershipServiceImpl implements MembershipService {
     @Override
     @Transactional
     public Membership createMembershipWithStripe(Membership membership) {
-        // Fetch the Business by businessTag to get the associated Client
-        Business business = businessRepository.findByBusinessTag(membership.getBusinessTag())
+        businessRepository.findByBusinessTag(membership.getBusinessTag())
                 .orElseThrow(() -> new RuntimeException("Business not found for businessTag: " + membership.getBusinessTag()));
 
-        if (!"COMPLETED".equals(business.getOnboardingStatus())) {
-            throw new IllegalStateException("Stripe integration not complete. Please complete Stripe onboarding first.");
-        }
-
-        String stripeAccountId = business.getStripeAccountId();
-        if (stripeAccountId == null) {
-            throw new RuntimeException("Client or Stripe account ID not found for businessTag: " + membership.getBusinessTag());
-        }
-
-        // Create Stripe Product and Price using the business's Stripe account ID
-        String stripePriceId = createStripePriceForMembership(membership, stripeAccountId);
+        // Single-tenant: create product/price on platform account (null = platform)
+        String stripePriceId = createStripePriceForMembership(membership, null);
         membership.setStripePriceId(stripePriceId);
         return membershipRepository.save(membership);
     }
@@ -106,22 +96,20 @@ public class MembershipServiceImpl implements MembershipService {
 
     private String createStripePriceForMembership(Membership membership, String stripeAccountId) {
         try {
-            // Convert price string to cents (e.g., "49.99" -> 4999)
             long unitAmount = (long) (Double.parseDouble(membership.getPrice()) * 100);
 
-            // 1. Create Stripe Product on the client's connected account
             ProductCreateParams productParams = ProductCreateParams.builder()
                     .setName(membership.getTitle())
                     .setDescription("Membership plan for business: " + membership.getBusinessTag())
                     .build();
 
-            RequestOptions requestOptions = RequestOptions.builder()
-                    .setStripeAccount(stripeAccountId)
-                    .build();
+            RequestOptions requestOptions = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                    ? RequestOptions.builder().setStripeAccount(stripeAccountId).build()
+                    : null;
 
-            Product product = Product.create(productParams, requestOptions);
+            Product product = requestOptions != null ? Product.create(productParams, requestOptions) : Product.create(productParams);
 
-            // 2. Create Stripe Price on the client's connected account
+            // 2. Create Stripe Price
             // For punch cards and one-offs, create one-time payment
             // For unlimited, create recurring subscription
             PriceCreateParams.Builder priceParamsBuilder = PriceCreateParams.builder()
@@ -140,13 +128,12 @@ public class MembershipServiceImpl implements MembershipService {
             }
             // For PUNCH_CARD and ONE_OFF, no recurring - it's a one-time payment
 
-            Price price = Price.create(priceParamsBuilder.build(), requestOptions);
+            Price price = requestOptions != null ? Price.create(priceParamsBuilder.build(), requestOptions) : Price.create(priceParamsBuilder.build());
 
-            // 3. Return Stripe Price ID
             return price.getId();
 
         } catch (Exception e) {
-            throw new RuntimeException("Stripe error for account " + stripeAccountId + ": " + e.getMessage(), e);
+            throw new RuntimeException("Stripe error: " + e.getMessage(), e);
         }
     }
 
