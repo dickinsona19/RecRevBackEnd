@@ -1042,12 +1042,31 @@ public class AnalyticsController {
         for (UserBusiness userBusiness : userBusinesses) {
             for (UserBusinessMembership membership : userBusiness.getUserBusinessMemberships()) {
                 if ("ACTIVE".equalsIgnoreCase(membership.getStatus())) {
-                    double price = getLockedPrice(membership);
-                    mrr += price;
+                    double monthlyPrice = getMonthlyRecurringPrice(membership);
+                    mrr += monthlyPrice;
                 }
             }
         }
         return roundTwo(mrr);
+    }
+
+    /**
+     * Normalize membership price to monthly MRR. Handles yearly, semiannual, bi-annual, weekly, bi-weekly.
+     */
+    private double getMonthlyRecurringPrice(UserBusinessMembership membership) {
+        double price = getLockedPrice(membership);
+        Membership mt = membership.getMembership();
+        if (mt == null || mt.getChargeInterval() == null) return price;
+        String interval = mt.getChargeInterval().toLowerCase();
+        return switch (interval) {
+            case "year", "yearly", "annual" -> price / 12.0;
+            case "semiannual", "semi-annual", "semiannually", "bi-annual", "biannual", "6month", "6_month", "half_year" -> price / 6.0;
+            case "quarter", "quarterly", "3month", "3_month" -> price / 3.0;
+            case "week", "weekly" -> price * (52.0 / 12.0);
+            case "bi-weekly", "biweekly", "bi_weekly" -> price * 2.0 * (52.0 / 12.0);
+            case "month", "monthly" -> price;
+            default -> price;
+        };
     }
 
     private Map<String, Object> calculateMemberGrowth(List<UserBusiness> userBusinesses, LocalDateTime start, LocalDateTime end) {
@@ -1172,14 +1191,48 @@ public class AnalyticsController {
         return calculateLifetimeRevenue(stripeAccountId) / totalMembers;
     }
 
-    private Map<String, Object> getFailedPayments(String stripeAccountId, LocalDateTime start, LocalDateTime end) throws Exception {
+    private Map<String, Object> getFailedPayments(String stripeAccountId, LocalDateTime start, LocalDateTime end) {
         Map<String, Object> failed = new HashMap<>();
         int count = 0;
         double amount = 0.0;
 
-        // This is simplified - you'd need to query Stripe for failed charges/invoices
+        try {
+            com.stripe.net.RequestOptions ro = (stripeAccountId != null && !stripeAccountId.isEmpty())
+                    ? com.stripe.net.RequestOptions.builder().setStripeAccount(stripeAccountId).build() : null;
+            long startEpoch = start != null ? start.atZone(ZoneId.systemDefault()).toEpochSecond() : 0L;
+            long endEpoch = end != null ? end.atZone(ZoneId.systemDefault()).toEpochSecond() : Long.MAX_VALUE;
+
+            // Fetch OPEN invoices (payment attempted but failed)
+            InvoiceListParams openParams = InvoiceListParams.builder()
+                    .setStatus(InvoiceListParams.Status.OPEN)
+                    .setLimit(100L)
+                    .build();
+            for (Invoice inv : (ro != null ? Invoice.list(openParams, ro) : Invoice.list(openParams)).autoPagingIterable()) {
+                if (inv.getCreated() >= startEpoch && inv.getCreated() <= endEpoch) {
+                    count++;
+                    amount += (inv.getAmountDue() != null ? inv.getAmountDue() : 0L) / 100.0;
+                }
+            }
+
+            // Fetch UNCOLLECTIBLE invoices
+            InvoiceListParams uncollectibleParams = InvoiceListParams.builder()
+                    .setStatus(InvoiceListParams.Status.UNCOLLECTIBLE)
+                    .setLimit(100L)
+                    .build();
+            for (Invoice inv : (ro != null ? Invoice.list(uncollectibleParams, ro) : Invoice.list(uncollectibleParams)).autoPagingIterable()) {
+                if (inv.getCreated() >= startEpoch && inv.getCreated() <= endEpoch) {
+                    count++;
+                    amount += (inv.getAmountDue() != null ? inv.getAmountDue() : 0L) / 100.0;
+                }
+            }
+
+            logger.debug("Fetched {} failed payments (amount ${}) from Stripe", count, roundTwo(amount));
+        } catch (Exception e) {
+            logger.warn("Error fetching failed payments from Stripe: {}", e.getMessage());
+        }
+
         failed.put("count", count);
-        failed.put("amount", amount);
+        failed.put("amount", roundTwo(amount));
         return failed;
     }
 
@@ -1515,54 +1568,18 @@ public class AnalyticsController {
             Business business = businessRepository.findById(businessId)
                     .orElseThrow(() -> new RuntimeException("Business not found with id: " + businessId));
 
-            List<UserBusiness> userBusinesses = userBusinessRepository.findByBusinessIdWithMemberships(businessId);
-            logger.info("Found {} UserBusiness records for businessId={}", userBusinesses.size(), businessId);
-
             String stripeAccountId = null; // Single-tenant: platform account only
 
-            // Calculate Total Active Members (users with at least one ACTIVE membership)
-            int totalActiveMembers = 0;
-            for (UserBusiness userBusiness : userBusinesses) {
-                boolean hasActiveMembership = false;
-                for (UserBusinessMembership membership : userBusiness.getUserBusinessMemberships()) {
-                    if ("ACTIVE".equalsIgnoreCase(membership.getStatus())) {
-                        hasActiveMembership = true;
-                        break;
-                    }
-                }
-                if (hasActiveMembership) {
-                    totalActiveMembers++;
-                }
-            }
-
-            // Calculate New Members (UserBusiness created in last 30 days)
+            // Use DB aggregation queries - no entity loading, fast single-round-trip counts
+            // Active = has at least one membership with status ACTIVE (not past_due, not canceled)
+            long totalActiveMembers = userBusinessRepository.countActiveMembersByBusinessId(businessId);
             LocalDateTime thirtyDaysAgo = LocalDateTime.now().minusDays(30);
-            int newMembers = 0;
-            for (UserBusiness userBusiness : userBusinesses) {
-                if (userBusiness.getCreatedAt() != null && userBusiness.getCreatedAt().isAfter(thirtyDaysAgo)) {
-                    newMembers++;
-                }
-            }
+            long newMembers = userBusinessRepository.countNewMembersByBusinessIdSince(businessId, thirtyDaysAgo);
+            double mrr = roundTwo(userBusinessRepository.sumMrrByBusinessId(businessId));
 
-            // Calculate MRR from active memberships
-            double mrr = 0.0;
-            for (UserBusiness userBusiness : userBusinesses) {
-                for (UserBusinessMembership membership : userBusiness.getUserBusinessMemberships()) {
-                    if ("ACTIVE".equalsIgnoreCase(membership.getStatus())) {
-                        double price = getLockedPrice(membership);
-                        Membership membershipType = membership.getMembership();
-                        if (membershipType != null) {
-                            String chargeInterval = membershipType.getChargeInterval();
-                            if ("yearly".equalsIgnoreCase(chargeInterval) || "annual".equalsIgnoreCase(chargeInterval)) {
-                                price = price / 12.0;
-                            }
-                        }
-                        mrr += price;
-                    }
-                }
-            }
+            logger.debug("Overview aggregates: activeMembers={}, newMembers={}, mrr={}", totalActiveMembers, newMembers, mrr);
 
-            // Calculate Total Revenue from Stripe - Pull ALL charges from the connected account
+            // Calculate Total Revenue from Stripe (date-filtered, single API call)
             double totalRevenue = 0.0;
 
             try {
@@ -1611,8 +1628,8 @@ public class AnalyticsController {
             ClubOverviewResponse response = new ClubOverviewResponse();
             response.setTotalRevenue(totalRevenue);
             response.setMrr(mrr);
-            response.setTotalActiveMembers(totalActiveMembers);
-            response.setNewMembers(newMembers);
+            response.setTotalActiveMembers((int) totalActiveMembers);
+            response.setNewMembers((int) newMembers);
 
             logger.info("Business overview calculated: totalRevenue={}, mrr={}, activeMembers={}, newMembers={}",
                     totalRevenue, mrr, totalActiveMembers, newMembers);
@@ -2429,6 +2446,71 @@ public class AnalyticsController {
             logger.info("Cleanup completed: deleted {} old activities", deletedCount);
         } catch (Exception e) {
             logger.error("Error during activity cleanup: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Get refunded payments details from Stripe for the selected date range.
+     * GET /api/analytics/refunded-payments-details?businessTag={tag}&startDate={}&endDate={}
+     */
+    @GetMapping("/refunded-payments-details")
+    @Transactional
+    public ResponseEntity<?> getRefundedPaymentsDetails(
+            @RequestParam(required = false) String businessTag,
+            @RequestParam(required = false) String clubTag,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        try {
+            String tag = businessTag != null ? businessTag : clubTag;
+            if (tag == null) {
+                return ResponseEntity.badRequest().body(Map.of("error", "businessTag is required"));
+            }
+            businessRepository.findByBusinessTag(tag)
+                    .orElseThrow(() -> new RuntimeException("Business not found"));
+
+            LocalDateTime start = null;
+            LocalDateTime end = LocalDateTime.now();
+            try {
+                if (startDate != null && !startDate.isEmpty()) {
+                    start = java.time.ZonedDateTime.parse(startDate).toLocalDateTime();
+                }
+                if (endDate != null && !endDate.isEmpty()) {
+                    end = java.time.ZonedDateTime.parse(endDate).toLocalDateTime();
+                }
+            } catch (Exception e) {
+                logger.error("Error parsing dates: {}", e.getMessage());
+                return ResponseEntity.ok(List.of());
+            }
+
+            long startEpoch = start != null ? start.atZone(ZoneId.systemDefault()).toEpochSecond() : 0L;
+            long endEpoch = end.atZone(ZoneId.systemDefault()).toEpochSecond();
+
+            com.stripe.net.RequestOptions ro = null;
+            RefundListParams.Builder paramsBuilder = RefundListParams.builder().setLimit(100L);
+            if (start != null) {
+                paramsBuilder.setCreated(RefundListParams.Created.builder()
+                        .setGte(startEpoch)
+                        .setLte(endEpoch)
+                        .build());
+            }
+
+            List<Map<String, Object>> refunds = new ArrayList<>();
+            for (Refund r : (ro != null ? Refund.list(paramsBuilder.build(), ro) : Refund.list(paramsBuilder.build())).autoPagingIterable()) {
+                if (r.getCreated() < startEpoch || r.getCreated() > endEpoch) continue;
+                Map<String, Object> m = new HashMap<>();
+                m.put("refundId", r.getId());
+                m.put("chargeId", r.getCharge());
+                m.put("amount", r.getAmount() / 100.0);
+                m.put("status", r.getStatus());
+                m.put("createdAt", java.time.Instant.ofEpochSecond(r.getCreated()).atZone(ZoneId.systemDefault()).toString());
+                m.put("reason", r.getReason());
+                refunds.add(m);
+            }
+            return ResponseEntity.ok(refunds);
+        } catch (Exception e) {
+            logger.error("Error fetching refunded payments details: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to fetch refunded payments: " + e.getMessage()));
         }
     }
 

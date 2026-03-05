@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -90,4 +91,38 @@ public interface UserBusinessRepository extends JpaRepository<UserBusiness, Long
            "LEFT JOIN FETCH ub.userBusinessMemberships ubm LEFT JOIN FETCH ubm.membership " +
            "WHERE ub.id = :userBusinessId AND b.businessTag = :businessTag")
     Optional<UserBusiness> findByIdAndBusinessTag(@Param("userBusinessId") Long userBusinessId, @Param("businessTag") String businessTag);
+
+    /**
+     * Count active members: members with at least one membership that is ACTIVE (not past_due, not canceled).
+     * Single fast aggregation query - no entity loading.
+     */
+    @Query(value = "SELECT COUNT(DISTINCT ub.id) FROM user_business ub " +
+            "JOIN user_business_membership ubm ON ubm.user_business_id = ub.id " +
+            "WHERE ub.business_id = :businessId AND LOWER(ubm.status) = 'active'",
+            nativeQuery = true)
+    long countActiveMembersByBusinessId(@Param("businessId") long businessId);
+
+    /**
+     * Count new members (user_business created since cutoff). Single fast count query.
+     */
+    @Query("SELECT COUNT(ub) FROM UserBusiness ub WHERE ub.business.id = :businessId AND ub.createdAt >= :since")
+    long countNewMembersByBusinessIdSince(@Param("businessId") long businessId, @Param("since") LocalDateTime since);
+
+    /**
+     * Compute MRR for a business via aggregation. Active memberships only; normalizes by charge_interval.
+     * Uses actual_price (populated at membership creation). Single query, no entity loading.
+     */
+    @Query(value = "SELECT COALESCE(SUM(CASE " +
+            "WHEN LOWER(m.charge_interval) IN ('year','yearly','annual') THEN COALESCE(ubm.actual_price, 0) / 12.0 " +
+            "WHEN LOWER(m.charge_interval) IN ('semiannual','semi-annual','biannual','6month','6_month','half_year') THEN COALESCE(ubm.actual_price, 0) / 6.0 " +
+            "WHEN LOWER(m.charge_interval) IN ('quarter','quarterly','3month','3_month') THEN COALESCE(ubm.actual_price, 0) / 3.0 " +
+            "WHEN LOWER(m.charge_interval) IN ('week','weekly') THEN COALESCE(ubm.actual_price, 0) * 52.0 / 12.0 " +
+            "WHEN LOWER(m.charge_interval) IN ('bi-weekly','biweekly','bi_weekly') THEN COALESCE(ubm.actual_price, 0) * 2.0 * 52.0 / 12.0 " +
+            "ELSE COALESCE(ubm.actual_price, 0) " +
+            "END), 0) FROM user_business_membership ubm " +
+            "JOIN membership m ON m.id = ubm.membership_id " +
+            "JOIN user_business ub ON ub.id = ubm.user_business_id " +
+            "WHERE ub.business_id = :businessId AND LOWER(ubm.status) = 'active'",
+            nativeQuery = true)
+    double sumMrrByBusinessId(@Param("businessId") long businessId);
 }

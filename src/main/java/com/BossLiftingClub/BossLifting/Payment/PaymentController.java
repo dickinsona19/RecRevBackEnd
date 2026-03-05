@@ -597,6 +597,15 @@ public class PaymentController {
                 System.out.println("✅ Membership " + membership.getId() + " reactivated");
             }
 
+            // Recalculate calculated_status immediately after any subscription update
+            try {
+                com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness userBusiness = membership.getUserBusiness();
+                userBusinessService.calculateAndUpdateStatus(userBusiness);
+                System.out.println("✅ Recalculated user status after subscription.updated");
+            } catch (Exception e) {
+                System.err.println("⚠️  Warning: Failed to recalculate status after subscription.updated: " + e.getMessage());
+            }
+
         } catch (Exception e) {
             System.err.println("❌ Error in handleSubscriptionUpdated: " + e.getMessage());
             e.printStackTrace();
@@ -787,6 +796,14 @@ public class PaymentController {
                 );
                 
                 System.out.println("✅ Created/updated failed payment attempt for invoice: " + invoiceId + ", user: " + user.getId());
+
+                // Recalculate calculated_status immediately so UI shows Delinquent right away
+                try {
+                    userBusinessService.calculateAndUpdateStatus(userBusiness);
+                    System.out.println("✅ Recalculated user status to Delinquent after payment failure");
+                } catch (Exception e) {
+                    System.err.println("⚠️  Warning: Failed to recalculate status after payment failure: " + e.getMessage());
+                }
             } else {
                 System.out.println("⚠️  No membership found for subscription: " + subscriptionId);
             }
@@ -839,6 +856,15 @@ public class PaymentController {
                     System.out.println("✅ Membership " + membership.getId() + " reactivated after successful payment");
                 } else {
                     System.out.println("ℹ️  Subscription status is already: " + membership.getStatus() + " (no change needed)");
+                }
+
+                // Recalculate calculated_status immediately so UI shows Active right away
+                try {
+                    com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness userBusiness = membership.getUserBusiness();
+                    userBusinessService.calculateAndUpdateStatus(userBusiness);
+                    System.out.println("✅ Recalculated user status after payment succeeded");
+                } catch (Exception e) {
+                    System.err.println("⚠️  Warning: Failed to recalculate status after payment succeeded: " + e.getMessage());
                 }
             }
 
