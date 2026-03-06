@@ -98,6 +98,84 @@ public class StripeService {
     }
 
     /**
+     * Retrieve a subscription with details (current_period_start, current_period_end, status)
+     * @return Map with currentPeriodStart, currentPeriodEnd (LocalDateTime), status
+     */
+    public Map<String, Object> retrieveSubscriptionDetails(String subscriptionId, String stripeAccountId) throws StripeException {
+        if (subscriptionId == null || subscriptionId.isEmpty()) {
+            throw new IllegalArgumentException("Subscription ID cannot be null or empty");
+        }
+        com.stripe.net.RequestOptions requestOptions = null;
+        if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+            requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+        }
+        Subscription subscription = requestOptions != null
+                ? Subscription.retrieve(subscriptionId, requestOptions)
+                : Subscription.retrieve(subscriptionId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", subscription.getStatus());
+        if (subscription.getCurrentPeriodStart() != null) {
+            result.put("currentPeriodStart", LocalDateTime.ofEpochSecond(
+                    subscription.getCurrentPeriodStart(), 0, java.time.ZoneOffset.UTC));
+        }
+        if (subscription.getCurrentPeriodEnd() != null) {
+            result.put("currentPeriodEnd", LocalDateTime.ofEpochSecond(
+                    subscription.getCurrentPeriodEnd(), 0, java.time.ZoneOffset.UTC));
+        }
+        return result;
+    }
+
+    /**
+     * Update subscription price in Stripe by creating a custom price and updating the subscription item
+     */
+    public Subscription updateSubscriptionPrice(String subscriptionId, java.math.BigDecimal newPrice,
+            String stripeAccountId) throws StripeException {
+        if (subscriptionId == null || subscriptionId.isEmpty()) {
+            throw new IllegalArgumentException("Subscription ID cannot be null or empty");
+        }
+        if (newPrice == null || newPrice.compareTo(java.math.BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Price must be greater than 0");
+        }
+        com.stripe.net.RequestOptions requestOptions = null;
+        if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+            requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+        }
+        Subscription subscription = requestOptions != null
+                ? Subscription.retrieve(subscriptionId, requestOptions)
+                : Subscription.retrieve(subscriptionId);
+        if (subscription.getItems() == null || subscription.getItems().getData().isEmpty()) {
+            throw new IllegalArgumentException("Subscription has no items");
+        }
+        String subscriptionItemId = subscription.getItems().getData().get(0).getId();
+        com.stripe.param.PriceCreateParams priceParams = com.stripe.param.PriceCreateParams.builder()
+                .setCurrency("usd")
+                .setUnitAmount(newPrice.multiply(java.math.BigDecimal.valueOf(100)).longValue())
+                .setRecurring(com.stripe.param.PriceCreateParams.Recurring.builder()
+                        .setInterval(com.stripe.param.PriceCreateParams.Recurring.Interval.MONTH)
+                        .build())
+                .putMetadata("source", "membership_edit")
+                .build();
+        com.stripe.model.Price price = requestOptions != null
+                ? com.stripe.model.Price.create(priceParams, requestOptions)
+                : com.stripe.model.Price.create(priceParams);
+        SubscriptionUpdateParams params = SubscriptionUpdateParams.builder()
+                .addItem(SubscriptionUpdateParams.Item.builder()
+                        .setId(subscriptionItemId)
+                        .setPrice(price.getId())
+                        .build())
+                .setProrationBehavior(SubscriptionUpdateParams.ProrationBehavior.ALWAYS_INVOICE)
+                .build();
+        if (requestOptions != null) {
+            return subscription.update(params, requestOptions);
+        }
+        return subscription.update(params);
+    }
+
+    /**
      * Cancel a subscription at a specific date (for one-offs with multiple periods)
      * @param subscriptionId The Stripe subscription ID
      * @param cancelAt The date/time when the subscription should be cancelled

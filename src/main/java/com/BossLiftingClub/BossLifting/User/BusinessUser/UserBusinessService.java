@@ -754,35 +754,47 @@ public class UserBusinessService {
             LocalDateTime anchorDate,
             LocalDateTime endDate,
             String stripeSubscriptionId) {
+        return updateUserBusinessMembershipById(userBusinessMembershipId, status, anchorDate, endDate, stripeSubscriptionId, null);
+    }
 
-        // Find the UserBusinessMembership by ID
+    /**
+     * Update a UserBusinessMembership by its ID, optionally updating price in Stripe
+     */
+    @Transactional
+    public UserBusinessMembership updateUserBusinessMembershipById(
+            Long userBusinessMembershipId,
+            String status,
+            LocalDateTime anchorDate,
+            LocalDateTime endDate,
+            String stripeSubscriptionId,
+            BigDecimal actualPrice) {
+
         UserBusinessMembership membership = userBusinessRepository.findAll().stream()
                 .flatMap(uc -> uc.getUserBusinessMemberships().stream())
                 .filter(ucm -> ucm.getId().equals(userBusinessMembershipId))
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("Membership not found with id: " + userBusinessMembershipId));
 
-        // Update fields (only if provided)
-        if (status != null) {
-            membership.setStatus(status.toUpperCase());
-        }
-        if (anchorDate != null) {
-            membership.setAnchorDate(anchorDate);
-        }
-        if (endDate != null) {
-            membership.setEndDate(endDate);
-        }
-        if (stripeSubscriptionId != null) {
-            membership.setStripeSubscriptionId(stripeSubscriptionId);
+        if (status != null) membership.setStatus(status.toUpperCase());
+        if (anchorDate != null) membership.setAnchorDate(anchorDate);
+        if (endDate != null) membership.setEndDate(endDate);
+        if (stripeSubscriptionId != null) membership.setStripeSubscriptionId(stripeSubscriptionId);
+        if (actualPrice != null && actualPrice.compareTo(BigDecimal.ZERO) > 0) {
+            membership.setActualPrice(actualPrice);
+            String stripeSubId = membership.getStripeSubscriptionId();
+            if (stripeSubId != null && !stripeSubId.isEmpty()) {
+                try {
+                    stripeService.updateSubscriptionPrice(stripeSubId, actualPrice, null);
+                } catch (StripeException e) {
+                    logger.error("Failed to update Stripe subscription price: {}", e.getMessage());
+                    throw new RuntimeException("Failed to update price in Stripe: " + e.getMessage());
+                }
+            }
         }
 
-        // Save and return (find the parent UserBusiness to save)
         UserBusiness userBusiness = membership.getUserBusiness();
         userBusinessRepository.save(userBusiness);
-        
-        // Recalculate status and user type after membership status changes
         calculateAndUpdateStatus(userBusiness);
-        
         return membership;
     }
 
@@ -849,6 +861,83 @@ public class UserBusinessService {
         calculateAndUpdateStatus(userBusiness);
 
         return membership;
+    }
+
+    /**
+     * Cancel a membership with various options. Options: immediate, period_end, skip_1, custom
+     * @param customCancelDate Required when cancelOption is "custom"
+     */
+    @Transactional
+    public UserBusinessMembership cancelMembershipWithOptions(Long userBusinessMembershipId, String cancelOption, LocalDateTime customCancelDate) {
+        UserBusinessMembership membership = userBusinessRepository.findAll().stream()
+                .flatMap(uc -> uc.getUserBusinessMemberships().stream())
+                .filter(ucm -> ucm.getId().equals(userBusinessMembershipId))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Membership not found with id: " + userBusinessMembershipId));
+
+        String stripeSubscriptionId = membership.getStripeSubscriptionId();
+        String opt = (cancelOption != null) ? cancelOption.toLowerCase() : "immediate";
+
+        if (stripeSubscriptionId == null || stripeSubscriptionId.isEmpty()) {
+            UserBusiness userBusiness = membership.getUserBusiness();
+            userBusiness.removeMembership(membership);
+            userBusinessRepository.save(userBusiness);
+            calculateAndUpdateStatus(userBusiness);
+            return membership;
+        }
+
+        try {
+            UserBusiness userBusiness = membership.getUserBusiness();
+            switch (opt) {
+                case "immediate":
+                    stripeService.cancelSubscription(stripeSubscriptionId, null);
+                    userBusiness.removeMembership(membership);
+                    userBusinessRepository.save(userBusiness);
+                    calculateAndUpdateStatus(userBusiness);
+                    return membership;
+                case "period_end":
+                    LocalDateTime periodEnd = stripeService.cancelSubscriptionAtPeriodEnd(stripeSubscriptionId, null);
+                    membership.setStatus("CANCELLING");
+                    membership.setEndDate(periodEnd);
+                    userBusinessRepository.save(userBusiness);
+                    return membership;
+                case "skip_1":
+                    java.util.Map<String, Object> details = stripeService.retrieveSubscriptionDetails(stripeSubscriptionId, null);
+                    Object periodStart = details.get("currentPeriodStart");
+                    Object periodEndObj = details.get("currentPeriodEnd");
+                    if (periodStart instanceof LocalDateTime && periodEndObj instanceof LocalDateTime) {
+                        LocalDateTime start = (LocalDateTime) periodStart;
+                        LocalDateTime end = (LocalDateTime) periodEndObj;
+                        long days = java.time.temporal.ChronoUnit.DAYS.between(start, end);
+                        LocalDateTime resumeAt = end.plusDays(days);
+                        stripeService.pauseSubscription(stripeSubscriptionId, resumeAt, null);
+                        membership.setStatus("PAUSED");
+                        membership.setPauseStartDate(end);
+                        membership.setPauseEndDate(resumeAt);
+                        userBusinessRepository.save(userBusiness);
+                        return membership;
+                    }
+                    throw new RuntimeException("Could not determine billing period for skip_1");
+                case "custom":
+                    if (customCancelDate == null) {
+                        throw new IllegalArgumentException("customCancelDate is required for custom cancellation");
+                    }
+                    stripeService.cancelSubscriptionAtDate(stripeSubscriptionId, customCancelDate, null);
+                    membership.setStatus("CANCELLING");
+                    membership.setEndDate(customCancelDate);
+                    userBusinessRepository.save(userBusiness);
+                    return membership;
+                default:
+                    stripeService.cancelSubscription(stripeSubscriptionId, null);
+                    userBusiness.removeMembership(membership);
+                    userBusinessRepository.save(userBusiness);
+                    calculateAndUpdateStatus(userBusiness);
+                    return membership;
+            }
+        } catch (StripeException e) {
+            logger.error("Stripe error during cancellation: {}", e.getMessage());
+            throw new RuntimeException("Failed to cancel subscription: " + e.getMessage());
+        }
     }
 
     /**

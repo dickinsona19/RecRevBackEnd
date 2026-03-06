@@ -18,6 +18,9 @@ public interface SignInLogRepository extends JpaRepository<SignInLog, Long>, Jpa
     @Query("SELECT u FROM User u LEFT JOIN FETCH u.signInLogs WHERE u.id = :id")
     Optional<User> findByIdWithSignInLogs(@Param("id") Long id);
 
+    @Query("SELECT l FROM SignInLog l WHERE l.user.id = :userId AND l.signInTime >= :since ORDER BY l.signInTime DESC")
+    List<SignInLog> findRecentByUserId(@Param("userId") Long userId, @Param("since") LocalDateTime since);
+
     @Query(value = "SELECT sil.id, sil.sign_in_time AS scan_time, sil.user_id, " +
             "(u.first_name || ' ' || u.last_name) AS username " +
             "FROM sign_in_logs sil " +

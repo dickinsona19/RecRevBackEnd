@@ -2,11 +2,15 @@ package com.BossLiftingClub.BossLifting.Business;
 
 import com.BossLiftingClub.BossLifting.Email.EmailService;
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusiness;
+import com.BossLiftingClub.BossLifting.Stripe.StripeService;
+import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessMembership;
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessRepository;
 import com.BossLiftingClub.BossLifting.User.BusinessUser.UserBusinessService;
 import com.BossLiftingClub.BossLifting.User.User;
 import com.BossLiftingClub.BossLifting.User.UserDTO;
 import com.BossLiftingClub.BossLifting.User.UserRepository;
+import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLog;
+import com.BossLiftingClub.BossLifting.User.SignInLog.SignInLogRepository;
 import com.stripe.exception.StripeException;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.Valid;
@@ -19,11 +23,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import com.BossLiftingClub.BossLifting.User.BusinessUser.MemberListProjection;
@@ -46,6 +53,12 @@ public class BusinessController {
 
     @Autowired
     private UserBusinessRepository userBusinessRepository;
+
+    @Autowired
+    private StripeService stripeService;
+
+    @Autowired
+    private SignInLogRepository signInLogRepository;
 
     @PostMapping
     public ResponseEntity<?> createBusiness(@Valid @RequestBody BusinessDTO businessDTO) {
@@ -184,6 +197,72 @@ public class BusinessController {
         }
     }
 
+    /**
+     * Process a QR/barcode scan: look up user by entryQrcodeToken, record scan-in log (5-min cooldown),
+     * and return full member for the selected business. Frontend uses this to set the selected user.
+     */
+    @PostMapping("/{businessTag}/scan-in")
+    @org.springframework.transaction.annotation.Transactional
+    public ResponseEntity<?> processScanIn(@PathVariable String businessTag, @RequestBody Map<String, Object> body) {
+        try {
+            Object tokenObj = body != null ? body.get("qrCodeToken") : null;
+            if (tokenObj == null || tokenObj.toString().trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "qrCodeToken is required"));
+            }
+            String rawInput = tokenObj.toString().trim();
+            String token = extractTokenFromScan(rawInput);
+
+            Optional<User> userOpt = userRepository.findByEntryQrcodeToken(token);
+            if (userOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found for this QR code"));
+            }
+
+            Optional<UserBusiness> ubOpt = userBusinessRepository.findByUserIdAndBusinessTag(userOpt.get().getId(), businessTag);
+            if (ubOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Member not found in this business"));
+            }
+
+            // 5-minute cooldown to prevent double scans
+            LocalDateTime fiveMinutesAgo = LocalDateTime.now().minusMinutes(5);
+            List<SignInLog> recentLogs = signInLogRepository.findRecentByUserId(userOpt.get().getId(), fiveMinutesAgo);
+            if (!recentLogs.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                        "error", "Scan already recorded. Please wait 5 minutes before scanning again.",
+                        "code", "COOLDOWN"
+                ));
+            }
+
+            SignInLog log = new SignInLog();
+            log.setUser(userOpt.get());
+            log.setSignInTime(LocalDateTime.now());
+            signInLogRepository.save(log);
+
+            return ResponseEntity.ok(buildFullMemberMap(ubOpt.get()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Scan failed: " + e.getMessage()));
+        }
+    }
+
+    /** Extract token from scan result - handles plain token or URL containing token */
+    private static String extractTokenFromScan(String raw) {
+        if (raw == null || raw.isEmpty()) return raw;
+        raw = raw.trim();
+        // If it looks like a URL, try to extract token from path (e.g. /entry/TOKEN or ?token=TOKEN)
+        if (raw.contains("/") || raw.contains("?") || raw.startsWith("http")) {
+            Pattern pathToken = Pattern.compile("/([a-zA-Z0-9_-]{6,})/?$");
+            Matcher m = pathToken.matcher(raw);
+            if (m.find()) return m.group(1);
+            int q = raw.indexOf("token=");
+            if (q >= 0) {
+                int start = q + 6;
+                int end = raw.indexOf("&", start);
+                return end > 0 ? raw.substring(start, end).trim() : raw.substring(start).trim();
+            }
+        }
+        return raw;
+    }
+
     private Map<String, Object> buildFullMemberMap(UserBusiness ub) {
         Map<String, Object> member = new HashMap<>();
         UserDTO userDTO = new UserDTO(ub.getUser());
@@ -211,7 +290,20 @@ public class BusinessController {
                     m.put("price", ubm.getMembership().getPrice());
                     m.put("chargeInterval", ubm.getMembership().getChargeInterval());
                     m.put("status", ubm.getStatus());
-                    m.put("anchorDate", ubm.getAnchorDate());
+                    Object anchorDate = ubm.getAnchorDate();
+                    // Enrich with Stripe current_period_start when available (source of truth for billing)
+                    if (ubm.getStripeSubscriptionId() != null && !ubm.getStripeSubscriptionId().isEmpty()) {
+                        try {
+                            Map<String, Object> stripeDetails = stripeService.retrieveSubscriptionDetails(ubm.getStripeSubscriptionId(), null);
+                            Object stripeAnchor = stripeDetails.get("currentPeriodStart");
+                            if (stripeAnchor != null) anchorDate = stripeAnchor;
+                            Object stripeStatus = stripeDetails.get("status");
+                            if (stripeStatus != null) m.put("status", mapStripeStatusToDisplay((String) stripeStatus));
+                        } catch (StripeException e) {
+                            // Fall back to DB anchor/status if Stripe fetch fails
+                        }
+                    }
+                    m.put("anchorDate", anchorDate);
                     m.put("endDate", ubm.getEndDate());
                     m.put("stripeSubscriptionId", ubm.getStripeSubscriptionId());
                     m.put("pauseStartDate", ubm.getPauseStartDate());
@@ -253,6 +345,18 @@ public class BusinessController {
         member.put("hasEverHadMembership", ub.getHasEverHadMembership() != null ? ub.getHasEverHadMembership() : false);
         member.put("isDelinquent", ub.getIsDelinquent() != null ? ub.getIsDelinquent() : false);
         return member;
+    }
+
+    private static String mapStripeStatusToDisplay(String stripeStatus) {
+        if (stripeStatus == null) return "INACTIVE";
+        switch (stripeStatus.toLowerCase()) {
+            case "active": return "ACTIVE";
+            case "paused": return "PAUSED";
+            case "past_due": case "unpaid": return "PAST_DUE";
+            case "canceled": case "cancelled": return "CANCELLED";
+            case "trialing": return "ACTIVE";
+            default: return stripeStatus.toUpperCase();
+        }
     }
 
     /**

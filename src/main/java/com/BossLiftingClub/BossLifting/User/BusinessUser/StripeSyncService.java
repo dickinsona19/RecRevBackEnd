@@ -2,6 +2,7 @@ package com.BossLiftingClub.BossLifting.User.BusinessUser;
 
 import com.BossLiftingClub.BossLifting.Business.Business;
 import com.BossLiftingClub.BossLifting.Business.BusinessRepository;
+import com.BossLiftingClub.BossLifting.Stripe.StripeService;
 import com.BossLiftingClub.BossLifting.User.Membership.Membership;
 import com.BossLiftingClub.BossLifting.User.Membership.MembershipRepository;
 import com.stripe.Stripe;
@@ -42,6 +43,9 @@ public class StripeSyncService {
 
     @Autowired
     private MembershipRepository membershipRepository;
+
+    @Autowired
+    private StripeService stripeService;
 
     @PostConstruct
     public void initStripe() {
@@ -160,6 +164,17 @@ public class StripeSyncService {
                                         membership.getId(), dbStatus, null, null, null);
                                 needsRecalculation = true;
                                 updated++;
+                            }
+                            // Sync anchor date from Stripe current_period_start
+                            try {
+                                java.util.Map<String, Object> details = stripeService.retrieveSubscriptionDetails(stripeSubscriptionId, stripeAccountId);
+                                Object periodStart = details.get("currentPeriodStart");
+                                if (periodStart instanceof LocalDateTime) {
+                                    membership.setAnchorDate((LocalDateTime) periodStart);
+                                    userBusinessRepository.save(userBusiness);
+                                }
+                            } catch (Exception ex) {
+                                logger.debug("Could not sync anchor from Stripe for membership {}: {}", membership.getId(), ex.getMessage());
                             }
                             
                             // Update price if it changed (both actualPrice and membership price if names match)

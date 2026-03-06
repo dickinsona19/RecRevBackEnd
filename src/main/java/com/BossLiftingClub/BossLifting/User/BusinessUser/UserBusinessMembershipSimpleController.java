@@ -118,24 +118,27 @@ public class UserBusinessMembershipSimpleController {
     /**
      * Update an existing membership by its ID
      * PUT /api/user-business-memberships/{id}
+     * Body: { status?, anchorDate?, endDate?, stripeSubscriptionId?, actualPrice? }
      */
     @PutMapping("/{id}")
     public ResponseEntity<?> updateMembership(
             @PathVariable Long id,
             @Valid @RequestBody MembershipUpdateRequest request) {
         try {
-            // Convert anchorDate from string (YYYY-MM-DD) to LocalDateTime
             LocalDateTime anchorDateTime = null;
             if (request.getAnchorDate() != null && !request.getAnchorDate().isEmpty()) {
                 anchorDateTime = java.time.LocalDate.parse(request.getAnchorDate()).atStartOfDay();
             }
+            java.math.BigDecimal actualPrice = request.getActualPrice() != null
+                    ? java.math.BigDecimal.valueOf(request.getActualPrice()) : null;
 
             UserBusinessMembership updated = userBusinessService.updateUserBusinessMembershipById(
                     id,
                     request.getStatus(),
                     anchorDateTime,
                     request.getEndDate(),
-                    request.getStripeSubscriptionId()
+                    request.getStripeSubscriptionId(),
+                    actualPrice
             );
 
             return ResponseEntity.ok(updated);
@@ -171,7 +174,42 @@ public class UserBusinessMembershipSimpleController {
     }
 
     /**
-     * Cancel a membership at the end of the billing period
+     * Cancel a membership with options
+     * POST /api/user-business-memberships/{id}/cancel
+     * Body: { "cancelOption": "immediate"|"period_end"|"skip_1"|"custom", "customCancelDate": "YYYY-MM-DD" (required for custom) }
+     */
+    @PostMapping("/{id}/cancel")
+    public ResponseEntity<?> cancelMembershipWithOptions(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body) {
+        try {
+            String cancelOption = body != null && body.get("cancelOption") != null
+                    ? body.get("cancelOption").toString() : "immediate";
+            java.time.LocalDateTime customCancelDate = null;
+            if (body != null && body.get("customCancelDate") != null) {
+                String dateStr = body.get("customCancelDate").toString();
+                customCancelDate = java.time.LocalDate.parse(dateStr).atStartOfDay();
+            }
+            UserBusinessMembership result = userBusinessService.cancelMembershipWithOptions(id, cancelOption, customCancelDate);
+            java.util.Map<String, Object> resp = new java.util.HashMap<>();
+            resp.put("message", "Cancellation scheduled successfully");
+            resp.put("id", id);
+            if (result.getEndDate() != null) {
+                resp.put("cancelAt", result.getEndDate());
+            }
+            return ResponseEntity.ok(resp);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to cancel membership: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Cancel a membership at the end of the billing period (legacy - use POST /{id}/cancel with cancelOption=period_end)
      * POST /api/user-business-memberships/{id}/cancel-at-period-end
      */
     @PostMapping("/{id}/cancel-at-period-end")
@@ -360,10 +398,11 @@ public class UserBusinessMembershipSimpleController {
 
     public static class MembershipUpdateRequest {
         private String status;
-        private String anchorDate; // Changed to String to accept YYYY-MM-DD format
+        private String anchorDate; // YYYY-MM-DD format
         private LocalDateTime endDate;
         private String stripeSubscriptionId;
         private String promoCode;
+        private Double actualPrice;
 
         // Getters and Setters
         public String getStatus() {
@@ -405,6 +444,9 @@ public class UserBusinessMembershipSimpleController {
         public void setPromoCode(String promoCode) {
             this.promoCode = promoCode;
         }
+
+        public Double getActualPrice() { return actualPrice; }
+        public void setActualPrice(Double actualPrice) { this.actualPrice = actualPrice; }
     }
 
     public static class MembershipPauseRequest {
