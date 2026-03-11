@@ -224,6 +224,28 @@ public class StripeService {
     }
 
     /**
+     * Cancel a subscription so the customer pays one more billing period, then cancels the day before
+     * the next period would start. Cancel date = end of (current period + 1 period).
+     *
+     * @param subscriptionId The Stripe subscription ID
+     * @param stripeAccountId The connected account ID (null for platform account)
+     * @return The LocalDateTime when the subscription will be cancelled (day before period-after-next)
+     */
+    public LocalDateTime cancelSubscriptionOnePeriodFromNow(String subscriptionId, String stripeAccountId) throws StripeException {
+        Map<String, Object> details = retrieveSubscriptionDetails(subscriptionId, stripeAccountId);
+        Object periodStart = details.get("currentPeriodStart");
+        Object periodEnd = details.get("currentPeriodEnd");
+        if (!(periodStart instanceof LocalDateTime) || !(periodEnd instanceof LocalDateTime)) {
+            throw new IllegalArgumentException("Could not determine billing period for subscription " + subscriptionId);
+        }
+        LocalDateTime start = (LocalDateTime) periodStart;
+        LocalDateTime end = (LocalDateTime) periodEnd;
+        long periodSeconds = java.time.Duration.between(start, end).getSeconds();
+        LocalDateTime cancelAt = end.plusSeconds(periodSeconds);
+        return cancelSubscriptionAtDate(subscriptionId, cancelAt, stripeAccountId);
+    }
+
+    /**
      * Charge a one-time application/processing fee to a customer.
      * Uses platform account when stripeAccountId is null (single-tenant).
      *

@@ -97,6 +97,24 @@ public class MemberNotesAndLogsController {
     }
 
     /**
+     * Cancel all memberships for a member. Each subscription cancels the day before the period after
+     * next (customer pays one more billing period). Sends a cancellation email to the member.
+     * POST /api/user-businesses/{userBusinessId}/cancel-all-memberships
+     */
+    @PostMapping("/{userBusinessId}/cancel-all-memberships")
+    public ResponseEntity<?> cancelAllMemberships(@PathVariable Long userBusinessId) {
+        try {
+            java.util.Map<String, Object> result = userBusinessService.cancelAllMembershipsForUser(userBusinessId);
+            return ResponseEntity.ok(result);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to cancel memberships: " + e.getMessage()));
+        }
+    }
+
+    /**
      * Get notes for a member
      * GET /api/user-businesses/{userBusinessId}/notes
      */

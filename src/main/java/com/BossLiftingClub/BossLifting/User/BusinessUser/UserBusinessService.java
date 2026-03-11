@@ -941,6 +941,100 @@ public class UserBusinessService {
     }
 
     /**
+     * Cancel all memberships for a user. Each subscription is set to cancel the day before the
+     * period after next (customer pays one more billing period, then cancels). Sends an email
+     * to the member with the cancellation date(s).
+     *
+     * @param userBusinessId The UserBusiness (user-club) ID
+     * @return Map with cancelledCount and cancelDates (list of {title, cancelDate})
+     */
+    @Transactional
+    public java.util.Map<String, Object> cancelAllMembershipsForUser(Long userBusinessId) {
+        UserBusiness userBusiness = userBusinessRepository.findById(userBusinessId)
+                .orElseThrow(() -> new RuntimeException("UserBusiness not found with id: " + userBusinessId));
+
+        User user = userBusiness.getUser();
+        Business business = userBusiness.getBusiness();
+        java.util.List<java.util.Map<String, String>> cancelDates = new java.util.ArrayList<>();
+        java.util.List<UserBusinessMembership> toRemove = new java.util.ArrayList<>();
+
+        for (UserBusinessMembership m : new java.util.ArrayList<>(userBusiness.getUserBusinessMemberships())) {
+            String status = m.getStatus();
+            if (status == null) continue;
+            String upper = status.toUpperCase();
+            if (!upper.equals("ACTIVE") && !upper.equals("TRIALING") && !upper.equals("PAST_DUE") && !upper.equals("PAUSE_SCHEDULED")) {
+                continue; // Skip already cancelled, paused, etc.
+            }
+
+            String stripeSubId = m.getStripeSubscriptionId();
+            if (stripeSubId != null && !stripeSubId.isEmpty()) {
+                try {
+                    LocalDateTime cancelAt = stripeService.cancelSubscriptionOnePeriodFromNow(stripeSubId, null);
+                    m.setStatus("CANCELLING");
+                    m.setEndDate(cancelAt);
+                    String title = m.getMembership() != null ? m.getMembership().getTitle() : "Membership";
+                    cancelDates.add(java.util.Map.of(
+                            "title", title,
+                            "cancelDate", cancelAt.toLocalDate().toString()
+                    ));
+                    logger.info("Scheduled cancellation for membership {} at {}", m.getId(), cancelAt);
+                } catch (StripeException e) {
+                    logger.error("Failed to cancel subscription {}: {}", stripeSubId, e.getMessage());
+                    throw new RuntimeException("Failed to cancel subscription: " + e.getMessage());
+                }
+            } else {
+                toRemove.add(m);
+                cancelDates.add(java.util.Map.of(
+                        "title", m.getMembership() != null ? m.getMembership().getTitle() : "Membership",
+                        "cancelDate", LocalDateTime.now().toLocalDate().toString()
+                ));
+            }
+        }
+        for (UserBusinessMembership m : toRemove) {
+            userBusiness.removeMembership(m);
+        }
+
+        userBusinessRepository.save(userBusiness);
+        calculateAndUpdateStatus(userBusiness);
+
+        // Send cancellation email
+        if (!cancelDates.isEmpty() && user.getEmail() != null && !user.getEmail().isEmpty()) {
+            String businessName = business.getTitle() != null ? business.getTitle() : "CLT Lifting Club";
+            String contactEmail = business.getContactEmail() != null ? business.getContactEmail() : "contact@cltliftingclub.com";
+            String firstName = user.getFirstName() != null ? user.getFirstName() : "Member";
+
+            StringBuilder items = new StringBuilder();
+            for (java.util.Map<String, String> entry : cancelDates) {
+                items.append("<li>").append(entry.get("title"))
+                        .append(" – cancellation date: ")
+                        .append(entry.get("cancelDate"))
+                        .append("</li>");
+            }
+
+            String subject = "Membership Cancellation - " + businessName;
+            String htmlContent = "<!DOCTYPE html><html><head><style>body{font-family:Arial,sans-serif;color:#333;line-height:1.6;} .container{max-width:600px;margin:0 auto;padding:20px;}</style></head><body><div class=\"container\">" +
+                    "<p>Hi " + firstName + ",</p>" +
+                    "<p>Your membership(s) with " + businessName + " have been scheduled for cancellation. You will be charged one more billing period, and your access will end on the date(s) below:</p>" +
+                    "<ul>" + items + "</ul>" +
+                    "<p>You will retain access until each cancellation date. If you have any questions, please contact us at " + contactEmail + ".</p>" +
+                    "<p>Best,<br>The " + businessName + " Team</p>" +
+                    "</div></body></html>";
+
+            try {
+                emailService.sendBlastEmail(user.getEmail(), subject, htmlContent, businessName, contactEmail, contactEmail);
+                logger.info("Cancellation email sent to {} for {} memberships", user.getEmail(), cancelDates.size());
+            } catch (Exception e) {
+                logger.warn("Failed to send cancellation email to {}: {}", user.getEmail(), e.getMessage());
+            }
+        }
+
+        return java.util.Map.of(
+                "cancelledCount", cancelDates.size(),
+                "cancelDates", cancelDates
+        );
+    }
+
+    /**
      * Pause a membership for a specified duration in weeks
      * The membership will be scheduled to pause at the next billing cycle
      */
