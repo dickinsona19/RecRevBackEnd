@@ -138,19 +138,19 @@ public class PaymentController {
 
             stripeService.attachPaymentMethodOnConnectedAccount(stripeCustomerId, paymentMethodId, null);
 
-            // Update all subscriptions for this customer to use the new payment method (platform account)
+            // Update all subscriptions for this customer to use the new payment method
             try {
                 com.stripe.param.SubscriptionListParams listParams = com.stripe.param.SubscriptionListParams.builder()
                         .setCustomer(stripeCustomerId)
                         .setStatus(com.stripe.param.SubscriptionListParams.Status.ALL)
                         .setLimit(100L)
                         .build();
-
                 com.stripe.model.SubscriptionCollection subscriptions = com.stripe.model.Subscription.list(listParams);
 
                 for (com.stripe.model.Subscription subscription : subscriptions.getData()) {
                     if ("active".equalsIgnoreCase(subscription.getStatus()) || 
-                        "trialing".equalsIgnoreCase(subscription.getStatus())) {
+                        "trialing".equalsIgnoreCase(subscription.getStatus()) ||
+                        "past_due".equalsIgnoreCase(subscription.getStatus())) {
                         com.stripe.param.SubscriptionUpdateParams updateParams = com.stripe.param.SubscriptionUpdateParams.builder()
                                 .setDefaultPaymentMethod(paymentMethodId)
                                 .build();
@@ -159,8 +159,14 @@ public class PaymentController {
                     }
                 }
             } catch (com.stripe.exception.StripeException e) {
-                // Log error but don't fail the payment method update
                 System.err.println("⚠️  Warning: Failed to update subscriptions with new payment method: " + e.getMessage());
+            }
+
+            // Remove all previous cards; keep only the new one as default
+            try {
+                stripeService.detachAllPaymentMethodsExcept(stripeCustomerId, null, paymentMethodId);
+            } catch (com.stripe.exception.StripeException e) {
+                System.err.println("⚠️  Warning: Failed to detach old payment methods: " + e.getMessage());
             }
 
             // Recalculate user status after payment method is added

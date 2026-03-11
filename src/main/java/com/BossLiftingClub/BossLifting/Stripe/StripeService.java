@@ -663,6 +663,51 @@ public class StripeService {
     }
 
     /**
+     * Detach all payment methods from a customer except the one to keep.
+     * Use after attaching a new payment method so only the new card remains.
+     * When stripeAccountId is null, uses platform account.
+     */
+    public void detachAllPaymentMethodsExcept(String customerId, String stripeAccountId, String keepPaymentMethodId) throws StripeException {
+        if (customerId == null || customerId.isEmpty()) return;
+        if (keepPaymentMethodId == null || keepPaymentMethodId.isEmpty()) return;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("customer", customerId);
+        params.put("type", "card");
+        params.put("limit", 100);
+
+        PaymentMethodCollection paymentMethods;
+        if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+            com.stripe.net.RequestOptions requestOptions = com.stripe.net.RequestOptions.builder()
+                    .setStripeAccount(stripeAccountId)
+                    .build();
+            paymentMethods = PaymentMethod.list(params, requestOptions);
+        } else {
+            paymentMethods = PaymentMethod.list(params);
+        }
+
+        if (paymentMethods.getData() == null) return;
+
+        for (PaymentMethod pm : paymentMethods.getData()) {
+            if (pm.getId() != null && !pm.getId().equals(keepPaymentMethodId)) {
+                try {
+                    if (stripeAccountId != null && !stripeAccountId.isEmpty()) {
+                        com.stripe.net.RequestOptions opts = com.stripe.net.RequestOptions.builder()
+                                .setStripeAccount(stripeAccountId)
+                                .build();
+                        pm.detach(opts);
+                    } else {
+                        pm.detach();
+                    }
+                    System.out.println("Detached old payment method " + pm.getId());
+                } catch (StripeException e) {
+                    System.err.println("Warning: Failed to detach payment method " + pm.getId() + ": " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    /**
      * Create a Stripe customer. Uses platform account when stripeAccountId is null (single-tenant).
      */
     public String createCustomerOnConnectedAccount(String email, String fullName, String stripeAccountId) throws StripeException {
