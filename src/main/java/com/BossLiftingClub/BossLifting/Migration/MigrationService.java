@@ -305,8 +305,12 @@ public class MigrationService {
             user.setCreatedAt(LocalDateTime.now());
         }
 
-        // Entry token and referral code - always generate new to ensure uniqueness in target system
-        user.setEntryQrcodeToken(generateUniqueToken(10));
+        // Entry token: transfer from source when present; only generate when missing (so existing QR codes still work)
+        if (input.getEntryQrcodeToken() != null && !input.getEntryQrcodeToken().isBlank()) {
+            user.setEntryQrcodeToken(input.getEntryQrcodeToken().trim());
+        } else {
+            user.setEntryQrcodeToken(generateUniqueToken(10));
+        }
         user.setReferralCode(generateUniqueReferralCode());
 
         // User title
