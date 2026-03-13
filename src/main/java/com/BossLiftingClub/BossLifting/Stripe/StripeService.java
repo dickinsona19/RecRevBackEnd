@@ -124,6 +124,11 @@ public class StripeService {
             result.put("currentPeriodEnd", LocalDateTime.ofEpochSecond(
                     subscription.getCurrentPeriodEnd(), 0, java.time.ZoneOffset.UTC));
         }
+        if (subscription.getCancelAt() != null) {
+            result.put("cancelAt", LocalDateTime.ofEpochSecond(
+                    subscription.getCancelAt(), 0, java.time.ZoneOffset.UTC));
+        }
+        result.put("cancelAtPeriodEnd", Boolean.TRUE.equals(subscription.getCancelAtPeriodEnd()));
         return result;
     }
 

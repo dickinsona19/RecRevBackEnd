@@ -292,6 +292,7 @@ public class BusinessController {
                     m.put("status", ubm.getStatus());
                     Object anchorDate = ubm.getAnchorDate();
                     // Enrich with Stripe current_period_start when available (source of truth for billing)
+                    Object endDate = ubm.getEndDate();
                     if (ubm.getStripeSubscriptionId() != null && !ubm.getStripeSubscriptionId().isEmpty()) {
                         try {
                             Map<String, Object> stripeDetails = stripeService.retrieveSubscriptionDetails(ubm.getStripeSubscriptionId(), null);
@@ -299,12 +300,26 @@ public class BusinessController {
                             if (stripeAnchor != null) anchorDate = stripeAnchor;
                             Object stripeStatus = stripeDetails.get("status");
                             if (stripeStatus != null) m.put("status", mapStripeStatusToDisplay((String) stripeStatus));
+                            Boolean cancelAtPeriodEnd = (Boolean) stripeDetails.get("cancelAtPeriodEnd");
+                            if (Boolean.TRUE.equals(cancelAtPeriodEnd)) {
+                                Object stripeCancelAt = stripeDetails.get("cancelAt");
+                                if (stripeCancelAt != null) {
+                                    endDate = stripeCancelAt;
+                                } else {
+                                    Object periodEnd = stripeDetails.get("currentPeriodEnd");
+                                    if (periodEnd != null) endDate = periodEnd;
+                                }
+                                m.put("status", "CANCELLING");
+                            } else {
+                                Object stripeCancelAt = stripeDetails.get("cancelAt");
+                                if (stripeCancelAt != null) endDate = stripeCancelAt;
+                            }
                         } catch (StripeException e) {
-                            // Fall back to DB anchor/status if Stripe fetch fails
+                            // Fall back to DB values if Stripe fetch fails
                         }
                     }
                     m.put("anchorDate", anchorDate);
-                    m.put("endDate", ubm.getEndDate());
+                    m.put("endDate", endDate);
                     m.put("stripeSubscriptionId", ubm.getStripeSubscriptionId());
                     m.put("pauseStartDate", ubm.getPauseStartDate());
                     m.put("pauseEndDate", ubm.getPauseEndDate());
@@ -398,7 +413,7 @@ public class BusinessController {
                             }
                         }
 
-                        // Map memberships from UserBusinessMembership junction table
+                        // Map memberships from UserBusinessMembership junction table (enrich from Stripe for cancel status/date)
                         List<Map<String, Object>> memberships = ub.getUserBusinessMemberships().stream()
                                 .map(ubm -> {
                                     Map<String, Object> membershipData = new java.util.HashMap<>();
@@ -407,9 +422,27 @@ public class BusinessController {
                                     membershipData.put("title", ubm.getMembership().getTitle());
                                     membershipData.put("price", ubm.getMembership().getPrice());
                                     membershipData.put("chargeInterval", ubm.getMembership().getChargeInterval());
-                                    membershipData.put("status", ubm.getStatus());
+                                    String status = ubm.getStatus();
+                                    Object endDate = ubm.getEndDate();
+                                    if (ubm.getStripeSubscriptionId() != null && !ubm.getStripeSubscriptionId().isEmpty()) {
+                                        try {
+                                            Map<String, Object> stripeDetails = stripeService.retrieveSubscriptionDetails(ubm.getStripeSubscriptionId(), null);
+                                            Object stripeStatus = stripeDetails.get("status");
+                                            if (stripeStatus != null) status = mapStripeStatusToDisplay((String) stripeStatus);
+                                            Boolean cancelAtPeriodEnd = (Boolean) stripeDetails.get("cancelAtPeriodEnd");
+                                            if (Boolean.TRUE.equals(cancelAtPeriodEnd)) {
+                                                Object stripeCancelAt = stripeDetails.get("cancelAt");
+                                                endDate = stripeCancelAt != null ? stripeCancelAt : stripeDetails.get("currentPeriodEnd");
+                                                status = "CANCELLING";
+                                            } else {
+                                                Object stripeCancelAt = stripeDetails.get("cancelAt");
+                                                if (stripeCancelAt != null) endDate = stripeCancelAt;
+                                            }
+                                        } catch (StripeException e) { /* fallback to DB */ }
+                                    }
+                                    membershipData.put("status", status);
                                     membershipData.put("anchorDate", ubm.getAnchorDate());
-                                    membershipData.put("endDate", ubm.getEndDate());
+                                    membershipData.put("endDate", endDate);
                                     membershipData.put("stripeSubscriptionId", ubm.getStripeSubscriptionId());
                                     membershipData.put("pauseStartDate", ubm.getPauseStartDate());
                                     membershipData.put("pauseEndDate", ubm.getPauseEndDate());

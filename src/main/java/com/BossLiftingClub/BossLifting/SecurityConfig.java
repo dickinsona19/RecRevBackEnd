@@ -56,6 +56,9 @@ public class SecurityConfig {
                         // Test token endpoint (for development/testing)
                         .requestMatchers("/api/clients/test-token").permitAll()
                         
+                        // Boss signup sync (server-to-server from Boss-Lifting-Club-API)
+                        .requestMatchers("/api/sync/boss-signup").permitAll()
+                        
                         // Waiver signing flow (accessed via email link - user may not be logged in)
                         .requestMatchers("/api/waivers/sign").permitAll()
                         .requestMatchers("/api/waivers/business/*/template").permitAll()
