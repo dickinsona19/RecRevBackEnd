@@ -58,6 +58,8 @@ public class SecurityConfig {
                         
                         // Boss signup sync (server-to-server from Boss-Lifting-Club-API)
                         .requestMatchers("/api/sync/boss-signup").permitAll()
+                        // Boss delinquent sync (when past_due / invoice.payment_failed)
+                        .requestMatchers("/api/sync/boss-delinquent").permitAll()
                         
                         // Waiver signing flow (accessed via email link - user may not be logged in)
                         .requestMatchers("/api/waivers/sign").permitAll()
