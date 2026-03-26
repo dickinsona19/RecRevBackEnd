@@ -165,11 +165,11 @@ public class UserBusinessService {
     }
 
     /**
-     * Get a specific UserBusiness by ID
+     * Get a specific UserBusiness by ID (user + business eagerly loaded for callers that read associations after return).
      */
     @Transactional(readOnly = true)
     public Optional<UserBusiness> getUserBusinessById(Long userBusinessId) {
-        return userBusinessRepository.findById(userBusinessId);
+        return userBusinessRepository.findByIdWithUserAndBusiness(userBusinessId);
     }
 
     // ===== UserBusinessMembership Management Methods =====

@@ -48,6 +48,13 @@ public interface UserBusinessRepository extends JpaRepository<UserBusiness, Long
     List<UserBusiness> findByStripeId(String stripeId);
 
     /**
+     * Load UserBusiness with user and business initialized (avoids LazyInitializationException after service tx ends).
+     * Used for email endpoints that need recipient + business tag outside the original persistence context.
+     */
+    @Query("SELECT ub FROM UserBusiness ub JOIN FETCH ub.user JOIN FETCH ub.business WHERE ub.id = :id")
+    Optional<UserBusiness> findByIdWithUserAndBusiness(@Param("id") Long id);
+
+    /**
      * Lightweight list for member table - no UserDTO, no referrer, no status recalculation.
      * Uses native query to fetch only needed columns and avoid N+1 / full entity loading.
      * Search filters by first name, last name, or email (case-insensitive).
